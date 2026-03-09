@@ -103,6 +103,7 @@ LIMIT 100;
 
 - 用户已经给出明确表名时，直接执行这条 SQL 模板或等价脚本，不要搜索仓库里的 lineage/血缘代码实现。
 - 如果是 `dwd_order` 这类具体表名，优先直接把表名填入 SQL，再执行 `run_sql.py --database opendataworks --engine mysql`。
+- 只要第一次血缘 SQL 已返回非空结果，就直接总结；即使 `downstream_table` 或 `upstream_table` 有空值，也不要因为补空列再继续追加第二条 SQL。
 - 只有同名表不唯一或用户没给出表名时，才退回 metadata 检索和追问。
 
 ### 某个业务数据库对应的 Doris 只读账号

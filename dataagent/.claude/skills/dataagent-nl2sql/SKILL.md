@@ -91,6 +91,7 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 4. 数据源不清：再用 `resolve_datasource.py`
 5. SQL 明确后：再用 `run_sql.py`
 6. 结果适合图表：再用 `build_chart_spec.py`，并显式传入 `--chart-type bar|line|pie`
+7. 用户明确要独立表格而不是图表时，才用 `build_chart_spec.py --chart-type table`
 7. 需要压缩总结：再用 `format_answer.py`
 
 不要在没明确数据库、指标、维度前直接执行 `run_sql.py`。
@@ -117,6 +118,7 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 条形图：分类对比、TopN、排序展示
 - 折线图：时间趋势
 - 饼图：类别数较少的占比分析
+- 独立表格：只有用户明确要表格卡面时才输出 `chart_type=table`
 - 生成图表时不要把类型判断完全交给脚本猜；对比明确传 `--chart-type bar`，趋势传 `--chart-type line`，占比传 `--chart-type pie`
 
 图表是否生成，由场景和结果结构共同决定；不要为了“看起来丰富”而强行出图。

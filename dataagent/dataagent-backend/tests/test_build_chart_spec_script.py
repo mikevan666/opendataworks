@@ -33,6 +33,7 @@ def test_comparison_defaults_to_bar_when_not_explicitly_pie():
     chart = _run_chart_spec(payload)
 
     assert chart["kind"] == "chart_spec"
+    assert chart["version"] == 1
     assert chart["chart_type"] == "bar"
     assert chart["x_field"] == "layer"
 
@@ -48,6 +49,7 @@ def test_share_can_request_pie_explicitly():
 
     chart = _run_chart_spec(payload, "--chart-type", "pie")
 
+    assert chart["version"] == 1
     assert chart["chart_type"] == "pie"
     assert chart["x_field"] == "engine"
 
@@ -64,6 +66,7 @@ def test_share_with_multiple_numeric_fields_still_builds_pie():
 
     chart = _run_chart_spec(payload, "--chart-type", "pie", "--category-field", "操作类型", "--value-field", "记录数")
 
+    assert chart["version"] == 1
     assert chart["chart_type"] == "pie"
     assert chart["x_field"] == "操作类型"
     assert chart["series"][0]["field"] == "记录数"
@@ -80,8 +83,27 @@ def test_trend_can_request_line_explicitly():
 
     chart = _run_chart_spec(payload, "--chart-type", "line")
 
+    assert chart["version"] == 1
     assert chart["chart_type"] == "line"
     assert chart["x_field"] == "stat_day"
+
+
+def test_table_can_be_requested_explicitly():
+    payload = {
+        "kind": "sql_execution",
+        "columns": ["workflow_id", "status"],
+        "rows": [
+            {"workflow_id": 173, "status": "success"},
+            {"workflow_id": 172, "status": "failed"},
+        ],
+    }
+
+    chart = _run_chart_spec(payload, "--chart-type", "table", "--title", "最近工作流发布记录")
+
+    assert chart["version"] == 1
+    assert chart["chart_type"] == "table"
+    assert chart["columns"] == ["workflow_id", "status"]
+    assert chart["dataset"][0]["workflow_id"] == 173
 
 
 def test_legacy_chart_arguments_are_supported():
@@ -112,5 +134,6 @@ def test_legacy_chart_arguments_are_supported():
 
     chart = json.loads(result.stdout)
 
+    assert chart["version"] == 1
     assert chart["chart_type"] == "pie"
     assert chart["title"] == "各工作流发布操作类型占比"

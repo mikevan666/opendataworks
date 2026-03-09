@@ -76,6 +76,9 @@ def choose_chart(
             return "pie", dimension_fields[0], numeric_fields[:1]
         return None, None, []
 
+    if preferred == "table":
+        return "table", None, []
+
     if time_field and numeric_fields:
         return "line", time_field, numeric_fields[: min(3, len(numeric_fields))]
 
@@ -83,6 +86,28 @@ def choose_chart(
         return "bar", dimension_fields[0], numeric_fields[: min(3, len(numeric_fields))]
 
     return None, None, []
+
+
+def resolve_columns(payload: dict[str, Any], rows: list[dict[str, Any]]) -> list[str]:
+    columns = payload.get("columns")
+    if isinstance(columns, list) and columns:
+        return [str(column) for column in columns if str(column).strip()]
+    first_row = rows[0] if rows else {}
+    if isinstance(first_row, dict):
+        return [str(field) for field in first_row.keys()]
+    return []
+
+
+def base_chart_payload(chart_type: str, title: str, description: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "kind": "chart_spec",
+        "version": 1,
+        "chart_type": chart_type,
+        "title": title,
+        "description": description,
+        "dataset": rows[:20],
+        "error": None,
+    }
 
 
 def main():
@@ -111,45 +136,69 @@ def main():
             if not isinstance(rows, list):
                 raise ValueError("输入中缺少 rows")
 
+        normalized_rows = [dict(row) for row in rows if isinstance(row, dict)]
+        if not normalized_rows:
+            raise ValueError("rows 不能为空")
+
+        preferred_chart_type = str(args.chart_type or "").strip().lower()
         chart_type, x_field, series_fields = choose_chart(
-            rows,
-            preferred_chart_type=str(args.chart_type or "").strip(),
+            normalized_rows,
+            preferred_chart_type=preferred_chart_type,
             category_field=str(args.category_field or "").strip(),
             value_field=str(args.value_field or "").strip(),
         )
+
+        title = str(args.title or "").strip() or payload.get("summary") or "查询结果图表"
+        if chart_type == "table" or preferred_chart_type == "table":
+            columns = resolve_columns(payload, normalized_rows)
+            if not columns:
+                raise ValueError("table 类型必须提供 columns")
+            chart_payload = base_chart_payload(
+                "table",
+                title,
+                str(payload.get("summary") or "结果以表格展示"),
+                normalized_rows,
+            )
+            chart_payload["columns"] = columns
+            print_json(chart_payload)
+            return
+
         if not chart_type or not x_field or not series_fields:
             print_json(
-                {
-                    "kind": "chart_spec",
-                    "chart_type": "",
-                    "title": "",
-                    "description": "结果更适合以表格展示，未生成图表。",
-                    "dataset": [],
-                    "series": [],
-                    "error": None,
-                }
+                error_payload(
+                    "chart_spec",
+                    "结果更适合以表格展示，请直接保留 sql_execution，不要生成 chart_spec。",
+                    version=1,
+                    chart_type="",
+                    title=title,
+                    description="未生成图表。",
+                    dataset=[],
+                    series=[],
+                )
             )
             return
 
-        title = str(args.title or "").strip() or payload.get("summary") or "查询结果图表"
         series = [
             {"name": field, "field": field, "type": chart_type}
             for field in series_fields
         ]
-        print_json(
-            {
-                "kind": "chart_spec",
-                "chart_type": chart_type,
-                "title": title,
-                "description": f"基于 {x_field} 绘制 {chart_type} 图",
-                "x_field": x_field,
-                "series": series,
-                "dataset": rows[:20],
-                "error": None,
-            }
+        chart_payload = base_chart_payload(
+            chart_type,
+            title,
+            f"基于 {x_field} 绘制 {chart_type} 图",
+            normalized_rows,
         )
+        chart_payload["x_field"] = x_field
+        chart_payload["series"] = series
+        if chart_type == "pie":
+            chart_payload["donut"] = False
+        if chart_type == "line":
+            chart_payload["area"] = False
+        if chart_type == "bar":
+            chart_payload["orientation"] = "vertical"
+        print_json(chart_payload)
     except Exception as exc:
-        print_json(error_payload("chart_spec", str(exc), chart_type="", dataset=[], series=[]))
+        print_json(error_payload("chart_spec", str(exc), version=1, chart_type="", dataset=[], series=[]))
 
 
 if __name__ == "__main__":

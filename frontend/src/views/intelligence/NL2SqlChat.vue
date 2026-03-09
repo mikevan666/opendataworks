@@ -96,6 +96,10 @@
                   <span v-if="msg.status === 'streaming'" class="query-cursor">|</span>
                 </div>
 
+                <div v-for="tool in inlineChartTools(msg)" :key="tool.id" class="query-step-row">
+                  <ToolOutputRenderer :tool="tool" />
+                </div>
+
                 <div v-if="msg.citations.length" class="query-citations">
                   <a
                     v-for="(citation, index) in msg.citations"
@@ -178,6 +182,7 @@ import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
+import { extractChartSpecsFromText, parseChartSpec, stripChartSpecsFromText } from './chartSpec'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -315,12 +320,27 @@ const looksProceduralMainText = (text) => {
 }
 
 const displayMainText = (msg) => {
-  const text = cleanMainText(msg)
+  const text = stripChartSpecsFromText(cleanMainText(msg))
   if (!text) return ''
   if (msg?.status === 'streaming' && (visibleTools(msg).length || looksProceduralMainText(text))) {
     return ''
   }
   return text
+}
+
+const hasToolChart = (msg) => visibleTools(msg).some((tool) => {
+  const payload = normalizeToolPayload(tool.output)
+  return Boolean(parseChartSpec(payload))
+})
+
+const inlineChartTools = (msg) => {
+  if (hasToolChart(msg)) return []
+  return extractChartSpecsFromText(cleanMainText(msg)).map((spec, index) => ({
+    id: `inline_chart_${msg.id}_${index}`,
+    name: 'chart_spec',
+    status: 'success',
+    output: spec
+  }))
 }
 
 const escapeHtml = (text) => String(text || '')
@@ -442,11 +462,23 @@ const syncToolsFromBlocks = (msg, blocks) => {
   for (const block of Array.isArray(blocks) ? blocks : []) {
     if (!block || typeof block !== 'object') continue
     const blockType = String(block.type || '')
-    if (!['tool_use', 'tool_result', 'tool'].includes(blockType)) continue
 
     const payload = block.payload && typeof block.payload === 'object' ? block.payload : {}
     const toolId = normalizeToolId(block.tool_id || payload.tool_id || payload.tool_use_id || payload.id)
     const name = String(block.tool_name || payload.tool_name || payload.name || 'Tool')
+    const hasToolEnvelope = Boolean(
+      toolId
+      || String(block.tool_name || '').trim()
+      || String(payload.tool_name || payload.name || '').trim()
+      || Object.prototype.hasOwnProperty.call(block, 'input')
+      || Object.prototype.hasOwnProperty.call(block, 'output')
+      || Object.prototype.hasOwnProperty.call(payload, 'input')
+      || Object.prototype.hasOwnProperty.call(payload, 'output')
+      || Object.prototype.hasOwnProperty.call(payload, 'content')
+    )
+    if (!['tool_use', 'tool_result', 'tool'].includes(blockType) && !hasToolEnvelope) continue
+
+    const normalizedBlockType = ['tool_use', 'tool_result', 'tool'].includes(blockType) ? blockType : 'tool'
     const patch = {
       toolId,
       blockKey: String(block.block_id || ''),
@@ -454,9 +486,9 @@ const syncToolsFromBlocks = (msg, blocks) => {
       status: String(block.status || 'success')
     }
 
-    if (blockType === 'tool_use') {
+    if (normalizedBlockType === 'tool_use') {
       patch.input = 'input' in block ? block.input : payload.input
-    } else if (blockType === 'tool_result') {
+    } else if (normalizedBlockType === 'tool_result') {
       patch.output = 'output' in block ? block.output : (payload.output ?? payload.content)
     } else {
       patch.input = 'input' in block ? block.input : payload.input

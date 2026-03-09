@@ -38,13 +38,34 @@
     </template>
 
     <template v-else-if="kind === 'chart_spec'">
+      <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
+      <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
+
+      <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
+        <table class="tool-table">
+          <thead>
+            <tr>
+              <th v-for="column in chartColumns" :key="column">{{ column }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, rowIndex) in chartRows" :key="rowIndex">
+              <td v-for="column in chartColumns" :key="column">{{ row[column] }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <VChart
-        v-if="chartOption"
+        v-else-if="chartRenderState === 'renderable' && chartOption"
         class="tool-chart"
         :option="chartOption"
         autoresize
       />
-      <div v-else class="tool-output-empty">图表数据为空</div>
+      <div v-else-if="chartRenderState === 'empty'" class="tool-output-empty">图表暂无可渲染数据</div>
+      <div v-else-if="chartRenderState !== 'invalid' && chartRenderState !== 'error'" class="tool-output-empty">图表数据为空</div>
+
+      <pre v-if="showChartRawText" class="tool-code tool-code-light"><code>{{ rawText }}</code></pre>
     </template>
 
     <template v-else-if="kind === 'python_execution'">
@@ -68,6 +89,7 @@ import {
   TooltipComponent
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { buildChartRenderModel, parseChartSpec, parseMaybeJson } from './chartSpec'
 
 use([
   CanvasRenderer,
@@ -86,26 +108,6 @@ const props = defineProps({
     default: () => ({})
   }
 })
-
-const parseMaybeJson = (value) => {
-  if (typeof value !== 'string') return null
-  const raw = value.trim()
-  if (!raw) return null
-  try {
-    return JSON.parse(raw)
-  } catch (_error) {
-    const firstBrace = raw.indexOf('{')
-    const lastBrace = raw.lastIndexOf('}')
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(raw.slice(firstBrace, lastBrace + 1))
-      } catch (_innerError) {
-        return null
-      }
-    }
-    return null
-  }
-}
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
 
@@ -131,18 +133,26 @@ const extractTextParts = (value) => {
 }
 
 const normalizeOutput = (value) => {
+  const normalizedChart = parseChartSpec(value)
+  if (normalizedChart) return normalizedChart
   if (isPlainObject(value) && value.kind) return value
   if (Array.isArray(value)) {
     for (const item of value) {
+      const normalizedItemChart = parseChartSpec(item)
+      if (normalizedItemChart) return normalizedItemChart
       if (isPlainObject(item) && item.kind) return item
       const text = extractTextParts(item)
       const parsed = parseMaybeJson(text)
+      const normalizedParsedChart = parseChartSpec(parsed)
+      if (normalizedParsedChart) return normalizedParsedChart
       if (isPlainObject(parsed) && parsed.kind) return parsed
     }
   }
 
   const text = extractTextParts(value)
   const parsed = parseMaybeJson(text)
+  const normalizedParsedChart = parseChartSpec(parsed)
+  if (normalizedParsedChart) return normalizedParsedChart
   if (isPlainObject(parsed) && parsed.kind) return parsed
   return null
 }
@@ -204,91 +214,19 @@ const statusLabel = computed(() => {
   return '执行完成'
 })
 
-const toNumeric = (value) => {
-  if (typeof value === 'number') return value
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : value
-}
-
+const chartRenderModel = computed(() => (kind.value === 'chart_spec' ? buildChartRenderModel(outputPayload.value) : null))
+const chartRenderState = computed(() => String(chartRenderModel.value?.state || 'empty'))
+const chartRenderKind = computed(() => String(chartRenderModel.value?.kind || ''))
+const chartRenderError = computed(() => String(chartRenderModel.value?.errorText || '').trim())
+const chartColumns = computed(() => Array.isArray(chartRenderModel.value?.columns) ? chartRenderModel.value.columns : [])
+const chartRows = computed(() => Array.isArray(chartRenderModel.value?.rows) ? chartRenderModel.value.rows : [])
 const chartOption = computed(() => {
   if (kind.value !== 'chart_spec') return null
-
-  const spec = outputPayload.value
-  const dataset = Array.isArray(spec.dataset) ? spec.dataset : []
-  if (!dataset.length) return null
-
-  const chartType = String(spec.chart_type || 'line').toLowerCase()
-  const title = String(spec.title || '')
-  const description = String(spec.description || '')
-  const xField = String(spec.x_field || 'name')
-  const seriesSpecs = Array.isArray(spec.series) ? spec.series : []
-
-  if (chartType === 'pie') {
-    const seriesField = String(seriesSpecs[0]?.field || spec.value_field || 'value')
-    return {
-      backgroundColor: 'transparent',
-      title: title ? { text: title, left: 'center', top: 8, textStyle: { fontSize: 14, fontWeight: 600, color: '#162131' } } : undefined,
-      tooltip: { trigger: 'item' },
-      legend: { bottom: 0, textStyle: { color: '#607185' } },
-      series: [
-        {
-          type: 'pie',
-          radius: spec.donut ? ['44%', '70%'] : '68%',
-          center: ['50%', '52%'],
-          label: { color: '#425466' },
-          data: dataset.map((row) => ({
-            name: String(row[xField] ?? row.name ?? ''),
-            value: toNumeric(row[seriesField] ?? row.value ?? 0)
-          }))
-        }
-      ]
-    }
-  }
-
-  const resolvedSeries = seriesSpecs.length
-    ? seriesSpecs
-    : Object.keys(dataset[0] || {})
-      .filter((key) => key !== xField)
-      .slice(0, 3)
-      .map((field) => ({ field, name: field, type: chartType }))
-
-  if (!resolvedSeries.length) return null
-
-  return {
-    backgroundColor: 'transparent',
-    title: title
-      ? {
-          text: title,
-          subtext: description || '',
-          left: 'left',
-          top: 6,
-          textStyle: { fontSize: 14, fontWeight: 600, color: '#162131' },
-          subtextStyle: { color: '#607185', fontSize: 12 }
-        }
-      : undefined,
-    tooltip: { trigger: 'axis' },
-    legend: { top: 8, right: 0, textStyle: { color: '#607185' } },
-    grid: { left: 24, right: 16, top: title ? 68 : 32, bottom: 28, containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: dataset.map((row) => row[xField]),
-      axisLabel: { color: '#607185' },
-      axisLine: { lineStyle: { color: '#d7e4ef' } }
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#607185' },
-      splitLine: { lineStyle: { color: '#eef3f8' } }
-    },
-    series: resolvedSeries.map((series) => ({
-      type: String(series.type || chartType),
-      name: String(series.name || series.field || '指标'),
-      smooth: chartType === 'line',
-      barMaxWidth: chartType === 'bar' ? 34 : undefined,
-      itemStyle: chartType === 'bar' ? { borderRadius: [8, 8, 0, 0] } : undefined,
-      data: dataset.map((row) => toNumeric(row[series.field]))
-    }))
-  }
+  return chartRenderModel.value?.kind === 'echarts' ? chartRenderModel.value.option : null
+})
+const showChartRawText = computed(() => {
+  if (kind.value !== 'chart_spec') return false
+  return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(rawText.value)
 })
 </script>
 
@@ -387,17 +325,21 @@ const chartOption = computed(() => {
   text-align: left;
   font-size: 12px;
   color: #233142;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: top;
 }
 
 .tool-table th {
   background: #f8fbff;
   color: #607185;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .tool-chart {
   margin-top: 14px;
+  min-height: 320px;
   height: 320px;
   width: 100%;
 }

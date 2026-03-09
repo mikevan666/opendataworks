@@ -80,7 +80,8 @@
   - 分类对比 -> `bar`
   - 时间趋势 -> `line`
   - 占比分析 -> `pie`
-  - 其他 -> 只保留表格
+  - 用户明确要独立表格 -> `table`
+  - 其他 -> 只保留 `sql_execution`
 - 默认保底：
   - 不适合图表时不输出图表，直接保留 `sql_execution`
 - 收口规则：
@@ -91,6 +92,7 @@
   - 对比必须显式传 `--chart-type bar`
   - 趋势必须显式传 `--chart-type line`
   - 占比必须显式传 `--chart-type pie`
+  - 只有用户明确要独立表格时才传 `--chart-type table`
 - 命令模板：
   - `$DATAAGENT_PYTHON_BIN scripts/build_chart_spec.py --chart-type bar --input '{"kind":"sql_execution","rows":[...]}'`
   - `$DATAAGENT_PYTHON_BIN scripts/build_chart_spec.py --chart-type line --input-file /tmp/sql_execution.json`
@@ -117,6 +119,7 @@
 
 - 对 `dwd_order`、`workflow_publish_record` 这类已经给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
 - 这类问题的第一动作应是直接执行平台表 SQL，或用 `query_opendataworks_metadata.py --kind lineage` / `run_sql.py` 查询 `data_lineage + data_table`。
+- 如果第一次血缘 SQL 已返回非空结果，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
 - 只有表名不唯一、数据库不清或字段不清时，才允许退回 `inspect_metadata.py` 或追问。
 
 ## 何时必须先追问

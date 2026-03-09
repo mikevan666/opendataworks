@@ -199,6 +199,7 @@ def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
             "最近 30 天工作流发布次数趋势",
             {
                 "kind": "chart_spec",
+                "version": 1,
                 "chart_type": "line",
                 "title": "最近30天工作流发布趋势",
                 "x_field": "stat_day",
@@ -214,6 +215,7 @@ def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
             "各数据层表数量对比",
             {
                 "kind": "chart_spec",
+                "version": 1,
                 "chart_type": "bar",
                 "title": "各数据层表数量对比",
                 "x_field": "layer",
@@ -229,8 +231,10 @@ def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
             "各工作流发布操作类型占比",
             {
                 "kind": "chart_spec",
+                "version": 1,
                 "chart_type": "pie",
                 "title": "各工作流发布操作类型占比",
+                "x_field": "operation",
                 "series": [{"name": "发布次数", "field": "publish_cnt", "type": "pie"}],
                 "dataset": [{"operation": "deploy", "publish_cnt": 33}, {"operation": "online", "publish_cnt": 9}],
                 "error": None,
