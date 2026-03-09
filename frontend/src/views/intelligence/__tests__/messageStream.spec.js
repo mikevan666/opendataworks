@@ -98,6 +98,35 @@ describe('messageStream', () => {
     expect(msg.message_id).toBe('msg-b')
   })
 
+  it('does not merge blocks from different assistant messages in one run', () => {
+    const msg = createAssistantMessageState({ id: 'view-2' })
+
+    processAssistantStreamEvent(msg, { type: 'message_start', message: { id: 'msg-a' } })
+    processAssistantStreamEvent(msg, {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool-skill-1', name: 'Skill' }
+    })
+    processAssistantStreamEvent(msg, { type: 'message_stop' })
+    processAssistantStreamEvent(msg, {
+      type: 'tool.complete',
+      payload: { block_id: 'cb-0', tool_id: 'tool-skill-1', tool_name: 'Skill', output: 'Launching skill' }
+    })
+
+    processAssistantStreamEvent(msg, { type: 'message_start', message: { id: 'msg-b' } })
+    processAssistantStreamEvent(msg, {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool-read-1', name: 'Read' }
+    })
+
+    expect(msg.renderBlocks).toHaveLength(2)
+    expect(msg.renderBlocks[0].tool.name).toBe('Skill')
+    expect(msg.renderBlocks[0].tool.output).toBe('Launching skill')
+    expect(msg.renderBlocks[1].tool.name).toBe('Read')
+    expect(msg.renderBlocks[0].id).not.toBe(msg.renderBlocks[1].id)
+  })
+
   it('does not overwrite streamed text block on done', () => {
     const msg = createAssistantMessageState({ id: 'a3' })
 

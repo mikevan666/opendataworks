@@ -194,7 +194,10 @@ export const createAssistantMessageState = (seed = {}) => ({
   created_at: seed.created_at || new Date().toISOString(),
   renderBlocks: [],
   _renderBlockMap: Object.create(null),
-  _toolBlockIds: Object.create(null)
+  _toolBlockIds: Object.create(null),
+  _streamMessageSeq: 0,
+  _activeMessageKey: 'm0',
+  _rawBlockIds: Object.create(null)
 })
 
 export const hydrateAssistantMessageState = (message) => {
@@ -271,8 +274,33 @@ export const processAssistantStreamEvent = (msg, event) => {
   if (payload.provider_id) msg.provider_id = textOrEmpty(payload.provider_id)
   if (payload.model) msg.model = textOrEmpty(payload.model)
 
+  const ensureActiveMessageKey = () => {
+    if (!textOrEmpty(msg._activeMessageKey)) {
+      msg._activeMessageKey = `m${Number(msg._streamMessageSeq || 0)}`
+    }
+    return msg._activeMessageKey
+  }
+
+  const beginNewStreamMessage = () => {
+    msg._streamMessageSeq = Number(msg._streamMessageSeq || 0) + 1
+    msg._activeMessageKey = `m${msg._streamMessageSeq}`
+  }
+
+  const bindRawBlockId = (rawId, renderId) => {
+    const raw = textOrEmpty(rawId).trim()
+    if (!raw || !renderId) return
+    msg._rawBlockIds[`${ensureActiveMessageKey()}:${raw}`] = renderId
+  }
+
+  const resolveRenderBlockId = (rawId) => {
+    const raw = textOrEmpty(rawId).trim()
+    if (!raw) return ''
+    return msg._rawBlockIds[`${ensureActiveMessageKey()}:${raw}`] || `${ensureActiveMessageKey()}:${raw}`
+  }
+
   if (type === 'message_start') {
     const message = isPlainObject(event.message) ? event.message : (isPlainObject(payload.message) ? payload.message : {})
+    beginNewStreamMessage()
     if (message.id) msg.message_id = textOrEmpty(message.id)
     if (message.model) msg.model = textOrEmpty(message.model)
     msg.status = 'streaming'
@@ -287,7 +315,9 @@ export const processAssistantStreamEvent = (msg, event) => {
     const index = event.index ?? payload.index
     const contentBlock = isPlainObject(event.content_block) ? event.content_block : (isPlainObject(payload.content_block) ? payload.content_block : {})
     const contentType = textOrEmpty(contentBlock.type).trim()
-    const blockId = `cb-${index}`
+    const rawBlockId = `cb-${index}`
+    const blockId = `${ensureActiveMessageKey()}:${rawBlockId}`
+    bindRawBlockId(rawBlockId, blockId)
 
     if (contentType === 'text') {
       const block = ensureTextBlock(msg, blockId, 'main_text')
@@ -335,7 +365,8 @@ export const processAssistantStreamEvent = (msg, event) => {
 
   if (type === 'content_block_delta') {
     const index = event.index ?? payload.index
-    const blockId = `cb-${index}`
+    const rawBlockId = `cb-${index}`
+    const blockId = resolveRenderBlockId(rawBlockId) || `${ensureActiveMessageKey()}:${rawBlockId}`
     const delta = isPlainObject(event.delta) ? event.delta : (isPlainObject(payload.delta) ? payload.delta : {})
     const deltaType = textOrEmpty(delta.type).trim()
 
@@ -372,7 +403,7 @@ export const processAssistantStreamEvent = (msg, event) => {
 
   if (type === 'content_block_stop') {
     const index = event.index ?? payload.index
-    const block = msg._renderBlockMap[`cb-${index}`]
+    const block = msg._renderBlockMap[resolveRenderBlockId(`cb-${index}`)]
     if (!block) return
     if (block.kind === 'tool' && block.tool && block.status !== 'failed') {
       block.status = block.tool.status === 'failed' ? 'failed' : (block.tool.status === 'success' ? 'success' : 'streaming')
@@ -434,7 +465,7 @@ export const processAssistantStreamEvent = (msg, event) => {
   if (type.startsWith('tool.')) {
     ensureToolRenderBlock(msg, {
       toolId: payload.tool_id || payload.block_id,
-      blockKey: payload.block_id,
+      blockKey: resolveRenderBlockId(payload.block_id) || payload.block_id,
       name: payload.tool_name || 'Tool',
       input: Object.prototype.hasOwnProperty.call(payload, 'input') ? payload.input : undefined,
       output: Object.prototype.hasOwnProperty.call(payload, 'output') ? payload.output : undefined,
