@@ -1,6 +1,32 @@
 <template>
-  <div class="tool-output" :class="{ failed: hasError }">
-    <div class="tool-output-head">
+  <div class="tool-output" :class="{ failed: hasError, 'tool-output-shell': showTrace }">
+    <div v-if="showTrace" class="shell-trace">
+      <button type="button" class="shell-trace-summary" @click="shellOpen = !shellOpen">
+        <span class="shell-trace-summary-text">
+          {{ traceSummaryText }}
+        </span>
+        <span class="shell-trace-summary-status" :class="`is-${traceStatusTone}`">
+          {{ statusLabel }}
+        </span>
+        <span class="shell-trace-summary-chevron" :class="{ open: shellOpen }">⌄</span>
+      </button>
+
+      <div v-if="shellOpen" class="shell-trace-panel">
+        <div class="shell-trace-panel-title">{{ traceTitle }}</div>
+        <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
+        <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
+          {{ traceDescription }}
+        </div>
+        <pre v-if="traceOutputText" class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
+        <div v-else class="shell-trace-empty">无输出</div>
+        <div class="shell-trace-footer">
+          <span class="shell-trace-footer-label">状态</span>
+          <span class="shell-trace-footer-value" :class="`is-${traceStatusTone}`">{{ statusLabel }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showMainHeader" class="tool-output-head">
       <div>
         <div class="tool-output-label">{{ displayLabel }}</div>
         <div class="tool-output-meta">
@@ -13,9 +39,9 @@
       <div v-if="scriptName" class="tool-output-chip">{{ scriptName }}</div>
     </div>
 
-    <div v-if="summaryText" class="tool-output-summary">{{ summaryText }}</div>
+    <div v-if="summaryText && showMainHeader" class="tool-output-summary">{{ summaryText }}</div>
 
-    <div v-if="errorText" class="tool-output-error">{{ errorText }}</div>
+    <div v-if="errorText && showMainHeader" class="tool-output-error">{{ errorText }}</div>
 
     <template v-if="kind === 'sql_execution'">
       <pre v-if="sqlText" class="tool-code"><code>{{ sqlText }}</code></pre>
@@ -56,11 +82,10 @@
         </table>
       </div>
 
-      <VChart
+      <div
         v-else-if="chartRenderState === 'renderable' && chartOption"
+        ref="chartCanvasRef"
         class="tool-chart"
-        :option="chartOption"
-        autoresize
       />
       <div v-else-if="chartRenderState === 'empty'" class="tool-output-empty">图表暂无可渲染数据</div>
       <div v-else-if="chartRenderState !== 'invalid' && chartRenderState !== 'error'" class="tool-output-empty">图表数据为空</div>
@@ -78,8 +103,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import VChart from 'vue-echarts'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import {
@@ -108,6 +133,10 @@ const props = defineProps({
     default: () => ({})
   }
 })
+
+const chartCanvasRef = ref(null)
+const shellOpen = ref(false)
+const nowTick = ref(Date.now())
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
 
@@ -170,6 +199,7 @@ const prettyPrint = (value) => {
 const outputPayload = computed(() => normalizeOutput(props.tool?.output) || {})
 const kind = computed(() => String(outputPayload.value.kind || 'raw'))
 const toolName = computed(() => String(props.tool?.name || '').trim())
+const toolNameLower = computed(() => toolName.value.toLowerCase())
 const scriptName = computed(() => String(outputPayload.value.script || '').trim())
 const summaryText = computed(() => String(outputPayload.value.summary || outputPayload.value.description || '').trim())
 const sqlText = computed(() => String(outputPayload.value.sql || '').trim())
@@ -206,8 +236,118 @@ const displayLabel = computed(() => {
   return toolName.value || '工具输出'
 })
 
+const parsedInput = computed(() => {
+  const input = props.tool?.input
+  if (isPlainObject(input)) return input
+  if (typeof input === 'string') {
+    const parsed = parseMaybeJson(input)
+    if (isPlainObject(parsed)) return parsed
+    const text = input.trim()
+    return text ? { command: text } : {}
+  }
+  return {}
+})
+
+const shellCommand = computed(() => {
+  const payload = parsedInput.value
+  return String(payload.command || payload.cmd || '').trim()
+})
+
+const readPath = computed(() => {
+  const payload = parsedInput.value
+  return String(payload.file_path || payload.path || '').trim()
+})
+
+const shellDescription = computed(() => {
+  const payload = parsedInput.value
+  return String(payload.description || payload.summary || '').trim()
+})
+
+const traceKind = computed(() => {
+  if (['bash', 'shell', 'terminal'].includes(toolNameLower.value)) return 'shell'
+  if (['read', 'read_file', 'readfile'].includes(toolNameLower.value)) return 'read'
+  if (['skill', 'launch_skill'].includes(toolNameLower.value)) return 'skill'
+  return ''
+})
+
+const showTrace = computed(() => Boolean(traceKind.value))
+const showMainHeader = computed(() => {
+  if (!showTrace.value) return true
+  if (kind.value === 'chart_spec') return false
+  return ['sql_execution', 'python_execution'].includes(kind.value)
+})
+
+const traceOutputText = computed(() => {
+  const directText = extractTextParts(props.tool?.output).trim()
+  if (directText) return directText
+  return rawText.value
+})
+
+const traceTitle = computed(() => {
+  if (traceKind.value === 'read') return 'Read'
+  if (traceKind.value === 'skill') return 'Skill'
+  return 'Shell'
+})
+
+const traceCommand = computed(() => {
+  if (traceKind.value === 'shell') return shellCommand.value
+  if (traceKind.value === 'read') return readPath.value
+  if (traceKind.value === 'skill') return shellCommand.value || readPath.value
+  return ''
+})
+
+const traceCommandPrefix = computed(() => (traceKind.value === 'shell' ? '$ ' : ''))
+
+const traceDescription = computed(() => {
+  if (traceKind.value === 'read') return shellDescription.value || '正在读取参考内容'
+  if (traceKind.value === 'skill') return shellDescription.value || '正在准备技能上下文'
+  return shellDescription.value
+})
+
+const traceSummaryText = computed(() => {
+  if (traceKind.value === 'read') {
+    return traceDescription.value || traceCommand.value || '读取参考内容'
+  }
+  if (traceKind.value === 'skill') {
+    return traceDescription.value || traceCommand.value || '加载技能'
+  }
+  const leading = traceDescription.value || traceCommand.value || displayLabel.value
+  return leading || 'Shell 执行'
+})
+
+const traceStatusTone = computed(() => {
+  const status = String(props.tool?.status || 'success')
+  if (status === 'failed') return 'failed'
+  if (status === 'pending' || status === 'streaming') return 'running'
+  return 'success'
+})
+
+const toolStartedAt = computed(() => Number(props.tool?._startedAt || 0))
+const elapsedSeconds = computed(() => {
+  if (!toolStartedAt.value) return 0
+  return Math.max(0, Math.floor((nowTick.value - toolStartedAt.value) / 1000))
+})
+
 const statusLabel = computed(() => {
   const status = String(props.tool?.status || 'success')
+  if (traceKind.value === 'shell') {
+    if (status === 'pending' || status === 'streaming') return `正在运行命令（${elapsedSeconds.value}s）`
+    if (status === 'failed') return '命令失败'
+    return '已运行命令'
+  }
+
+  if (traceKind.value === 'read') {
+    if (status === 'pending' || status === 'streaming') return '正在浏览'
+    if (status === 'failed') return '浏览失败'
+    return '已浏览'
+  }
+
+  if (traceKind.value === 'skill') {
+    if (status === 'pending' || status === 'streaming') return '正在加载技能'
+    if (status === 'failed') return '技能加载失败'
+    return '已加载技能'
+  }
+
   if (status === 'pending') return '等待执行'
   if (status === 'streaming') return '执行中'
   if (status === 'failed') return '执行失败'
@@ -228,6 +368,85 @@ const showChartRawText = computed(() => {
   if (kind.value !== 'chart_spec') return false
   return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(rawText.value)
 })
+
+let chartRefreshFrame = 0
+let chartInstance = null
+let statusTimer = 0
+
+const disposeChart = () => {
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+}
+
+const refreshChart = async () => {
+  if (typeof window === 'undefined') return
+  await nextTick()
+  if (chartRefreshFrame) window.cancelAnimationFrame(chartRefreshFrame)
+  chartRefreshFrame = window.requestAnimationFrame(() => {
+    const container = chartCanvasRef.value
+    if (!container || !chartOption.value) return
+    try {
+      if (!chartInstance) {
+        chartInstance = echarts.init(container, undefined, { renderer: 'canvas' })
+      }
+      chartInstance.clear()
+      chartInstance.setOption(chartOption.value, { notMerge: true, lazyUpdate: false })
+      chartInstance.resize()
+    } catch (_error) {
+      // Swallow redraw failures and let the empty/error state remain visible.
+    }
+  })
+}
+
+watch(
+  () => [chartRenderState.value, chartOption.value, props.tool?.id],
+  () => {
+    if (chartRenderState.value === 'renderable' && chartOption.value) {
+      refreshChart()
+      return
+    }
+    disposeChart()
+  },
+  { deep: true }
+)
+
+onMounted(() => {
+  if (showTrace.value) {
+    const status = String(props.tool?.status || 'success')
+    shellOpen.value = status === 'pending' || status === 'streaming'
+  }
+  if (chartRenderState.value === 'renderable' && chartOption.value) {
+    refreshChart()
+  }
+
+  if (typeof window !== 'undefined') {
+    statusTimer = window.setInterval(() => {
+      nowTick.value = Date.now()
+    }, 1000)
+  }
+})
+
+watch(
+  () => props.tool?.status,
+  (status) => {
+    if (!showTrace.value) return
+    const value = String(status || 'success')
+    shellOpen.value = value === 'pending' || value === 'streaming'
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (chartRefreshFrame && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(chartRefreshFrame)
+  }
+  if (statusTimer && typeof window !== 'undefined') {
+    window.clearInterval(statusTimer)
+  }
+  disposeChart()
+})
 </script>
 
 <style scoped>
@@ -238,9 +457,140 @@ const showChartRawText = computed(() => {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
+.tool-output-shell {
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
 .tool-output.failed {
   border-color: rgba(190, 24, 93, 0.2);
   background: linear-gradient(180deg, #fff8fb 0%, #fff 100%);
+}
+
+.tool-output-shell.failed {
+  background: transparent;
+}
+
+.shell-trace + .tool-output-head,
+.shell-trace + .tool-output-summary,
+.shell-trace + .tool-output-error {
+  margin-top: 14px;
+}
+
+.shell-trace-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.shell-trace-summary-text {
+  flex: 1;
+  min-width: 0;
+  color: #6a6a6a;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell-trace-summary-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8a8a8a;
+}
+
+.shell-trace-summary-status.is-running {
+  color: #6b7280;
+}
+
+.shell-trace-summary-status.is-success {
+  color: #6b7280;
+}
+
+.shell-trace-summary-status.is-failed {
+  color: #9f1239;
+}
+
+.shell-trace-summary-chevron {
+  color: #9a9a9a;
+  font-size: 14px;
+  transition: transform 0.18s ease;
+}
+
+.shell-trace-summary-chevron.open {
+  transform: rotate(180deg);
+}
+
+.shell-trace-panel {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid #d9d9d9;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f3f3f3 0%, #ececec 100%);
+}
+
+.shell-trace-panel-title {
+  color: #8a8a8a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shell-trace-command,
+.shell-trace-output {
+  margin: 12px 0 0;
+  padding: 0;
+  background: transparent;
+  color: #3f3f3f;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.shell-trace-description {
+  margin-top: 10px;
+  color: #7b7b7b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.shell-trace-empty {
+  margin-top: 12px;
+  color: #9a9a9a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.shell-trace-footer {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.shell-trace-footer-label {
+  color: #a0a0a0;
+}
+
+.shell-trace-footer-value {
+  color: #7a7a7a;
+  font-weight: 600;
+}
+
+.shell-trace-footer-value.is-failed {
+  color: #9f1239;
 }
 
 .tool-output-head {
@@ -338,10 +688,12 @@ const showChartRawText = computed(() => {
 }
 
 .tool-chart {
+  display: block;
   margin-top: 14px;
   min-height: 320px;
   height: 320px;
   width: 100%;
+  min-width: 0;
 }
 
 .tool-output-empty {

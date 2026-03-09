@@ -378,7 +378,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                         tool_payload = _handle_user_tool_text(content)
                         if tool_payload:
                             if not tool_payload.get("ignored"):
-                                yield _emit("tool.complete", tool_payload)
+                                yield _emit("tool.output", tool_payload)
                             continue
                     merged, delta = _append_delta(main_text, content)
                     if delta:
@@ -514,7 +514,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                     if msg_type == "UserMessage" and user_text_parts:
                         tool_payload = _handle_user_tool_text("\n".join(user_text_parts))
                         if tool_payload and not tool_payload.get("ignored"):
-                            yield _emit("tool.complete", tool_payload)
+                            yield _emit("tool.output", tool_payload)
                         continue
 
     except Exception as e:

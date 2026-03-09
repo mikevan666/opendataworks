@@ -1,16 +1,23 @@
 import { vi } from 'vitest'
 import { shallowMount } from '@vue/test-utils'
 
-vi.mock('vue-echarts', () => ({
-  default: {
-    name: 'VChart',
-    props: ['option'],
-    template: '<div class="chart-stub" />'
-  }
-}))
+const echartsMocks = vi.hoisted(() => {
+  const setOption = vi.fn()
+  const resize = vi.fn()
+  const clear = vi.fn()
+  const dispose = vi.fn()
+  const init = vi.fn(() => ({
+    setOption,
+    resize,
+    clear,
+    dispose
+  }))
+  return { setOption, resize, clear, dispose, init }
+})
 
 vi.mock('echarts/core', () => ({
-  use: () => {}
+  use: () => {},
+  init: echartsMocks.init
 }))
 
 vi.mock('echarts/charts', () => ({
@@ -77,11 +84,7 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
-    const chartStub = wrapper.findComponent({ name: 'VChart' })
-
-    expect(chartStub.exists()).toBe(true)
-    expect(chartStub.props('option').series[0].type).toBe('line')
-    expect(chartStub.props('option').xAxis.data).toEqual(['2026-03-01', '2026-03-02'])
+    expect(wrapper.find('.tool-chart').exists()).toBe(true)
   })
 
   it('shows explicit invalid-spec feedback and raw payloads', () => {
@@ -100,5 +103,69 @@ describe('ToolOutputRenderer', () => {
 
     expect(wrapper.text()).toContain('bar 类型必须提供 x_field')
     expect(wrapper.text()).toContain('"chart_type": "bar"')
+  })
+
+  it('renders bash tools as collapsible shell traces', async () => {
+    const wrapper = mountRenderer({
+      name: 'Bash',
+      status: 'streaming',
+      input: {
+        command: 'python scripts/build_chart_spec.py --chart-type pie',
+        description: '生成占比图表'
+      },
+      output: 'processing...'
+    })
+
+    expect(wrapper.text()).toContain('生成占比图表')
+    expect(wrapper.text()).toContain('Shell')
+    expect(wrapper.text()).toContain('$ python scripts/build_chart_spec.py --chart-type pie')
+    expect(wrapper.text()).toContain('processing...')
+    expect(wrapper.text()).toContain('正在运行命令')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
+
+    await wrapper.setProps({
+      tool: {
+        name: 'Bash',
+        status: 'success',
+        input: {
+          command: 'python scripts/build_chart_spec.py --chart-type pie',
+          description: '生成占比图表'
+        },
+        output: 'done'
+      }
+    })
+
+    expect(wrapper.text()).toContain('已运行命令')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+  })
+
+  it('renders read tools as compact trace rows', async () => {
+    const wrapper = mountRenderer({
+      name: 'Read',
+      status: 'streaming',
+      input: {
+        file_path: '/tmp/reference/00-skill-map.md'
+      },
+      output: '## skill map'
+    })
+
+    expect(wrapper.text()).toContain('正在浏览')
+    expect(wrapper.text()).toContain('Read')
+    expect(wrapper.text()).toContain('/tmp/reference/00-skill-map.md')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
+
+    await wrapper.setProps({
+      tool: {
+        name: 'Read',
+        status: 'success',
+        input: {
+          file_path: '/tmp/reference/00-skill-map.md'
+        },
+        output: '## skill map'
+      }
+    })
+
+    expect(wrapper.text()).toContain('已浏览')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
   })
 })

@@ -1,6 +1,7 @@
 const CHART_TYPES = new Set(['table', 'bar', 'line', 'pie'])
 const ECHART_TYPES = new Set(['bar', 'line', 'pie'])
 const SERIES_TYPES = new Set(['bar', 'line', 'pie'])
+const DEFAULT_CHART_COLORS = ['#0f8c7b', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#14b8a6', '#f97316']
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
 
@@ -143,7 +144,7 @@ const buildPieOption = (spec) => {
   const primarySeries = spec.series[0]
   return {
     backgroundColor: 'transparent',
-    color: spec.colors.length ? spec.colors : undefined,
+    color: spec.colors.length ? spec.colors : DEFAULT_CHART_COLORS,
     title: spec.title
       ? { text: spec.title, left: 'center', top: 8, textStyle: { fontSize: 14, fontWeight: 600, color: '#162131' } }
       : undefined,
@@ -158,6 +159,7 @@ const buildPieOption = (spec) => {
         radius: spec.donut ? ['44%', '70%'] : '68%',
         center: ['50%', '52%'],
         label: { color: '#425466' },
+        itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
         data: spec.dataset.map((row) => ({
           name: String(row[spec.x_field] ?? ''),
           value: toNumeric(row[primarySeries.field] ?? 0)
@@ -187,7 +189,7 @@ const buildAxisOption = (spec) => {
 
   return {
     backgroundColor: 'transparent',
-    color: spec.colors.length ? spec.colors : undefined,
+    color: spec.colors.length ? spec.colors : DEFAULT_CHART_COLORS,
     title: spec.title
       ? {
           text: spec.title,
@@ -212,6 +214,8 @@ const buildAxisOption = (spec) => {
       smooth: spec.chart_type === 'line',
       stack: spec.stack ? 'total' : undefined,
       areaStyle: spec.chart_type === 'line' && spec.area ? {} : undefined,
+      lineStyle: spec.chart_type === 'line' ? { width: 3 } : undefined,
+      symbolSize: spec.chart_type === 'line' ? 8 : undefined,
       barMaxWidth: spec.chart_type === 'bar' ? 34 : undefined,
       itemStyle: spec.chart_type === 'bar' ? { borderRadius: horizontal ? [0, 8, 8, 0] : [8, 8, 0, 0] } : undefined,
       data: spec.dataset.map((row) => toNumeric(row[series.field]))

@@ -76,28 +76,34 @@
 
             <div v-else class="query-message-row query-message-assistant">
               <div class="query-assistant-body">
-                <div v-if="msg.thinkingText" class="query-step-row">
-                  <details class="query-step-details">
+                <div v-for="block in renderBlocksForMessage(msg)" :key="block.id" class="query-step-row">
+                  <details v-if="block.kind === 'thinking'" class="query-step-details" :open="isThinkingBlockActive(block)">
                     <summary class="query-step-summary">
-                      <span class="query-step-badge">思考</span>
-                      <span>{{ msg.status === 'streaming' ? '正在整理查询思路' : '查询思路' }}</span>
+                      <span class="query-step-badge">{{ isThinkingBlockActive(block) ? '思考中' : '已思考' }}</span>
+                      <span>{{ isThinkingBlockActive(block) ? '正在思考' : '思考完成' }}</span>
+                      <span v-if="thinkingPreview(block)" class="query-step-preview">{{ thinkingPreview(block) }}</span>
                       <span class="query-step-chevron">></span>
                     </summary>
-                    <div class="query-thinking-content">{{ msg.thinkingText }}</div>
+                    <div class="query-thinking-content">{{ block.text }}</div>
                   </details>
-                </div>
 
-                <div v-for="tool in visibleTools(msg)" :key="tool.id" class="query-step-row">
-                  <ToolOutputRenderer :tool="tool" />
-                </div>
+                  <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
 
-                <div v-if="displayMainText(msg)" class="query-main-text">
-                  <div v-html="renderMarkdown(displayMainText(msg))"></div>
-                  <span v-if="msg.status === 'streaming'" class="query-cursor">|</span>
-                </div>
+                  <template v-else-if="block.kind === 'main_text'">
+                    <div v-if="displayTextBlock(block, msg)" class="query-main-text">
+                      <div v-html="renderMarkdown(displayTextBlock(block, msg))"></div>
+                      <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
+                    </div>
 
-                <div v-for="tool in inlineChartTools(msg)" :key="tool.id" class="query-step-row">
-                  <ToolOutputRenderer :tool="tool" />
+                    <div v-for="tool in inlineChartToolsForBlock(block, msg)" :key="tool.id" class="query-step-row">
+                      <ToolOutputRenderer :tool="tool" />
+                    </div>
+                  </template>
+
+                  <div v-else-if="block.kind === 'error' && block.text" class="query-error-card">
+                    <span class="query-error-label">错误</span>
+                    <span>{{ block.text }}</span>
+                  </div>
                 </div>
 
                 <div v-if="msg.citations.length" class="query-citations">
@@ -114,13 +120,15 @@
                   </a>
                 </div>
 
-                <div v-if="msg.error" class="query-error-card">
+                <div v-if="msg.error && !hasErrorBlock(msg)" class="query-error-card">
                   <span class="query-error-label">错误</span>
-                  <span>{{ msg.error }}</span>
+                  <span>{{ errorMessage(msg.error) }}</span>
                 </div>
 
-                <div v-if="msg.status === 'streaming'" class="query-loading">
-                  <span class="query-loading-text">正在思考</span>
+                <div v-if="streamingActivity(msg)" class="query-loading" :class="{ executing: streamingActivity(msg)?.kind === 'executing' }">
+                  <span class="query-loading-badge">{{ streamingActivity(msg)?.kind === 'executing' ? '执行中' : '思考中' }}</span>
+                  <span class="query-loading-text">{{ streamingActivity(msg)?.text }}</span>
+                  <span v-if="streamingActivity(msg)?.preview" class="query-loading-preview">{{ streamingActivity(msg)?.preview }}</span>
                   <span class="query-loading-dots">
                     <span>.</span>
                     <span>.</span>
@@ -183,6 +191,13 @@ import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { extractChartSpecsFromText, parseChartSpec, stripChartSpecsFromText } from './chartSpec'
+import {
+  activeStreamingBlock as activeStreamingMessageBlock,
+  createAssistantMessageState,
+  hydrateAssistantMessageState,
+  parseMaybeJson,
+  processAssistantStreamEvent
+} from './messageStream'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -253,14 +268,6 @@ const formatTime = (value) => {
 
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-const parseMaybeJson = (text) => {
-  try {
-    return JSON.parse(String(text || '').trim())
-  } catch (_error) {
-    return null
-  }
-}
-
 const normalizeToolPayload = (value) => {
   if (value && typeof value === 'object' && !Array.isArray(value) && value.kind) {
     return value
@@ -284,18 +291,54 @@ const normalizeToolPayload = (value) => {
   return null
 }
 
-const visibleTools = (msg) => (msg.tools || []).filter((tool) => {
-  const name = String(tool.name || '').toLowerCase()
-  if (normalizeToolPayload(tool.output)?.kind) return true
-  if (tool.status === 'streaming' || tool.status === 'pending' || tool.status === 'failed') return true
-  return !['read', 'read_file', 'readfile', 'skill', 'launch_skill', 'glob'].includes(name)
-})
-
-const cleanMainText = (msg) => {
-  let text = String(msg.mainText || '')
+const cleanTextContent = (value) => {
+  let text = String(value || '')
   text = text.replace(/Base directory for this skill:[\s\S]*?(?:ARGUMENTS:\s*[^\n]*\n?)/gi, '')
   text = text.replace(/^ARGUMENTS:\s*[^\n]*\n?/gm, '')
   return text.replace(/^\s+/, '')
+}
+
+const thinkingPreview = (block) => {
+  const lines = String(block?.text || '')
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+
+  if (!lines.length) return ''
+  const preview = lines[lines.length - 1]
+  return preview.length > 38 ? `${preview.slice(0, 38)}...` : preview
+}
+
+const stripMarkdownTables = (text) => {
+  const lines = String(text || '').split('\n')
+  const output = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const nextLine = lines[index + 1]
+    const trimmed = line.trim()
+    const nextTrimmed = String(nextLine || '').trim()
+    const isTableHeader = trimmed.startsWith('|') && trimmed.endsWith('|')
+    const isTableDivider = /^\|?[\s:-|]+\|?\s*$/.test(nextTrimmed) && nextTrimmed.includes('-')
+
+    if (!isTableHeader || !isTableDivider) {
+      output.push(line)
+      continue
+    }
+
+    index += 1
+    while (index + 1 < lines.length) {
+      const rowLine = String(lines[index + 1] || '').trim()
+      if (!rowLine.startsWith('|') || !rowLine.endsWith('|')) break
+      index += 1
+    }
+
+    if (output.length && output[output.length - 1] !== '') {
+      output.push('')
+    }
+  }
+
+  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 const looksProceduralMainText = (text) => {
@@ -319,28 +362,52 @@ const looksProceduralMainText = (text) => {
   ].some((marker) => value.includes(marker))
 }
 
-const displayMainText = (msg) => {
-  const text = stripChartSpecsFromText(cleanMainText(msg))
+const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.renderBlocks : []).filter((block) => {
+  if (!block || typeof block !== 'object') return false
+  if (block.kind === 'tool') {
+    const name = String(block.tool?.name || '').toLowerCase()
+    if (name === 'glob' && String(block.tool?.status || '') === 'success') return false
+    return true
+  }
+  return ['thinking', 'main_text', 'error'].includes(String(block.kind || ''))
+})
+
+const toolBlocks = (msg) => renderBlocksForMessage(msg)
+  .filter((block) => block.kind === 'tool' && block.tool)
+  .map((block) => block.tool)
+
+const hasToolChart = (msg) => toolBlocks(msg).some((tool) => Boolean(parseChartSpec(normalizeToolPayload(tool.output))))
+
+const displayTextBlock = (block, msg) => {
+  let text = stripChartSpecsFromText(cleanTextContent(block?.text))
+  const hasInlineCharts = extractChartSpecsFromText(cleanTextContent(block?.text)).length > 0
+  if (hasToolChart(msg) || hasInlineCharts) {
+    text = stripMarkdownTables(text)
+  }
   if (!text) return ''
-  if (msg?.status === 'streaming' && (visibleTools(msg).length || looksProceduralMainText(text))) {
+  if (msg?.status === 'streaming' && (toolBlocks(msg).some((tool) => ['streaming', 'pending'].includes(String(tool.status || ''))) || looksProceduralMainText(text))) {
     return ''
   }
   return text
 }
 
-const hasToolChart = (msg) => visibleTools(msg).some((tool) => {
-  const payload = normalizeToolPayload(tool.output)
-  return Boolean(parseChartSpec(payload))
-})
-
-const inlineChartTools = (msg) => {
+const inlineChartToolsForBlock = (block, msg) => {
   if (hasToolChart(msg)) return []
-  return extractChartSpecsFromText(cleanMainText(msg)).map((spec, index) => ({
-    id: `inline_chart_${msg.id}_${index}`,
+  return extractChartSpecsFromText(cleanTextContent(block?.text)).map((spec, index) => ({
+    id: `inline_chart_${msg.id}_${block?.id || index}_${index}`,
     name: 'chart_spec',
     status: 'success',
     output: spec
   }))
+}
+
+const hasErrorBlock = (msg) => renderBlocksForMessage(msg).some((block) => block.kind === 'error' && String(block.text || '').trim())
+
+const errorMessage = (error) => {
+  if (!error) return ''
+  if (typeof error === 'string') return error
+  if (typeof error === 'object') return String(error.message || error.detail || '请求失败')
+  return String(error)
 }
 
 const escapeHtml = (text) => String(text || '')
@@ -370,336 +437,82 @@ const normSession = (session) => ({
   messages: []
 })
 
-const makeAssistantMsg = () => reactive({
+const makeAssistantMsg = () => reactive(createAssistantMessageState({
   id: `a_${uid()}`,
-  role: 'assistant',
-  content: '',
-  status: 'streaming',
-  mainText: '',
-  thinkingText: '',
-  tools: [],
-  citations: [],
-  error: null,
-  stop_reason: '',
-  provider_id: null,
-  model: null,
-  _blocks: {},
-  _partials: {},
   created_at: new Date().toISOString()
-})
+}))
 
-const appendStr = (base, delta) => {
-  const next = String(delta || '')
-  if (!next) return base || ''
-  const prev = String(base || '')
-  if (!prev) return next
-  if (next === prev) return prev
-  if (next.startsWith(prev)) return next
-  return prev + next
+const parseToolInput = (value) => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    const parsed = parseMaybeJson(value)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    const text = value.trim()
+    return text ? { command: text } : {}
+  }
+  return {}
 }
 
-const ensureClaudeBlock = (msg, index, claudeType) => {
-  const key = `cb-${index}`
-  if (!msg._blocks[key]) {
-    msg._blocks[key] = {
-      type: claudeType,
-      text: '',
-      status: 'streaming',
-      tool_name: '',
-      tool_id: '',
-      input: null,
-      output: null,
-      partial_json: ''
+const isThinkingBlockActive = (block) => String(block?.kind || '') === 'thinking' && String(block?.status || '') === 'streaming'
+
+const describeToolActivity = (tool) => {
+  const input = parseToolInput(tool?.input)
+  const name = String(tool?.name || '').trim()
+  const lowerName = name.toLowerCase()
+  const preview = String(input.description || input.summary || input.command || '').trim()
+
+  if (['bash', 'shell', 'terminal'].includes(lowerName)) {
+    return {
+      text: '正在运行命令',
+      preview: preview || '等待脚本输出'
     }
   }
-  return msg._blocks[key]
-}
 
-const normalizeToolId = (value) => {
-  const text = String(value || '').trim()
-  return text || ''
-}
-
-const findMessageTool = (msg, toolId, blockKey = '') => {
-  return (msg.tools || []).find((item) => {
-    if (toolId && (item.id === toolId || item._toolId === toolId)) return true
-    if (blockKey && item._blockKey === blockKey) return true
-    return false
-  })
-}
-
-const upsertMessageTool = (msg, patch = {}) => {
-  const toolId = normalizeToolId(patch.toolId)
-  const blockKey = String(patch.blockKey || '')
-  let tool = findMessageTool(msg, toolId, blockKey)
-
-  if (!tool) {
-    tool = {
-      id: toolId || `t_${uid()}`,
-      _toolId: toolId || '',
-      _blockKey: blockKey,
-      name: String(patch.name || 'Tool'),
-      status: String(patch.status || 'pending'),
-      input: null,
-      output: null
+  if (['read', 'read_file', 'readfile'].includes(lowerName)) {
+    return {
+      text: '正在浏览',
+      preview: preview || '正在读取参考内容'
     }
-    msg.tools.push(tool)
   }
 
-  if (toolId) {
-    tool.id = toolId
-    tool._toolId = toolId
+  if (lowerName === 'skill') {
+    return {
+      text: '正在加载技能',
+      preview: preview || '正在准备技能上下文'
+    }
   }
-  if (blockKey) tool._blockKey = blockKey
-  if (patch.name) tool.name = String(patch.name)
-  if (Object.prototype.hasOwnProperty.call(patch, 'input') && patch.input !== undefined) tool.input = patch.input
-  if (Object.prototype.hasOwnProperty.call(patch, 'output') && patch.output !== undefined) tool.output = patch.output
-  if (patch.status) tool.status = String(patch.status)
-  return tool
-}
 
-const syncToolsFromBlocks = (msg, blocks) => {
-  for (const block of Array.isArray(blocks) ? blocks : []) {
-    if (!block || typeof block !== 'object') continue
-    const blockType = String(block.type || '')
-
-    const payload = block.payload && typeof block.payload === 'object' ? block.payload : {}
-    const toolId = normalizeToolId(block.tool_id || payload.tool_id || payload.tool_use_id || payload.id)
-    const name = String(block.tool_name || payload.tool_name || payload.name || 'Tool')
-    const hasToolEnvelope = Boolean(
-      toolId
-      || String(block.tool_name || '').trim()
-      || String(payload.tool_name || payload.name || '').trim()
-      || Object.prototype.hasOwnProperty.call(block, 'input')
-      || Object.prototype.hasOwnProperty.call(block, 'output')
-      || Object.prototype.hasOwnProperty.call(payload, 'input')
-      || Object.prototype.hasOwnProperty.call(payload, 'output')
-      || Object.prototype.hasOwnProperty.call(payload, 'content')
-    )
-    if (!['tool_use', 'tool_result', 'tool'].includes(blockType) && !hasToolEnvelope) continue
-
-    const normalizedBlockType = ['tool_use', 'tool_result', 'tool'].includes(blockType) ? blockType : 'tool'
-    const patch = {
-      toolId,
-      blockKey: String(block.block_id || ''),
-      name,
-      status: String(block.status || 'success')
-    }
-
-    if (normalizedBlockType === 'tool_use') {
-      patch.input = 'input' in block ? block.input : payload.input
-    } else if (normalizedBlockType === 'tool_result') {
-      patch.output = 'output' in block ? block.output : (payload.output ?? payload.content)
-    } else {
-      patch.input = 'input' in block ? block.input : payload.input
-      patch.output = 'output' in block ? block.output : (payload.output ?? payload.content)
-    }
-
-    upsertMessageTool(msg, patch)
+  return {
+    text: `正在执行 ${name || '工具'}`,
+    preview
   }
 }
 
-const processEvent = (msg, event) => {
-  if (!event || typeof event !== 'object') return
-
-  const type = String(event.type || '')
-  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {}
-
-  if (event.message_id) msg.id = String(event.message_id)
-  if (payload.provider_id) msg.provider_id = String(payload.provider_id)
-  if (payload.model) msg.model = String(payload.model)
-
-  if (type === 'message_start') {
-    const message = event.message || payload.message || {}
-    if (message.id) msg.id = String(message.id)
-    if (message.model) msg.model = String(message.model)
-    msg.status = 'streaming'
-    return
-  }
-
-  if (type === 'ping') return
-
-  if (type === 'content_block_start') {
-    const index = event.index ?? payload.index
-    const contentBlock = event.content_block || payload.content_block || {}
-    const contentType = String(contentBlock.type || 'unknown')
-    const block = ensureClaudeBlock(msg, index, contentType)
-
-    block.type = contentType
-    block.status = 'streaming'
-
-    if (contentType === 'text' && contentBlock.text) {
-      block.text = contentBlock.text
-      msg.mainText = appendStr(msg.mainText, contentBlock.text)
+const streamingActivity = (msg) => {
+  if (msg?.status !== 'streaming') return null
+  const activeBlock = activeStreamingMessageBlock(msg)
+  if (activeBlock?.kind === 'tool' && activeBlock.tool) {
+    return {
+      kind: 'executing',
+      ...describeToolActivity(activeBlock.tool)
     }
-    if (contentType === 'thinking' && contentBlock.thinking) {
-      block.text = contentBlock.thinking
+  }
+  if (activeBlock?.kind === 'main_text') {
+    return {
+      kind: 'thinking',
+      text: '正在整理回答',
+      preview: ''
     }
-    if (contentType === 'tool_use') {
-      if (contentBlock.id) block.tool_id = String(contentBlock.id)
-      if (contentBlock.name) block.tool_name = String(contentBlock.name)
-      if ('input' in contentBlock) block.input = contentBlock.input
-      upsertMessageTool(msg, {
-        toolId: block.tool_id,
-        blockKey: `cb-${index}`,
-        name: block.tool_name,
-        input: block.input,
-        status: 'streaming'
-      })
-    }
-    if (contentType === 'tool_result') {
-      if (contentBlock.tool_use_id) block.tool_id = String(contentBlock.tool_use_id)
-      if (contentBlock.name) block.tool_name = String(contentBlock.name)
-      if ('content' in contentBlock) block.output = contentBlock.content
-      upsertMessageTool(msg, {
-        toolId: block.tool_id,
-        blockKey: `cb-${index}`,
-        name: block.tool_name || 'Tool',
-        output: block.output,
-        status: 'streaming'
-      })
-    }
-    return
   }
-
-  if (type === 'content_block_delta') {
-    const index = event.index ?? payload.index
-    const delta = event.delta || payload.delta || {}
-    const deltaType = String(delta.type || '')
-    const block = ensureClaudeBlock(msg, index, 'unknown')
-
-    block.status = 'streaming'
-
-    if (deltaType === 'text_delta') {
-      block.type = 'text'
-      block.text = appendStr(block.text, delta.text)
-      msg.mainText = appendStr(msg.mainText, delta.text)
-      msg.content = appendStr(msg.content, delta.text)
-    } else if (deltaType === 'thinking_delta') {
-      block.type = 'thinking'
-      block.text = appendStr(block.text, delta.thinking)
-      msg.thinkingText = appendStr(msg.thinkingText, delta.thinking)
-    } else if (deltaType === 'thinking_summary_delta') {
-      block.type = 'thinking'
-    } else if (deltaType === 'input_json_delta') {
-      block.partial_json = appendStr(block.partial_json, delta.partial_json || '')
-      const parsed = parseMaybeJson(block.partial_json)
-      if (block.type === 'tool_use') {
-        block.input = parsed !== null ? parsed : block.partial_json
-        upsertMessageTool(msg, {
-          toolId: block.tool_id,
-          blockKey: `cb-${index}`,
-          input: block.input,
-          status: 'streaming'
-        })
-      }
-    } else if (deltaType === 'citation_start_delta' && delta.citation) {
-      msg.citations.push(delta.citation)
-    }
-    return
-  }
-
-  if (type === 'content_block_stop') {
-    const index = event.index ?? payload.index
-    const block = ensureClaudeBlock(msg, index, 'unknown')
-    block.status = 'success'
-    if (block.partial_json) {
-      const parsed = parseMaybeJson(block.partial_json)
-      if (parsed !== null && block.type === 'tool_use') block.input = parsed
-    }
-    if (block.type === 'tool_use') {
-      upsertMessageTool(msg, {
-        toolId: block.tool_id,
-        blockKey: `cb-${index}`,
-        input: block.input,
-        status: 'streaming'
-      })
-    }
-    if (block.type === 'tool_result') {
-      upsertMessageTool(msg, {
-        toolId: block.tool_id,
-        blockKey: `cb-${index}`,
-        output: block.output,
-        status: 'success'
-      })
-    }
-    return
-  }
-
-  if (type === 'message_delta') {
-    const delta = event.delta || payload.delta || {}
-    if (delta.stop_reason != null) msg.stop_reason = String(delta.stop_reason)
-    return
-  }
-
-  if (type === 'message_stop') {
-    msg.status = msg.status === 'failed' ? 'failed' : 'success'
-    msg.tools.forEach((tool) => {
-      if (tool.status === 'streaming') tool.status = 'success'
-    })
-    return
-  }
-
-  if (type === 'text.delta') {
-    msg.mainText = appendStr(msg.mainText, payload.text)
-    msg.content = appendStr(msg.content, payload.text)
-    return
-  }
-
-  if (type === 'text.complete') {
-    if (typeof payload.text === 'string') {
-      msg.mainText = payload.text
-      msg.content = payload.text
-    }
-    return
-  }
-
-  if (type === 'thinking.delta') {
-    msg.thinkingText = appendStr(msg.thinkingText, payload.text)
-    return
-  }
-
-  if (type === 'thinking.complete') {
-    if (typeof payload.text === 'string') msg.thinkingText = payload.text
-    return
-  }
-
-  if (type.startsWith('tool.')) {
-    const toolId = String(payload.tool_id || payload.block_id || `t_${uid()}`)
-    upsertMessageTool(msg, {
-      toolId,
-      name: String(payload.tool_name || 'Tool'),
-      input: 'input' in payload ? payload.input : undefined,
-      output: 'output' in payload ? payload.output : undefined,
-      status: type === 'tool.pending'
-        ? 'pending'
-        : (type === 'tool.complete' ? 'success' : 'streaming')
-    })
-    return
-  }
-
-  if (type === 'error') {
-    msg.status = 'failed'
-    msg.error = String(payload.message || '请求失败')
-    return
-  }
-
-  if (type === 'done') {
-    msg.status = String(payload.status || msg.status || 'success')
-    if (payload.content) {
-      msg.content = String(payload.content)
-      msg.mainText = String(payload.content)
-    }
-    if (payload.error) {
-      msg.error = typeof payload.error === 'object'
-        ? String(payload.error.message || '请求失败')
-        : String(payload.error)
-    }
-    if (payload.model) msg.model = String(payload.model)
-    if (Array.isArray(payload.blocks)) syncToolsFromBlocks(msg, payload.blocks)
-    if (!msg.mainText && msg.content) msg.mainText = msg.content
+  const latestThinking = [...renderBlocksForMessage(msg)].reverse().find((block) => block.kind === 'thinking' && String(block.text || '').trim())
+  const preview = thinkingPreview(activeBlock?.kind === 'thinking' ? activeBlock : latestThinking)
+  return {
+    kind: 'thinking',
+    text: '正在思考',
+    preview
   }
 }
+const processEvent = processAssistantStreamEvent
 
 const loadSettings = async () => {
   try {
@@ -737,29 +550,7 @@ const hydrateSession = async (sessionId) => {
           }
         }
 
-        const assistantMessage = makeAssistantMsg()
-        assistantMessage.id = String(message.message_id || assistantMessage.id)
-        assistantMessage.content = String(message.content || '')
-        assistantMessage.mainText = assistantMessage.content
-        assistantMessage.status = String(message.status || 'success')
-        assistantMessage.stop_reason = String(message.stop_reason || '')
-        assistantMessage.created_at = message.created_at || assistantMessage.created_at
-
-        if (Array.isArray(message.blocks)) {
-          for (const block of message.blocks) {
-            if (!block) continue
-            const blockType = String(block.type || '')
-            if (blockType === 'thinking') assistantMessage.thinkingText = String(block.text || '')
-            if (blockType === 'main_text' && block.text) assistantMessage.mainText = String(block.text)
-            if (blockType === 'error') assistantMessage.error = String(block.text || '请求失败')
-            if (block.payload?.citations) {
-              assistantMessage.citations.push(...(Array.isArray(block.payload.citations) ? block.payload.citations : []))
-            }
-          }
-          syncToolsFromBlocks(assistantMessage, message.blocks)
-        }
-
-        return assistantMessage
+        return reactive(hydrateAssistantMessageState(message))
       }).filter(Boolean)
       target.message_count = target.messages.length
     }
@@ -1328,6 +1119,15 @@ onMounted(async () => {
   transition: transform 0.18s ease;
 }
 
+.query-step-preview {
+  max-width: 360px;
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 details[open] > .query-step-summary .query-step-chevron {
   transform: rotate(90deg);
 }
@@ -1642,13 +1442,43 @@ details[open] > .query-step-summary .query-step-chevron {
 .query-loading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 0;
+}
+
+.query-loading-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 140, 123, 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.query-loading.executing .query-loading-badge {
+  background: rgba(96, 113, 133, 0.12);
+  color: #556273;
 }
 
 .query-loading-text {
   color: var(--text-muted);
   font-size: 14px;
+}
+
+.query-loading-preview {
+  max-width: 340px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .query-loading-dots {
