@@ -30,7 +30,10 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 无法唯一确定术语、指标、数据库、表或时间口径时，先追问。
 - 图表不是必选项；不适合图表时只输出表格。
 - SQL 必须只读，且保留行数保护。
+- 工具层只做检索、执行和客观过滤，不做候选表推荐、打分或排序；选表逻辑留给模型根据 reference 和脚本返回自己判断。
 - 最终回答用中文，先给结论，再给依据，不要复读大段工具原文。
+- 不要在用户可见正文里叙述“我先看文档 / 我来处理 / 接下来执行脚本”这类过程播报；过程留在工具轨迹里，正文只保留结论、依据和限制。
+- 统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，默认只读 `reference/*` 并尽快执行脚本；不要把 `assets/*.json` 当主路径。
 
 ## 固定阅读顺序
 
@@ -72,7 +75,7 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 
 出现以下任一情况时，先追问，不要猜：
 
-- 活跃用户、GMV、来源、业务线等术语口径不清
+- 数据层级、发布状态、任务依赖、Doris 只读账号等术语口径不清
 - 目标数据库或目标表不唯一
 - 时间范围或时间粒度不清
 - 用户要“对比”，但未说明对比维度
@@ -83,17 +86,28 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 脚本顺序遵循以下原则：
 
 1. 术语不清：先看 `20/21/22`
-2. 表字段不清：先用 `inspect_metadata.py`
-3. 数据源不清：再用 `resolve_datasource.py`
-4. SQL 明确后：再用 `run_sql.py`
-5. 结果适合图表：再用 `build_chart_spec.py`
-6. 需要压缩总结：再用 `format_answer.py`
+2. 问题明确指向 `opendataworks` 平台核心表且字段已知：可直接 `run_sql.py --database opendataworks --engine mysql`
+3. 表字段不清或目标表是托管业务表：先用 `inspect_metadata.py`
+4. 数据源不清：再用 `resolve_datasource.py`
+5. SQL 明确后：再用 `run_sql.py`
+6. 结果适合图表：再用 `build_chart_spec.py`，并显式传入 `--chart-type bar|line|pie`
+7. 需要压缩总结：再用 `format_answer.py`
 
 不要在没明确数据库、指标、维度前直接执行 `run_sql.py`。
 
+### D. 脚本执行规范
+
+- 所有本地 Python 脚本统一使用 `$DATAAGENT_PYTHON_BIN scripts/<name>.py ...`。
+- 不要执行 `pip install`、`uv add`、`which python`、`python --version` 等环境探测或依赖安装命令。
+- 若脚本返回错误，直接根据错误内容追问或收敛，不要反复试探解释器和依赖。
+- 只有 Bash 的真实返回明确报错时，才能说“缺少依赖”或“环境异常”；没有实际脚本输出就不要自行判断运行环境有问题。
+- 执行脚本前先阅读对应 `reference/*`，不要一边试脚本一边回头补读大量文档。
+- 对统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，第一条实际动作应是明确的脚本调用或追问，而不是继续读取 `assets/*.json`。
+- 对统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，只要脚本参数已清楚，就必须真实执行脚本；不要只依据 reference 文档直接给最终 SQL 或结论。
+
 ## 多数据源约束
 
-- 平台元数据和 ODW 平台表属于 MySQL 路径。
+- `data_table`、`data_field`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这些平台核心表属于 MySQL 路径。
 - 业务分析表可能落到 MySQL 或 Doris，必须先做单源路由。
 - 同一轮回答内，如果候选表分属不同引擎或不同数据库，先追问用户缩小范围。
 
@@ -103,6 +117,7 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 条形图：分类对比、TopN、排序展示
 - 折线图：时间趋势
 - 饼图：类别数较少的占比分析
+- 生成图表时不要把类型判断完全交给脚本猜；对比明确传 `--chart-type bar`，趋势传 `--chart-type line`，占比传 `--chart-type pie`
 
 图表是否生成，由场景和结果结构共同决定；不要为了“看起来丰富”而强行出图。
 
@@ -146,3 +161,4 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 若已经执行查询，优先引用结构化结果，不重复堆原文
 - 若只是术语解释或 SQL 示例问题，可不执行 SQL
 - 若没有足够信息完成问数，明确说明缺什么，并提出最小追问
+- 不要把读文档、找脚本、准备执行等内部步骤写进最终回答

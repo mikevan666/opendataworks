@@ -2,85 +2,106 @@
   "schema_version": "1.0",
   "items": [
     {
-      "term": "活跃用户",
+      "term": "数据层级",
       "aliases": [
-        "DAU",
-        "日活",
-        "活跃用户数"
+        "表层级",
+        "层级",
+        "ODS/DWD/DIM/DWS/ADS"
       ],
-      "explanation": "在给定时间窗口内发生某种活跃行为的去重用户数。活跃行为通常是登录、访问、下单或支付。",
+      "explanation": "数据层级描述表在数仓中的分层位置。OpenDataWorks 当前使用 ODS、DWD、DIM、DWS、ADS 五类层级保存到 data_table.layer。",
       "ambiguous_terms": [
-        "新增用户",
-        "留存用户"
+        "业务域",
+        "数据域"
       ],
-      "ask_back": "请确认活跃的判定行为，以及需要按天、按周还是按月统计。",
+      "ask_back": "请确认你想看的是 layer 分布，还是 business_domain / data_domain 维度。",
       "related_metrics": [
-        "注册用户数"
+        "数据表数量"
       ],
       "related_tables": [
-        "ods_user"
+        "data_table"
       ]
     },
     {
-      "term": "订单金额",
+      "term": "血缘关系",
       "aliases": [
-        "GMV",
-        "成交额",
-        "销售额"
+        "上下游血缘",
+        "lineage"
       ],
-      "explanation": "订单金额通常是订单总金额求和，但是否只统计已支付订单、是否扣除退款需要额外确认。",
+      "explanation": "血缘关系描述数据表之间的输入输出依赖，平台表 data_lineage 记录 upstream_table_id 和 downstream_table_id。",
       "ambiguous_terms": [
-        "支付金额",
-        "实收金额"
+        "任务依赖",
+        "工作流依赖"
       ],
-      "ask_back": "请确认是否只统计已支付订单，以及是否需要扣除退款或取消订单。",
+      "ask_back": "请提供明确的表名；如果同名表可能存在于多个数据库，请一并提供 db_name。",
       "related_metrics": [
-        "订单金额",
-        "支付订单数"
+        "血缘关系数"
       ],
       "related_tables": [
-        "ods_order",
-        "dws_order_daily"
+        "data_lineage",
+        "data_table"
       ]
     },
     {
-      "term": "新增用户",
+      "term": "工作流发布记录",
       "aliases": [
-        "新用户",
-        "注册用户"
+        "发布记录",
+        "工作流发布流水"
       ],
-      "explanation": "在指定时间窗口内首次注册或首次建档的用户数，通常按注册时间字段统计。",
+      "explanation": "workflow_publish_record 记录平台将某个 workflow 版本发布到目标引擎的动作、状态、操作人和时间。",
       "ambiguous_terms": [
-        "活跃用户",
-        "留存用户"
+        "工作流状态",
+        "发布状态"
       ],
-      "ask_back": "请确认新增的定义是注册用户还是首次下单用户，以及统计时间范围。",
+      "ask_back": "请确认你想看的是历史发布记录，还是 data_workflow 上的当前 publish_status。",
       "related_metrics": [
-        "注册用户数"
+        "发布记录数",
+        "失败发布次数"
       ],
       "related_tables": [
-        "ods_user"
+        "workflow_publish_record",
+        "data_workflow"
       ]
     },
     {
-      "term": "来源分布",
+      "term": "任务依赖",
       "aliases": [
-        "渠道分布",
-        "来源占比"
+        "上下游任务",
+        "任务上下游"
       ],
-      "explanation": "按来源、渠道、入口等分类字段统计数量或金额占比。类别较少时更适合用饼图。",
+      "explanation": "任务依赖通常结合 workflow_task_relation 的上下游计数，以及 table_task_relation / data_lineage 推导出的读写关系来理解。",
       "ambiguous_terms": [
-        "业务线分布",
-        "地区分布"
+        "血缘关系",
+        "工作流关系"
       ],
-      "ask_back": "请确认来源字段是渠道、推广来源还是业务线，并确认是否需要占比展示。",
+      "ask_back": "请确认你要看的是任务所在工作流、上下游任务数量，还是任务读写了哪些表。",
       "related_metrics": [
-        "注册用户数",
-        "订单金额"
+        "任务数量",
+        "工作流任务数"
       ],
       "related_tables": [
-        "ods_user",
-        "ods_order"
+        "data_task",
+        "workflow_task_relation",
+        "table_task_relation"
+      ]
+    },
+    {
+      "term": "Doris 只读账号",
+      "aliases": [
+        "只读账号",
+        "数据库只读用户"
+      ],
+      "explanation": "doris_database_users 按 cluster_id + database_name 保存数据库级只读账号和读写账号，供查询脚本在运行时路由使用。",
+      "ambiguous_terms": [
+        "Doris 集群",
+        "数据库路由"
+      ],
+      "ask_back": "请提供明确的 database_name；若同一数据库在多个集群出现，需要进一步确认 cluster_id。",
+      "related_metrics": [
+        "发布记录数"
+      ],
+      "related_tables": [
+        "doris_cluster",
+        "doris_database_users"
       ]
     }
   ]

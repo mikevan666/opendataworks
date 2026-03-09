@@ -55,8 +55,8 @@
 
           <div v-if="!activeMessages.length" class="query-empty">
             <div class="query-empty-mark">AI</div>
-            <div class="query-empty-title">输入业务问题，直接开始分析</div>
-            <div class="query-empty-subtitle">我会调用 Skill 查询元数据，执行 SQL 或 Python，并在适合时自动生成图表。</div>
+            <div class="query-empty-title">输入 OpenDataWorks 场景问题，直接开始分析</div>
+            <div class="query-empty-subtitle">我会结合平台元数据、工作流治理表和托管数据源执行 SQL 或 Python，并在适合时自动生成图表。</div>
             <div class="query-suggestions">
               <button
                 v-for="suggestion in suggestions"
@@ -91,8 +91,8 @@
                   <ToolOutputRenderer :tool="tool" />
                 </div>
 
-                <div v-if="cleanMainText(msg)" class="query-main-text">
-                  <div v-html="renderMarkdown(cleanMainText(msg))"></div>
+                <div v-if="displayMainText(msg)" class="query-main-text">
+                  <div v-html="renderMarkdown(displayMainText(msg))"></div>
                   <span v-if="msg.status === 'streaming'" class="query-cursor">|</span>
                 </div>
 
@@ -158,7 +158,7 @@
               class="query-textarea"
               rows="2"
               :disabled="!settings.providers.length || !availableModels.length"
-              placeholder="例如：查询最近 7 天各业务线订单收入趋势"
+              placeholder="例如：查询最近 30 天工作流发布次数趋势"
               @keydown.ctrl.enter.prevent="handleSend"
               @keydown.meta.enter.prevent="handleSend"
             />
@@ -202,10 +202,10 @@ const selectedProvider = ref(settings.default_provider_id)
 const selectedModel = ref(settings.default_model)
 
 const suggestions = [
-  '查询今日活跃用户数',
-  '最近 7 天订单趋势',
-  '各业务线本月收入对比',
-  '昨日新增用户按来源分布'
+  '各数据层表数量对比',
+  '最近 30 天工作流发布次数趋势',
+  '各工作流发布操作类型占比',
+  '查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘'
 ]
 
 const activeSession = computed(() => sessions.value.find((session) => session.session_id === activeSessionId.value) || null)
@@ -283,7 +283,7 @@ const visibleTools = (msg) => (msg.tools || []).filter((tool) => {
   const name = String(tool.name || '').toLowerCase()
   if (normalizeToolPayload(tool.output)?.kind) return true
   if (tool.status === 'streaming' || tool.status === 'pending' || tool.status === 'failed') return true
-  return !['read', 'read_file', 'readfile', 'skill', 'launch_skill'].includes(name)
+  return !['read', 'read_file', 'readfile', 'skill', 'launch_skill', 'glob'].includes(name)
 })
 
 const cleanMainText = (msg) => {
@@ -291,6 +291,36 @@ const cleanMainText = (msg) => {
   text = text.replace(/Base directory for this skill:[\s\S]*?(?:ARGUMENTS:\s*[^\n]*\n?)/gi, '')
   text = text.replace(/^ARGUMENTS:\s*[^\n]*\n?/gm, '')
   return text.replace(/^\s+/, '')
+}
+
+const looksProceduralMainText = (text) => {
+  const value = String(text || '').trim()
+  if (!value || value.length > 900) return false
+  return [
+    '问题类型',
+    '我来',
+    '让我',
+    '先确认',
+    '先查看',
+    '按照固定阅读顺序',
+    '先按固定阅读顺序',
+    '查看表结构',
+    '现在执行',
+    '执行 SQL',
+    '数据已拿到',
+    '生成饼图',
+    '生成条形图',
+    '生成折线图'
+  ].some((marker) => value.includes(marker))
+}
+
+const displayMainText = (msg) => {
+  const text = cleanMainText(msg)
+  if (!text) return ''
+  if (msg?.status === 'streaming' && (visibleTools(msg).length || looksProceduralMainText(text))) {
+    return ''
+  }
+  return text
 }
 
 const escapeHtml = (text) => String(text || '')
@@ -624,7 +654,10 @@ const processEvent = (msg, event) => {
 
   if (type === 'done') {
     msg.status = String(payload.status || msg.status || 'success')
-    if (payload.content) msg.content = String(payload.content)
+    if (payload.content) {
+      msg.content = String(payload.content)
+      msg.mainText = String(payload.content)
+    }
     if (payload.error) {
       msg.error = typeof payload.error === 'object'
         ? String(payload.error.message || '请求失败')

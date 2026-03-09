@@ -2,46 +2,65 @@
   "schema_version": "1.0",
   "items": [
     {
-      "business_name": "订单数",
-      "table_name": "ods_order",
-      "field_name": "order_id",
+      "business_name": "数据表数量",
+      "table_name": "data_table",
+      "field_name": "id",
       "synonyms": [
-        "订单量",
-        "下单数"
+        "表数量",
+        "表总数",
+        "元数据表数量"
       ],
-      "description": "默认使用订单主键计数，若涉及支付订单需切到支付口径。"
+      "description": "默认统计 data_table 中未删除的数据表记录数。"
     },
     {
-      "business_name": "订单金额",
-      "table_name": "ods_order",
-      "field_name": "total_amount",
+      "business_name": "任务数量",
+      "table_name": "data_task",
+      "field_name": "id",
       "synonyms": [
-        "GMV",
-        "成交额",
-        "销售额"
+        "调度任务数",
+        "任务总数"
       ],
-      "description": "金额类指标默认使用求和；是否只看已支付订单需要确认。"
+      "description": "默认统计 data_task 中未删除的任务记录数。"
     },
     {
-      "business_name": "注册用户数",
-      "table_name": "ods_user",
-      "field_name": "user_id",
+      "business_name": "工作流数量",
+      "table_name": "data_workflow",
+      "field_name": "id",
       "synonyms": [
-        "新增用户",
-        "新注册用户"
+        "工作流总数",
+        "流程数量"
       ],
-      "description": "通常结合注册时间字段按时间粒度做新增统计。"
+      "description": "默认统计 data_workflow 中的工作流定义数量。"
     },
     {
-      "business_name": "活跃用户数",
-      "table_name": null,
-      "field_name": null,
+      "business_name": "发布记录数",
+      "table_name": "workflow_publish_record",
+      "field_name": "id",
       "synonyms": [
-        "活跃用户",
-        "DAU",
-        "MAU"
+        "发布次数",
+        "发布记录数量"
       ],
-      "description": "活跃口径不固定，必须先确认事件定义与时间粒度。"
+      "description": "默认统计 workflow_publish_record 中的发布流水数量。"
+    },
+    {
+      "business_name": "失败发布次数",
+      "table_name": "workflow_publish_record",
+      "field_name": "status",
+      "synonyms": [
+        "发布失败次数",
+        "失败发布数"
+      ],
+      "description": "按 workflow_publish_record.status = 'failed' 过滤后计数。"
+    },
+    {
+      "business_name": "血缘关系数",
+      "table_name": "data_lineage",
+      "field_name": "id",
+      "synonyms": [
+        "血缘边数",
+        "上下游关系数"
+      ],
+      "description": "默认统计 data_lineage 中的表级血缘边数量。"
     }
   ]
 }

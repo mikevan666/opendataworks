@@ -7,7 +7,9 @@ NL2SQL Agent（Skills-first, stream-first）
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
@@ -102,6 +104,63 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         if lower in {"tool_result", "toolresult"}:
             return "tool_result"
         return "raw"
+
+    def _find_latest_tool_block() -> tuple[str | None, dict[str, Any] | None]:
+        for block_id in reversed(block_order):
+            block = blocks.get(block_id) or {}
+            block_type = str(block.get("type") or "")
+            if block_type in {"tool", "tool_use", "tool_result"} or block.get("tool_id") or block.get("tool_name"):
+                return block_id, block
+        return None, None
+
+    def _merge_tool_output(existing: Any, incoming: Any) -> Any:
+        if incoming is None:
+            return existing
+        if existing is None:
+            return incoming
+        if isinstance(existing, str) and isinstance(incoming, str):
+            merged, _ = _append_delta(existing, incoming)
+            return merged
+        if isinstance(existing, list) and isinstance(incoming, list):
+            return existing + incoming
+        if existing == incoming:
+            return existing
+        return incoming
+
+    def _update_tool_block_output(block_id: str, output: Any) -> dict[str, Any]:
+        block = _ensure_block(block_id, "tool")
+        block["type"] = "tool"
+        block["status"] = "success"
+        block["output"] = _merge_tool_output(block.get("output"), output)
+        block["payload"] = {
+            "tool_id": block.get("tool_id"),
+            "tool_name": block.get("tool_name"),
+            "output": block.get("output"),
+        }
+        return block
+
+    def _is_internal_skill_bootstrap(text: str) -> bool:
+        normalized = str(text or "").lstrip()
+        return normalized.startswith("Base directory for this skill:")
+
+    def _handle_user_tool_text(raw_text: str) -> dict[str, Any] | None:
+        text = str(raw_text or "")
+        if not text.strip():
+            return None
+        block_id, block = _find_latest_tool_block()
+        if not block_id or not block:
+            return None
+        tool_name = str(block.get("tool_name") or "")
+        if tool_name.lower() == "skill" and _is_internal_skill_bootstrap(text):
+            return {"ignored": True, "reason": "skill_bootstrap"}
+        updated = _update_tool_block_output(block_id, text)
+        return {
+            "ignored": False,
+            "block_id": block_id,
+            "tool_id": updated.get("tool_id"),
+            "tool_name": updated.get("tool_name"),
+            "output": updated.get("output"),
+        }
 
     prompt = _build_prompt(params.history, params.question)
     system_prompt = _build_system_prompt(params.database_hint)
@@ -239,6 +298,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                                     if mapped_type == "tool_use":
                                         if block_payload.get("id") is not None:
                                             block["tool_id"] = str(block_payload.get("id"))
+                                            tool_block_by_tool_id[block["tool_id"]] = block_id
                                         if block_payload.get("name") is not None:
                                             block["tool_name"] = str(block_payload.get("name"))
                                         block["input"] = block_payload.get("input")
@@ -314,6 +374,12 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
 
                 content = getattr(msg, "content", None)
                 if isinstance(content, str):
+                    if msg_type == "UserMessage":
+                        tool_payload = _handle_user_tool_text(content)
+                        if tool_payload:
+                            if not tool_payload.get("ignored"):
+                                yield _emit("tool.complete", tool_payload)
+                            continue
                     merged, delta = _append_delta(main_text, content)
                     if delta:
                         if not text_started:
@@ -329,8 +395,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
 
                 if isinstance(content, list):
                     # 已有 partial stream 时，AssistantMessage 多为汇总快照，跳过避免重复事件
-                    if saw_partial_stream and (main_text or thinking_text):
+                    if msg_type == "AssistantMessage" and saw_partial_stream and (main_text or thinking_text):
                         continue
+                    user_text_parts: list[str] = []
                     for block in content:
                         block_type, block_text, block_payload = _extract_block(block)
                         lower_type = block_type.lower()
@@ -381,6 +448,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                             tool_block["status"] = "success"
                             if tool_id:
                                 tool_block["tool_id"] = tool_id
+                                tool_block_by_tool_id[tool_id] = block_id
                             tool_block["output"] = tool_output
                             if not tool_block.get("tool_name"):
                                 tool_block["tool_name"] = str(block_payload.get("name") or "Skill")
@@ -399,6 +467,10 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                                     "output": tool_output,
                                 },
                             )
+                            continue
+
+                        if msg_type == "UserMessage" and block_text:
+                            user_text_parts.append(block_text)
                             continue
 
                         if "thinking" in lower_type or "reasoning" in lower_type:
@@ -439,6 +511,12 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                                 },
                             )
 
+                    if msg_type == "UserMessage" and user_text_parts:
+                        tool_payload = _handle_user_tool_text("\n".join(user_text_parts))
+                        if tool_payload and not tool_payload.get("ignored"):
+                            yield _emit("tool.complete", tool_payload)
+                        continue
+
     except Exception as e:
         reason = _format_exception_reason(e)
         logger.exception(
@@ -461,7 +539,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
 
         done_payload = _build_done_payload(
             status="failed",
-            content=main_text.strip() or reason,
+            content=_sanitize_user_visible_content(params.question, main_text.strip() or reason),
             blocks=_serialize_blocks(),
             error=error_payload,
             provider_id=provider_id,
@@ -497,7 +575,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         yield _emit("error", error_payload)
 
     blocks_payload = _serialize_blocks()
-    final_content = main_text.strip() or "已完成。"
+    final_content = _sanitize_user_visible_content(params.question, main_text.strip() or "已完成。")
 
     yield _emit(
         "block_complete",
@@ -541,17 +619,78 @@ def _build_prompt(history: list[dict[str, str]], question: str) -> str:
 
 
 def _build_system_prompt(database_hint: str | None) -> str:
+    python_bin = str(Path(sys.executable).absolute())
     lines = [
         "你是 DataAgent 智能问数助手。",
         "- 数据问题统一通过 dataagent-nl2sql skill 处理。",
-        "- 需要动态元数据、血缘、数据源或 SQL/Python 执行时，优先在 skill 中使用 Bash 运行本地脚本。",
-        "- 不要依赖后端推断数据库；若无法唯一确定库或表，直接追问用户。",
-        "- 仅允许只读查询与只读脚本执行。",
-        "- 最终回答使用中文，结论优先，避免输出与工具结果重复的大段原文。",
+        f"- 需要查元数据、数据源、SQL 或 Python 时，使用 Bash 调用本地脚本：`{python_bin}` 或 `$DATAAGENT_PYTHON_BIN scripts/<name>.py ...`；不要做环境探测或依赖安装。",
+        "- 统计/对比/趋势/占比/明细/诊断问题只做最少阅读，然后立即调用脚本或追问；不要复述 SKILL.md，也不要把 assets/*.json 当主路径。",
+        "- 不要猜数据库、表或口径；不明确就追问。只允许只读执行。",
+        "- `resolve_datasource.py` 只在拿到明确 `db_name` 后调用一次；成功后直接进入 `run_sql.py`。",
+        "- 血缘/诊断问题如果用户已经给出具体表名或平台核心表，直接执行 metadata/SQL 脚本；不要在仓库代码、测试或文档里搜索 lineage/血缘实现，也不要用 ls/rg 找答案。",
+        "- 拿到 `sql_execution` 或成功的 `chart_spec` 后直接基于结果收口；空结果就明确说无数据，不要继续反复试探，也不要让用户自己去跑示例 SQL。",
+        "- 不要在用户可见正文里输出“我来处理”“先看文档”“接下来执行”等过程播报；这些属于内部执行过程。用户只需要最终结论、关键依据和必要限制。",
+        "- 最终回答用中文，结论优先，避免重复工具原文。",
     ]
     if database_hint:
         lines.append(f"- 用户显式提供的 database hint: {database_hint}")
     return "\\n".join(lines)
+
+
+def _looks_like_procedural_preamble(text: str) -> bool:
+    snippet = str(text or "").strip()
+    if not snippet or len(snippet) > 900:
+        return False
+    markers = (
+        "问题类型",
+        "我来",
+        "让我",
+        "先确认",
+        "先查看",
+        "先读",
+        "先按固定阅读顺序",
+        "按照固定阅读顺序",
+        "需要先确认",
+        "查看表结构",
+        "字段名",
+        "直接执行",
+        "现在执行",
+        "执行 sql",
+        "生成饼图",
+        "生成条形图",
+        "生成折线图",
+        "数据已拿到",
+        "根据 playbook",
+    )
+    lower = snippet.lower()
+    return any(marker in snippet or marker in lower for marker in markers)
+
+
+def _sanitize_user_visible_content(question: str, content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return text
+
+    anchors: list[int] = []
+    question_text = str(question or "").strip()
+    if question_text:
+        question_index = text.find(question_text)
+        if question_index > 0:
+            anchors.append(question_index)
+
+    for marker in ("\n## ", "## ", "\n### ", "### ", "\n结论：", "结论："):
+        index = text.find(marker)
+        if index > 0:
+            anchors.append(index + 1 if marker.startswith("\n") else index)
+
+    if not anchors:
+        return text
+
+    anchor = min(anchors)
+    preamble = text[:anchor].strip()
+    if not _looks_like_procedural_preamble(preamble):
+        return text
+    return text[anchor:].lstrip()
 
 
 def _extract_block(block: Any) -> tuple[str, str, dict[str, Any]]:
@@ -651,6 +790,10 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
 
 
 def _build_runtime_env(cfg, provider_env: dict[str, str]) -> dict[str, str]:
+    python_bin = Path(sys.executable).absolute()
+    python_dir = str(python_bin.parent)
+    existing_path = str(os.getenv("PATH") or "").strip()
+    runtime_path = python_dir if not existing_path else f"{python_dir}:{existing_path}"
     runtime_env = dict(provider_env)
     runtime_env.update(
         {
@@ -661,6 +804,9 @@ def _build_runtime_env(cfg, provider_env: dict[str, str]) -> dict[str, str]:
             "ODW_MYSQL_DATABASE": str(cfg.mysql_database or "opendataworks").strip() or "opendataworks",
             "DATAAGENT_QUERY_LIMIT": str(int(cfg.query_result_limit or 100)),
             "DATAAGENT_RESULT_PREVIEW_ROWS": str(min(20, int(cfg.query_result_limit or 100))),
+            "DATAAGENT_PYTHON_BIN": str(python_bin),
+            "VIRTUAL_ENV": str(python_bin.parent.parent),
+            "PATH": runtime_path,
             "TZ": str(os.getenv("TZ") or "Asia/Shanghai"),
         }
     )

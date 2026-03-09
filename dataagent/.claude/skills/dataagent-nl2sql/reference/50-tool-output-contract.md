@@ -23,15 +23,15 @@
 {
   "kind": "sql_execution",
   "tool_label": "SQL 执行",
-  "engine": "doris",
-  "database": "ads_sales",
-  "sql": "select ...",
-  "columns": ["dt", "gmv"],
-  "rows": [{"dt": "2026-03-01", "gmv": 123}],
-  "row_count": 7,
+  "engine": "mysql",
+  "database": "opendataworks",
+  "sql": "select date(created_at) as stat_day, count(*) as publish_cnt from workflow_publish_record ...",
+  "columns": ["stat_day", "publish_cnt"],
+  "rows": [{"stat_day": "2026-03-01", "publish_cnt": 3}],
+  "row_count": 30,
   "has_more": false,
   "duration_ms": 120,
-  "summary": "返回最近7天趋势数据",
+  "summary": "返回最近30天工作流发布次数趋势数据",
   "error": null
 }
 ```
@@ -48,14 +48,14 @@
 {
   "kind": "chart_spec",
   "chart_type": "line",
-  "title": "最近7天订单趋势",
-  "description": "按天展示订单金额变化",
-  "x_field": "dt",
+  "title": "最近30天工作流发布趋势",
+  "description": "按天展示 workflow_publish_record 发布次数变化",
+  "x_field": "stat_day",
   "series": [
-    { "name": "订单金额", "field": "gmv", "type": "line" }
+    { "name": "发布次数", "field": "publish_cnt", "type": "line" }
   ],
   "dataset": [
-    { "dt": "2026-03-01", "gmv": 123 }
+    { "stat_day": "2026-03-01", "publish_cnt": 3 }
   ],
   "error": null
 }
@@ -64,9 +64,11 @@
 ## 图表规则
 
 - 时间维度 + 数值指标：优先 `line`
-- 分类维度 + 单指标且类别数 2 到 8：优先 `pie`
 - 分类维度 + 对比或 TopN：优先 `bar`
+- 占比分析且类别数 2 到 8：优先 `pie`
 - 不适合图表时，不输出 `chart_spec`，只保留表格
+- 生成图表时，优先把完整 `sql_execution` JSON 直接作为 `build_chart_spec.py --input` 传入；只有 JSON 过长时才落临时文件。
+- 对比 / 趋势 / 占比场景，必须显式传 `--chart-type`，不要把图表类型完全交给脚本猜。
 
 ## 图表模板来源
 

@@ -6,31 +6,47 @@
 
 | 问题类型 | 先看什么 | 优先脚本 | 默认结果 |
 | --- | --- | --- | --- |
-| 统计 | `10-query-playbooks.md`、`21-metric-index.md` | `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 对比 | `10-query-playbooks.md`、`21-metric-index.md` | `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 条形图 / 表格 |
-| 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
-| 占比 | `10-query-playbooks.md`、`20-term-index.md` | `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
-| 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py` | 表格 |
+| 统计 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
+| 对比 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 条形图 / 表格 |
+| 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
+| 占比 | `10-query-playbooks.md`、`20-term-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
+| 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
+| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `run_sql.py`，托管业务表走 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py` | 表格 |
 | 术语解释 | `20-term-index.md` | 无，必要时回看资产 | 中文解释 |
 | SQL 示例 | `22-sql-example-index.md` | 无，必要时回看资产 | SQL 模板示例 |
 
 ## 快速判断规则
 
-- 问“多少、总数、总金额”通常是统计
-- 问“哪个更多、各业务线、各来源”通常是对比或占比
-- 问“最近 7 天、按天变化、趋势”通常是趋势
-- 问“明细、列表、最近订单”通常是明细
-- 问“为什么异常、为什么下降、排查”通常是诊断
-- 问“什么是 GMV、活跃用户是什么意思”属于术语解释
+- 问“多少、数量、总数、次数”通常是统计
+- 问“各层级、各状态、各工作流、各引擎”通常是对比或占比
+- 问“最近 30 天、按天变化、趋势”通常是趋势
+- 问“明细、列表、最近失败记录”通常是明细
+- 问“某张表的上游下游、某数据库路由到哪个集群、某任务被哪个工作流管理”通常是诊断
+- 问“什么是数据层级、血缘关系、工作流发布记录”属于术语解释
 - 问“给个 SQL、类似 SQL 怎么写”属于 SQL 示例
+
+## 平台核心表直达规则
+
+如果问题明确指向下列平台核心表，并且字段也足够清楚，可以直接路由到 `opendataworks` MySQL 执行，不必先走 `inspect_metadata.py`：
+
+- `data_table`
+- `data_field`
+- `data_lineage`
+- `data_task`
+- `table_task_relation`
+- `data_workflow`
+- `workflow_task_relation`
+- `workflow_version`
+- `workflow_publish_record`
+- `doris_cluster`
+- `doris_database_users`
 
 ## 先追问的情形
 
-- 活跃用户、支付金额、GMV、来源、业务线口径不清
+- 数据层级、发布状态、任务依赖、Doris 只读账号口径不清
 - 对比维度没说清
 - 趋势指标没说清
-- 数据库不清或有多个候选库
+- 同名表可能存在于多个数据库
 - 时间范围与时间粒度不清
 
 ## 何时下钻资产
@@ -41,7 +57,7 @@
 
 ## 何时执行脚本
 
-- 只要库表字段不清，先 `inspect_metadata.py`
-- 只要引擎不清，先 `resolve_datasource.py`
-- 只有 SQL 已明确、且数据库已明确时，才 `run_sql.py`
-- 只有结果结构适合图表时，才 `build_chart_spec.py`
+- 平台核心表问题且字段已清楚：可直接 `run_sql.py`
+- 托管业务表、字段或库表不清：先 `inspect_metadata.py`
+- 引擎不清：再 `resolve_datasource.py`
+- 结果结构适合图表：再 `build_chart_spec.py`

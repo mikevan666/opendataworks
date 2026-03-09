@@ -4,81 +4,117 @@
 
 ## 术语解释资产
 
-### 新增用户
-- 别名：新用户、注册用户
-- 解释：在指定时间窗口内首次注册或首次建档的用户数，通常按注册时间字段统计。
-- 易混术语：活跃用户、留存用户
-- 推荐追问：请确认新增的定义是注册用户还是首次下单用户，以及统计时间范围。
-- 相关指标：注册用户数
-- 相关表：ods_user
+### Doris 只读账号
+- 别名：只读账号、数据库只读用户
+- 解释：doris_database_users 按 cluster_id + database_name 保存数据库级只读账号和读写账号，供查询脚本在运行时路由使用。
+- 易混术语：Doris 集群、数据库路由
+- 推荐追问：请提供明确的 database_name；若同一数据库在多个集群出现，需要进一步确认 cluster_id。
+- 相关指标：发布记录数
+- 相关表：doris_cluster、doris_database_users
 - 来源：`assets/term_explanations.json`
 
-### 来源分布
-- 别名：渠道分布、来源占比
-- 解释：按来源、渠道、入口等分类字段统计数量或金额占比。类别较少时更适合用饼图。
-- 易混术语：业务线分布、地区分布
-- 推荐追问：请确认来源字段是渠道、推广来源还是业务线，并确认是否需要占比展示。
-- 相关指标：注册用户数、订单金额
-- 相关表：ods_user、ods_order
+### 任务依赖
+- 别名：上下游任务、任务上下游
+- 解释：任务依赖通常结合 workflow_task_relation 的上下游计数，以及 table_task_relation / data_lineage 推导出的读写关系来理解。
+- 易混术语：血缘关系、工作流关系
+- 推荐追问：请确认你要看的是任务所在工作流、上下游任务数量，还是任务读写了哪些表。
+- 相关指标：任务数量、工作流任务数
+- 相关表：data_task、workflow_task_relation、table_task_relation
 - 来源：`assets/term_explanations.json`
 
-### 活跃用户
-- 别名：DAU、日活、活跃用户数
-- 解释：在给定时间窗口内发生某种活跃行为的去重用户数。活跃行为通常是登录、访问、下单或支付。
-- 易混术语：新增用户、留存用户
-- 推荐追问：请确认活跃的判定行为，以及需要按天、按周还是按月统计。
-- 相关指标：注册用户数
-- 相关表：ods_user
+### 工作流发布记录
+- 别名：发布记录、工作流发布流水
+- 解释：workflow_publish_record 记录平台将某个 workflow 版本发布到目标引擎的动作、状态、操作人和时间。
+- 易混术语：工作流状态、发布状态
+- 推荐追问：请确认你想看的是历史发布记录，还是 data_workflow 上的当前 publish_status。
+- 相关指标：发布记录数、失败发布次数
+- 相关表：workflow_publish_record、data_workflow
 - 来源：`assets/term_explanations.json`
 
-### 订单金额
-- 别名：GMV、成交额、销售额
-- 解释：订单金额通常是订单总金额求和，但是否只统计已支付订单、是否扣除退款需要额外确认。
-- 易混术语：支付金额、实收金额
-- 推荐追问：请确认是否只统计已支付订单，以及是否需要扣除退款或取消订单。
-- 相关指标：订单金额、支付订单数
-- 相关表：ods_order、dws_order_daily
+### 数据层级
+- 别名：表层级、层级、ODS/DWD/DIM/DWS/ADS
+- 解释：数据层级描述表在数仓中的分层位置。OpenDataWorks 当前使用 ODS、DWD、DIM、DWS、ADS 五类层级保存到 data_table.layer。
+- 易混术语：业务域、数据域
+- 推荐追问：请确认你想看的是 layer 分布，还是 business_domain / data_domain 维度。
+- 相关指标：数据表数量
+- 相关表：data_table
+- 来源：`assets/term_explanations.json`
+
+### 血缘关系
+- 别名：上下游血缘、lineage
+- 解释：血缘关系描述数据表之间的输入输出依赖，平台表 data_lineage 记录 upstream_table_id 和 downstream_table_id。
+- 易混术语：任务依赖、工作流依赖
+- 推荐追问：请提供明确的表名；如果同名表可能存在于多个数据库，请一并提供 db_name。
+- 相关指标：血缘关系数
+- 相关表：data_lineage、data_table
 - 来源：`assets/term_explanations.json`
 
 ## 业务概念补充
 
-### 注册用户数
-- 说明：用户注册数量
-- 默认映射：`ods_user / user_id / count`
+### 任务数量
+- 说明：当前平台中满足过滤条件的任务数量。
+- 默认映射：`data_task / id / count`
 - 来源：`assets/business_concepts.json`
 
-### 订单数
-- 说明：订单记录数量
-- 默认映射：`ods_order / order_id / count`
+### 发布记录数
+- 说明：工作流发布记录总数。
+- 默认映射：`workflow_publish_record / id / count`
 - 来源：`assets/business_concepts.json`
 
-### 订单金额
-- 说明：订单总金额
-- 默认映射：`ods_order / total_amount / sum`
+### 工作流任务数
+- 说明：某个工作流下已绑定的任务数量。
+- 默认映射：`workflow_task_relation / task_id / count`
+- 来源：`assets/business_concepts.json`
+
+### 工作流数量
+- 说明：当前平台中满足过滤条件的工作流数量。
+- 默认映射：`data_workflow / id / count`
+- 来源：`assets/business_concepts.json`
+
+### 数据表数量
+- 说明：当前元数据中满足过滤条件的数据表数量。
+- 默认映射：`data_table / id / count`
+- 来源：`assets/business_concepts.json`
+
+### 血缘关系数
+- 说明：表级血缘边数量。
+- 默认映射：`data_lineage / id / count`
 - 来源：`assets/business_concepts.json`
 
 ## 语义映射补充
 
-### 注册用户数
-- 同义词：新增用户、新注册用户
-- 候选表字段：`ods_user / user_id`
-- 说明：通常结合注册时间字段按时间粒度做新增统计。
+### 任务数量
+- 同义词：调度任务数、任务总数
+- 候选表字段：`data_task / id`
+- 说明：默认统计 data_task 中未删除的任务记录数。
 - 来源：`assets/semantic_mappings.json`
 
-### 活跃用户数
-- 同义词：活跃用户、DAU、MAU
-- 候选表字段：`- / -`
-- 说明：活跃口径不固定，必须先确认事件定义与时间粒度。
+### 发布记录数
+- 同义词：发布次数、发布记录数量
+- 候选表字段：`workflow_publish_record / id`
+- 说明：默认统计 workflow_publish_record 中的发布流水数量。
 - 来源：`assets/semantic_mappings.json`
 
-### 订单数
-- 同义词：订单量、下单数
-- 候选表字段：`ods_order / order_id`
-- 说明：默认使用订单主键计数，若涉及支付订单需切到支付口径。
+### 失败发布次数
+- 同义词：发布失败次数、失败发布数
+- 候选表字段：`workflow_publish_record / status`
+- 说明：按 workflow_publish_record.status = 'failed' 过滤后计数。
 - 来源：`assets/semantic_mappings.json`
 
-### 订单金额
-- 同义词：GMV、成交额、销售额
-- 候选表字段：`ods_order / total_amount`
-- 说明：金额类指标默认使用求和；是否只看已支付订单需要确认。
+### 工作流数量
+- 同义词：工作流总数、流程数量
+- 候选表字段：`data_workflow / id`
+- 说明：默认统计 data_workflow 中的工作流定义数量。
+- 来源：`assets/semantic_mappings.json`
+
+### 数据表数量
+- 同义词：表数量、表总数、元数据表数量
+- 候选表字段：`data_table / id`
+- 说明：默认统计 data_table 中未删除的数据表记录数。
+- 来源：`assets/semantic_mappings.json`
+
+### 血缘关系数
+- 同义词：血缘边数、上下游关系数
+- 候选表字段：`data_lineage / id`
+- 说明：默认统计 data_lineage 中的表级血缘边数量。
 - 来源：`assets/semantic_mappings.json`
