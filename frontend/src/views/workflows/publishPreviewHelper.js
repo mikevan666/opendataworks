@@ -20,6 +20,14 @@ const formatFieldValue = (value) => {
   return String(value)
 }
 
+const renderValueCell = (value) => {
+  return `
+    <div style="white-space: pre-wrap; word-break: break-word; font-family: Menlo, Monaco, Consolas, monospace; line-height: 1.5; max-height: 180px; overflow: auto;">
+      ${escapeHtml(formatFieldValue(value))}
+    </div>
+  `
+}
+
 const formatTask = (task) => {
   if (!task) return '-'
   const code = task.taskCode ?? '-'
@@ -52,9 +60,9 @@ const renderFieldChanges = (title, changes = []) => {
   const rows = changes.slice(0, MAX_RENDER_COUNT)
     .map((item) => `
       <tr>
-        <td style="padding: 6px 8px; border: 1px solid #ebeef5;">${escapeHtml(item?.field || '-')}</td>
-        <td style="padding: 6px 8px; border: 1px solid #ebeef5;">${escapeHtml(formatFieldValue(item?.before))}</td>
-        <td style="padding: 6px 8px; border: 1px solid #ebeef5;">${escapeHtml(formatFieldValue(item?.after))}</td>
+        <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${escapeHtml(item?.field || '-')}</td>
+        <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${renderValueCell(item?.before)}</td>
+        <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${renderValueCell(item?.after)}</td>
       </tr>
     `)
     .join('')
@@ -70,8 +78,8 @@ const renderFieldChanges = (title, changes = []) => {
           <thead>
             <tr>
               <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">字段</th>
-              <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更前</th>
-              <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更后</th>
+              <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更前（运行态）</th>
+              <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更后（平台）</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -106,15 +114,36 @@ const renderTaskModified = (changes = []) => {
   }
   const rendered = changes.slice(0, MAX_RENDER_COUNT)
     .map((item) => {
-      const details = Array.isArray(item?.fieldChanges)
+      const rows = Array.isArray(item?.fieldChanges)
         ? item.fieldChanges.slice(0, 10)
-          .map((change) => `<li>${escapeHtml(change?.field || '-')}：${escapeHtml(formatFieldValue(change?.before))} -> ${escapeHtml(formatFieldValue(change?.after))}</li>`)
+          .map((change) => `
+            <tr>
+              <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${escapeHtml(change?.field || '-')}</td>
+              <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${renderValueCell(change?.before)}</td>
+              <td style="padding: 6px 8px; border: 1px solid #ebeef5; vertical-align: top;">${renderValueCell(change?.after)}</td>
+            </tr>
+          `)
           .join('')
         : ''
       return `
         <div style="border: 1px solid #ebeef5; border-radius: 4px; padding: 8px; margin-bottom: 6px;">
           <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(formatTask(item))}</div>
-          <ul style="margin: 0 0 0 16px; line-height: 1.6;">${details || '<li>-</li>'}</ul>
+          <div style="overflow:auto; max-height: 260px;">
+            <table style="border-collapse: collapse; width: 100%; font-size: 12px; color: #606266;">
+              <thead>
+                <tr>
+                  <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">字段</th>
+                  <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更前（运行态）</th>
+                  <th style="padding: 6px 8px; border: 1px solid #ebeef5; text-align: left;">变更后（平台）</th>
+                </tr>
+              </thead>
+              <tbody>${rows || `
+                <tr>
+                  <td colspan="3" style="padding: 6px 8px; border: 1px solid #ebeef5; color: #909399;">-</td>
+                </tr>
+              `}</tbody>
+            </table>
+          </div>
         </div>
       `
     })
@@ -190,10 +219,23 @@ export const buildPublishPreviewHtml = (preview) => {
   return `
     <div style="max-height: 65vh; overflow: auto; padding-right: 8px;">
       <div>检测到平台定义与 Dolphin 运行态存在差异，确认后将按平台定义发布。</div>
+      <div style="margin-top: 4px; color: #909399;">变更前为 Dolphin 运行态当前值，变更后为平台本次发布目标值。</div>
       ${warnings}
       ${sections}
     </div>
   `
+}
+
+export const resolvePublishVersionId = (workflow) => {
+  const lastPublishedVersionId = Number(workflow?.lastPublishedVersionId)
+  if (Number.isFinite(lastPublishedVersionId) && lastPublishedVersionId > 0) {
+    return lastPublishedVersionId
+  }
+  const currentVersionId = Number(workflow?.currentVersionId)
+  if (Number.isFinite(currentVersionId) && currentVersionId > 0) {
+    return currentVersionId
+  }
+  return undefined
 }
 
 export const buildPublishRepairHtml = (preview) => {

@@ -237,7 +237,8 @@ import {
   buildPublishPreviewHtml,
   buildPublishRepairHtml,
   firstPreviewErrorMessage,
-  isDialogCancel
+  isDialogCancel,
+  resolvePublishVersionId
 } from './publishPreviewHelper'
 import WorkflowCreateDrawer from './WorkflowCreateDrawer.vue'
 import WorkflowBackfillDialog from './WorkflowBackfillDialog.vue'
@@ -659,26 +660,15 @@ const handleBackfillSubmitted = () => {
 
 const handleOnline = async (row) => {
   if (!row?.id) return
+  if (!row?.workflowCode) {
+    ElMessage.warning('工作流尚未发布，请先执行发布后再上线')
+    return
+  }
   setActionLoading(row.id, 'online', true)
   try {
-    const canPublish = await previewPublishAndConfirm(row)
-    if (!canPublish) {
-      return
-    }
-    const deployRecord = await workflowApi.publish(row.id, {
-      operation: 'deploy',
-      requireApproval: false,
-      operator: 'portal-ui',
-      confirmDiff: true
-    })
-    updatePendingFlag(row.id, deployRecord?.status)
-    if (deployRecord?.status === 'pending_approval') {
-      ElMessage.warning('部署已提交审批，审批通过后再上线')
-      return
-    }
-
     const onlineRecord = await workflowApi.publish(row.id, {
       operation: 'online',
+      versionId: resolvePublishVersionId(row),
       requireApproval: false,
       operator: 'portal-ui'
     })
@@ -703,6 +693,7 @@ const handleOffline = async (row) => {
   try {
     const record = await workflowApi.publish(row.id, {
       operation: 'offline',
+      versionId: resolvePublishVersionId(row),
       requireApproval: false,
       operator: 'portal-ui'
     })
