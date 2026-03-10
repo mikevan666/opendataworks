@@ -137,3 +137,34 @@ def test_legacy_chart_arguments_are_supported():
     assert chart["version"] == 1
     assert chart["chart_type"] == "pie"
     assert chart["title"] == "各工作流发布操作类型占比"
+
+
+def test_x_y_field_aliases_are_supported():
+    data = [
+        {"stat_day": "2026-02-26", "publish_cnt": 4},
+        {"stat_day": "2026-02-27", "publish_cnt": 0},
+    ]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--chart-type",
+            "line",
+            "--data",
+            json.dumps(data, ensure_ascii=False),
+            "--x-field",
+            "stat_day",
+            "--y-field",
+            "publish_cnt",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    chart = json.loads(result.stdout)
+
+    assert chart["version"] == 1
+    assert chart["chart_type"] == "line"
+    assert chart["x_field"] == "stat_day"
+    assert chart["series"][0]["field"] == "publish_cnt"
