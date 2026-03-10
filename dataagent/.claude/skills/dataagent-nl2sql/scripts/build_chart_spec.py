@@ -117,8 +117,8 @@ def main():
     parser.add_argument("--chart-type", default="")
     parser.add_argument("--title", default="")
     parser.add_argument("--data", default="")
-    parser.add_argument("--category-field", default="")
-    parser.add_argument("--value-field", default="")
+    parser.add_argument("--category-field", "--x-field", dest="category_field", default="")
+    parser.add_argument("--value-field", "--y-field", dest="value_field", default="")
     args = parser.parse_args()
 
     try:
