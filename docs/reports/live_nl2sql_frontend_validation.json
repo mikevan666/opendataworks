@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-03-09T13:10:00+08:00",
+  "url": "http://127.0.0.1:3000/intelligent-query",
+  "mode": "real_browser_manual_automation",
+  "scenarios": [
+    {
+      "scenario_id": "frontend_share_chart",
+      "question": "各工作流发布操作类型占比",
+      "passed": true,
+      "observed_at_seconds": 90,
+      "chart_count": 1,
+      "canvas_count": 1,
+      "tool_labels": [
+        "图表渲染"
+      ],
+      "errors": [],
+      "notes": [
+        "页面真实发送成功",
+        "页面真实渲染饼图",
+        "工具输出显示为图表渲染"
+      ]
+    },
+    {
+      "scenario_id": "frontend_diagnosis_sql",
+      "question": "查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘",
+      "passed": true,
+      "observed_at_seconds": 60,
+      "sql_tool_count": 1,
+      "tool_labels": [
+        "SQL 执行"
+      ],
+      "errors": [],
+      "notes": [
+        "页面真实发送成功",
+        "页面真实展示 SQL 执行块",
+        "页面正文包含上游/下游/血缘分析结果"
+      ]
+    }
+  ],
+  "summary": {
+    "total_checks": 2,
+    "passed_checks": 2,
+    "failed_checks": 0
+  }
+}

@@ -8,7 +8,7 @@
   ],
   "required_fields": [
     "columns",
-    "rows"
+    "dataset"
   ],
   "spec_hints": {
     "default_limit": 100,

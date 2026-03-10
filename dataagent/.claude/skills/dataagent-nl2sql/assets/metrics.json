@@ -2,22 +2,40 @@
   "schema_version": "1.0",
   "items": [
     {
-      "metric_key": "order_cnt",
-      "name": "订单数",
-      "formula": "COUNT(ods_order.order_id)",
-      "default_time_field": "order_time"
+      "metric_key": "table_cnt",
+      "name": "数据表数量",
+      "formula": "COUNT(data_table.id)",
+      "default_time_field": "created_at"
     },
     {
-      "metric_key": "order_amount",
-      "name": "订单金额",
-      "formula": "SUM(ods_order.total_amount)",
-      "default_time_field": "order_time"
+      "metric_key": "task_cnt",
+      "name": "任务数量",
+      "formula": "COUNT(data_task.id)",
+      "default_time_field": "created_at"
     },
     {
-      "metric_key": "paid_order_cnt",
-      "name": "支付订单数",
-      "formula": "SUM(dws_order_daily.paid_orders)",
-      "default_time_field": "stat_date"
+      "metric_key": "workflow_cnt",
+      "name": "工作流数量",
+      "formula": "COUNT(data_workflow.id)",
+      "default_time_field": "created_at"
+    },
+    {
+      "metric_key": "publish_record_cnt",
+      "name": "发布记录数",
+      "formula": "COUNT(workflow_publish_record.id)",
+      "default_time_field": "created_at"
+    },
+    {
+      "metric_key": "failed_publish_cnt",
+      "name": "失败发布次数",
+      "formula": "SUM(CASE WHEN workflow_publish_record.status = 'failed' THEN 1 ELSE 0 END)",
+      "default_time_field": "created_at"
+    },
+    {
+      "metric_key": "lineage_edge_cnt",
+      "name": "血缘关系数",
+      "formula": "COUNT(data_lineage.id)",
+      "default_time_field": "created_at"
     }
   ]
 }

@@ -4,55 +4,69 @@
 
 ## SQL 示例
 
-### 新增用户来源占比
+### 各工作流发布操作类型占比
 - 场景：占比分析
 - 引擎：`mysql`
-- 问题：昨日新增用户按来源分布
-- SQL 摘要：`SELECT source, COUNT(DISTINCT user_id) AS new_user_cnt`
-- 注意事项：若来源字段类别过多，优先回退为条形图或表格。、需要确认新增用户是否以注册时间为准。
-- 相关术语：新增用户、来源分布
+- 问题：各工作流发布操作类型占比
+- SQL 摘要：`SELECT operation, COUNT(*) AS publish_cnt`
+- 注意事项：如果操作类型类别超过 8 个，应回退为条形图或表格。、若用户只关心最近一段时间，可追加 created_at 时间过滤。
+- 相关术语：工作流发布记录、操作类型
 - 来源：`assets/sql_examples.json`
 
-### 订单数分组对比
+### 各数据层表数量对比
 - 场景：对比分析
-- 引擎：`doris`
-- 问题：本月各业务线订单数对比
-- SQL 摘要：`SELECT biz_line, COUNT(order_id) AS order_cnt`
-- 注意事项：若业务线字段不明确，先查元数据再决定维度字段。、对比分析默认使用相同时间范围和相同过滤条件。
-- 相关术语：订单数、对比分析
+- 引擎：`mysql`
+- 问题：各数据层表数量对比
+- SQL 摘要：`SELECT layer, COUNT(*) AS table_cnt`
+- 注意事项：若用户强调有效表，可追加 status='active'。、layer 是对比维度，默认输出条形图。
+- 相关术语：数据层级、数据表数量
 - 来源：`assets/sql_examples.json`
 
-### 订单明细查询
+### 工作流发布记录明细
 - 场景：明细查询
 - 引擎：`mysql`
-- 问题：查看昨日支付成功订单明细
-- SQL 摘要：`SELECT order_id, user_id, total_amount, pay_status, order_time`
-- 注意事项：明细查询必须带 LIMIT。、若需要更多字段，先通过 inspect_metadata.py 确认字段含义。
-- 相关术语：订单明细、支付订单
+- 问题：最近工作流发布记录
+- SQL 摘要：`SELECT workflow_id, version_id, target_engine, operation, status, operator, created_at`
+- 注意事项：明细查询必须带 LIMIT。、如果用户只关心失败记录，可追加 status='failed' 过滤。
+- 相关术语：工作流发布记录、发布记录数
 - 来源：`assets/sql_examples.json`
 
-### 订单金额趋势
+### dwd_tech_dev_inspection_rule_cnt_di 上下游血缘定位
+- 场景：诊断
+- 引擎：`mysql`
+- 问题：查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘
+- SQL 摘要：`SELECT dl.lineage_type,`
+- 注意事项：如果用户换成其他表名，按同样模板替换表名即可。、血缘定位默认输出表格，不强制出图。
+- 相关术语：血缘关系、上下游血缘
+- 来源：`assets/sql_examples.json`
+
+### 工作流发布次数趋势
 - 场景：趋势分析
-- 引擎：`doris`
-- 问题：最近 7 天订单金额趋势
-- SQL 摘要：`SELECT stat_date, SUM(total_amount) AS order_amount`
-- 注意事项：先确认金额口径是否只看已支付订单。、优先使用日汇总表，避免直接扫明细事实表。
-- 相关术语：订单金额、趋势分析
+- 引擎：`mysql`
+- 问题：最近 30 天工作流发布次数趋势
+- SQL 摘要：`SELECT DATE(created_at) AS stat_day, COUNT(*) AS publish_cnt`
+- 注意事项：默认按 created_at 做按天趋势。、如果用户要求只看失败发布，需要额外加 status='failed' 过滤。
+- 相关术语：工作流发布记录、趋势分析
 - 来源：`assets/sql_examples.json`
 
 ## Few-shot 提示补充
 
-### 最近 7 天订单金额趋势
-- 标签：趋势分析、折线图、订单金额
-- 答案摘要：先按趋势分析处理。优先确认时间字段与订单金额口径，定位到订单事实表或日汇总表后，按天聚合订单金额，默认输出折线图，并保留表格结果作为核对依据。
+### 最近 30 天工作流发布次数趋势
+- 标签：趋势分析、折线图、工作流发布
+- 答案摘要：先按趋势分析处理。确认使用 workflow_publish_record 的 created_at 作为时间字段，按天聚合发布记录数，默认输出折线图，并保留表格结果作为核对依据。
 - 来源：`assets/few_shots.json`
 
-### 本月各业务线订单数对比
-- 标签：对比分析、条形图、订单数
-- 答案摘要：先按对比分析处理。确认业务线维度字段、统计周期和订单数定义后，按业务线聚合订单数，输出条形图；若业务线口径不唯一，必须先追问。
+### 各数据层表数量对比
+- 标签：对比分析、条形图、数据表数量
+- 答案摘要：先按对比分析处理。使用 data_table.layer 作为对比维度、COUNT(id) 作为指标，默认过滤 deleted=0；如果用户强调有效表，再补 status='active' 过滤，并输出条形图。
 - 来源：`assets/few_shots.json`
 
-### 昨日新增用户按来源分布
-- 标签：占比分析、饼图、新增用户
-- 答案摘要：先按占比分析处理。确认新增用户定义和来源字段后，统计昨日各来源用户数；类别数较少时输出饼图，否则回退为表格或条形图。
+### 各工作流发布操作类型占比
+- 标签：占比分析、饼图、工作流发布
+- 答案摘要：先按占比分析处理。使用 workflow_publish_record.operation 作为分类维度、COUNT(id) 作为指标；类别较少时输出饼图，否则回退为条形图或表格。
+- 来源：`assets/few_shots.json`
+
+### 查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘
+- 标签：诊断、血缘关系、表格
+- 答案摘要：先按诊断处理。已给出明确表名，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL，不要搜索仓库代码或文档实现，默认输出表格和简短诊断结论。
 - 来源：`assets/few_shots.json`

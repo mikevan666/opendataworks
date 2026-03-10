@@ -140,6 +140,9 @@ class SessionStore:
         run_id: str,
         content: str,
         status: str,
+        stop_reason: str | None,
+        stop_sequence: str | None,
+        usage: dict[str, Any] | None,
         blocks: list[dict[str, Any]],
         error: dict[str, Any] | None,
         provider_id: str,
@@ -147,6 +150,7 @@ class SessionStore:
     ) -> dict[str, Any]:
         self._ensure_ready()
         error_json = json.dumps(error, ensure_ascii=False, default=_json_default) if error else None
+        usage_json = json.dumps(usage, ensure_ascii=False, default=_json_default) if usage else None
 
         conn = self._connect(database=self._schema_name())
         try:
@@ -154,13 +158,16 @@ class SessionStore:
                 cur.execute(
                     """
                     INSERT INTO da_chat_message (
-                        message_id, session_id, role, status, run_id, content,
-                        error_json, provider_id, model_name
-                    ) VALUES (%s, %s, 'assistant', %s, %s, %s, %s, %s, %s)
+                        message_id, session_id, role, status, stop_reason, stop_sequence, run_id, content,
+                        usage_json, error_json, provider_id, model_name
+                    ) VALUES (%s, %s, 'assistant', %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         status = VALUES(status),
+                        stop_reason = VALUES(stop_reason),
+                        stop_sequence = VALUES(stop_sequence),
                         run_id = VALUES(run_id),
                         content = VALUES(content),
+                        usage_json = VALUES(usage_json),
                         error_json = VALUES(error_json),
                         provider_id = VALUES(provider_id),
                         model_name = VALUES(model_name),
@@ -170,8 +177,11 @@ class SessionStore:
                         message_id,
                         session_id,
                         status,
+                        stop_reason,
+                        stop_sequence,
                         run_id,
                         content or "",
+                        usage_json,
                         error_json,
                         provider_id,
                         model,
@@ -206,6 +216,9 @@ class SessionStore:
             "run_id": run_id,
             "status": status,
             "content": content or "",
+            "stop_reason": stop_reason,
+            "stop_sequence": stop_sequence,
+            "usage": usage,
             "blocks": blocks,
             "error": error,
             "provider_id": provider_id,
@@ -290,7 +303,7 @@ class SessionStore:
             with conn.cursor() as cur:
                 cur.execute(
                     (
-                        "SELECT message_id, session_id, role, status, run_id, content, error_json, "
+                        "SELECT message_id, session_id, role, status, stop_reason, stop_sequence, run_id, content, usage_json, error_json, "
                         "provider_id, model_name, created_at "
                         "FROM da_chat_message "
                         f"WHERE session_id IN ({placeholders}) "
@@ -309,12 +322,16 @@ class SessionStore:
         for row in rows:
             msg_id = str(row.get("message_id") or "")
             error = _safe_json_load(row.get("error_json"))
+            usage = _safe_json_load(row.get("usage_json"))
             message = {
                 "message_id": msg_id,
                 "role": row.get("role"),
                 "status": row.get("status") or "success",
+                "stop_reason": row.get("stop_reason") or None,
+                "stop_sequence": row.get("stop_sequence") or None,
                 "run_id": row.get("run_id"),
                 "content": row.get("content") or "",
+                "usage": usage if isinstance(usage, dict) else None,
                 "blocks": blocks_map.get(msg_id, []),
                 "error": error if isinstance(error, dict) else None,
                 "provider_id": row.get("provider_id"),

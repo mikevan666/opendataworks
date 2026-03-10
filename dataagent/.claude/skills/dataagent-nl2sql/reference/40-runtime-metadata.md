@@ -4,10 +4,10 @@
 
 ## 何时需要本页
 
-- 需要确定候选数据库、表、字段
-- 需要确认上下游血缘
+- 需要确认平台核心表的关键字段
+- 需要确认上下游血缘或任务关系
 - 需要确认目标数据库落在 MySQL 还是 Doris
-- 需要解释为什么脚本顺序必须先 metadata 再 datasource 再 SQL
+- 需要解释为什么平台核心表可直接走 MySQL，而托管业务表必须先 metadata 再 datasource 再 SQL
 
 ## 推荐脚本入口
 
@@ -18,97 +18,104 @@
 ## 使用原则
 
 - 数据源账号密码只在脚本内部使用，不要回写到最终回答。
+- `inspect_metadata.py` 只返回托管业务表命中的客观候选，不负责判断“哪张表最好”。
+- 平台核心表结构已在本页给出，字段明确时可直接写 SQL。
 - `resolve_datasource.py` 只负责确认引擎与数据源元信息。
 - `run_sql.py` 会在执行前再次解析数据源，因此不要把 datasource 结果当成最终凭证输出。
 
-## 重点平台表
+## 平台核心表速查
 
-### 表与字段
+### 数据表与字段
 
 - `data_table`
-  - 库、表、集群归属
+  - `id`, `db_name`, `table_name`, `table_comment`, `layer`, `status`, `owner`, `created_at`
 - `data_field`
-  - 字段名、字段类型、字段说明
+  - `table_id`, `field_name`, `field_type`, `field_comment`, `is_partition`, `is_primary`, `field_order`
 
-### 血缘
+### 血缘与任务关系
 
 - `data_lineage`
-  - 上游表、下游表、血缘类型
+  - `task_id`, `upstream_table_id`, `downstream_table_id`, `lineage_type`, `created_at`
+- `table_task_relation`
+  - `task_id`, `table_id`, `relation_type`, `created_at`
+- `data_task`
+  - `task_name`, `task_code`, `task_type`, `engine`, `status`, `owner`, `datasource_name`, `datasource_type`, `created_at`
 
-### 数据源
+### 工作流治理
+
+- `data_workflow`
+  - `workflow_code`, `workflow_name`, `status`, `publish_status`, `current_version_id`, `last_published_version_id`, `created_at`
+- `workflow_task_relation`
+  - `workflow_id`, `task_id`, `upstream_task_count`, `downstream_task_count`, `version_id`, `created_at`
+- `workflow_version`
+  - `workflow_id`, `version_no`, `change_summary`, `trigger_source`, `created_at`
+- `workflow_publish_record`
+  - `workflow_id`, `version_id`, `target_engine`, `operation`, `status`, `engine_workflow_code`, `operator`, `created_at`
+
+### Doris 数据源
 
 - `doris_cluster`
-  - 引擎类型、连接主机、端口、默认账号
+  - `cluster_name`, `fe_host`, `fe_port`, `username`, `is_default`, `status`
 - `doris_database_users`
-  - 数据库级只读账号
+  - `cluster_id`, `database_name`, `readonly_username`, `readwrite_username`, `created_at`
 
 ## 原始查询示例
 
-### 表与字段
+### 各数据层表数量对比
 
-```python
-import pymysql
-
-conn = pymysql.connect(
-    host=host,
-    port=port,
-    user=user,
-    password=password,
-    database="opendataworks",
-    charset="utf8mb4",
-    cursorclass=pymysql.cursors.DictCursor,
-)
-
-with conn.cursor() as cur:
-    cur.execute(
-        """
-        SELECT dt.id, dt.cluster_id, dt.db_name, dt.table_name, dt.table_comment,
-               df.field_name, df.field_type, df.field_comment
-        FROM data_table dt
-        LEFT JOIN data_field df ON df.table_id = dt.id AND df.deleted = 0
-        WHERE dt.deleted = 0
-          AND (dt.status IS NULL OR dt.status <> 'deprecated')
-        ORDER BY dt.db_name, dt.table_name, df.field_order, df.id
-        """
-    )
-    rows = cur.fetchall()
+```sql
+SELECT layer, COUNT(*) AS table_cnt
+FROM data_table
+WHERE deleted = 0
+GROUP BY layer
+ORDER BY table_cnt DESC
+LIMIT 20;
 ```
 
-### 血缘
+### 最近 30 天工作流发布次数趋势
 
-```python
-with conn.cursor() as cur:
-    cur.execute(
-        """
-        SELECT dl.id, dl.lineage_type,
-               ut.db_name AS upstream_db, ut.table_name AS upstream_table,
-               dt.db_name AS downstream_db, dt.table_name AS downstream_table
-        FROM data_lineage dl
-        LEFT JOIN data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0
-        LEFT JOIN data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0
-        WHERE dl.deleted = 0
-        ORDER BY dl.id
-        """
-    )
-    rows = cur.fetchall()
+```sql
+SELECT DATE(created_at) AS stat_day, COUNT(*) AS publish_cnt
+FROM workflow_publish_record
+WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
+GROUP BY DATE(created_at)
+ORDER BY stat_day
+LIMIT 100;
 ```
 
-### 数据源
+### 某张表的上下游血缘
 
-```python
-with conn.cursor() as cur:
-    cur.execute(
-        """
-        SELECT dt.db_name, dt.cluster_id, dc.source_type, dc.fe_host, dc.fe_port, dc.username, dc.password,
-               du.readonly_username, du.readonly_password
-        FROM data_table dt
-        LEFT JOIN doris_cluster dc ON dc.id = dt.cluster_id AND dc.deleted = 0
-        LEFT JOIN doris_database_users du ON du.cluster_id = dt.cluster_id AND du.database_name = dt.db_name
-        WHERE dt.deleted = 0
-          AND dt.db_name = %s
-        LIMIT 20
-        """,
-        ("doris_ods",),
-    )
-    rows = cur.fetchall()
+```sql
+SELECT dl.lineage_type,
+       ut.db_name AS upstream_db,
+       ut.table_name AS upstream_table,
+       dt.db_name AS downstream_db,
+       dt.table_name AS downstream_table
+FROM data_lineage dl
+LEFT JOIN data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0
+LEFT JOIN data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0
+WHERE (ut.table_name = 'your_table' OR dt.table_name = 'your_table')
+ORDER BY dl.id DESC
+LIMIT 100;
+```
+
+诊断类硬规则：
+
+- 用户已经给出明确表名时，直接执行这条 SQL 模板或等价脚本，不要搜索仓库里的 lineage/血缘代码实现。
+- 如果是 `dwd_order` 这类具体表名，优先直接把表名填入 SQL，再执行 `run_sql.py --database opendataworks --engine mysql`。
+- 只要第一次血缘 SQL 已返回非空结果，就直接总结；即使 `downstream_table` 或 `upstream_table` 有空值，也不要因为补空列再继续追加第二条 SQL。
+- 只有同名表不唯一或用户没给出表名时，才退回 metadata 检索和追问。
+
+### 某个业务数据库对应的 Doris 只读账号
+
+```sql
+SELECT du.database_name,
+       du.readonly_username,
+       dc.cluster_name,
+       dc.fe_host,
+       dc.fe_port
+FROM doris_database_users du
+INNER JOIN doris_cluster dc ON dc.id = du.cluster_id
+WHERE du.database_name = 'your_database'
+LIMIT 20;
 ```

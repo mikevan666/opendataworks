@@ -9,6 +9,11 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    css: true
+  },
   server: {
     port: 3000,
     proxy: {

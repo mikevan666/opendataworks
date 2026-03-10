@@ -4,7 +4,6 @@ import argparse
 
 from _opendataworks_runtime import connect_odw, error_payload, print_json, query_rows, serializable_rows
 
-
 def main():
     parser = argparse.ArgumentParser(description="Inspect OpenDataWorks metadata for a database/table")
     parser.add_argument("--database", default="")

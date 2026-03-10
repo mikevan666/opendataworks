@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     claude_model: str = "anthropic/claude-sonnet-4.5"
     claude_max_tokens: int = 4096
     agent_timeout_seconds: int = 180
-    agent_max_turns: int = 12
+    agent_max_turns: int = 20
 
     # ---- Anthropic 兼容认证 ----
     anthropic_api_key: str = ""

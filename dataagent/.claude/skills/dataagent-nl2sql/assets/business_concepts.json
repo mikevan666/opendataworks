@@ -2,29 +2,56 @@
   "schema_version": "1.0",
   "items": [
     {
-      "concept": "订单数",
-      "description": "订单记录数量",
+      "concept": "数据表数量",
+      "description": "当前元数据中满足过滤条件的数据表数量。",
       "mapping": {
-        "table": "ods_order",
-        "field": "order_id",
+        "table": "data_table",
+        "field": "id",
         "aggregation": "count"
       }
     },
     {
-      "concept": "订单金额",
-      "description": "订单总金额",
+      "concept": "任务数量",
+      "description": "当前平台中满足过滤条件的任务数量。",
       "mapping": {
-        "table": "ods_order",
-        "field": "total_amount",
-        "aggregation": "sum"
+        "table": "data_task",
+        "field": "id",
+        "aggregation": "count"
       }
     },
     {
-      "concept": "注册用户数",
-      "description": "用户注册数量",
+      "concept": "工作流数量",
+      "description": "当前平台中满足过滤条件的工作流数量。",
       "mapping": {
-        "table": "ods_user",
-        "field": "user_id",
+        "table": "data_workflow",
+        "field": "id",
+        "aggregation": "count"
+      }
+    },
+    {
+      "concept": "发布记录数",
+      "description": "工作流发布记录总数。",
+      "mapping": {
+        "table": "workflow_publish_record",
+        "field": "id",
+        "aggregation": "count"
+      }
+    },
+    {
+      "concept": "血缘关系数",
+      "description": "表级血缘边数量。",
+      "mapping": {
+        "table": "data_lineage",
+        "field": "id",
+        "aggregation": "count"
+      }
+    },
+    {
+      "concept": "工作流任务数",
+      "description": "某个工作流下已绑定的任务数量。",
+      "mapping": {
+        "table": "workflow_task_relation",
+        "field": "task_id",
         "aggregation": "count"
       }
     }
