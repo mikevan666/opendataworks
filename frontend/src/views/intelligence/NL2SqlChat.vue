@@ -350,27 +350,6 @@ const stripMarkdownTables = (text) => {
   return output.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-const looksProceduralMainText = (text) => {
-  const value = String(text || '').trim()
-  if (!value || value.length > 900) return false
-  return [
-    '问题类型',
-    '我来',
-    '让我',
-    '先确认',
-    '先查看',
-    '按照固定阅读顺序',
-    '先按固定阅读顺序',
-    '查看表结构',
-    '现在执行',
-    '执行 SQL',
-    '数据已拿到',
-    '生成饼图',
-    '生成条形图',
-    '生成折线图'
-  ].some((marker) => value.includes(marker))
-}
-
 const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.renderBlocks : []).filter((block) => {
   if (!block || typeof block !== 'object') return false
   if (block.kind === 'tool') {
@@ -394,9 +373,6 @@ const displayTextBlock = (block, msg) => {
     text = stripMarkdownTables(text)
   }
   if (!text) return ''
-  if (msg?.status === 'streaming' && (toolBlocks(msg).some((tool) => ['streaming', 'pending'].includes(String(tool.status || ''))) || looksProceduralMainText(text))) {
-    return ''
-  }
   return text
 }
 
