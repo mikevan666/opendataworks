@@ -40,6 +40,7 @@ const ensureRenderBlock = (msg, blockId, kind, defaults = {}) => {
   if (!msg._renderBlockMap[key]) {
     const block = {
       id: key,
+      messageKey: textOrEmpty(defaults.messageKey).trim() || textOrEmpty(msg._activeMessageKey).trim() || 'm0',
       kind,
       status: defaults.status || 'streaming',
       text: defaults.text || '',
@@ -51,8 +52,32 @@ const ensureRenderBlock = (msg, blockId, kind, defaults = {}) => {
     msg.renderBlocks.push(block)
   }
   const block = msg._renderBlockMap[key]
+  if (!textOrEmpty(block.messageKey).trim()) {
+    block.messageKey = textOrEmpty(defaults.messageKey).trim() || textOrEmpty(msg._activeMessageKey).trim() || 'm0'
+  }
   if (kind && (!block.kind || block.kind === 'raw')) block.kind = kind
   return block
+}
+
+const ensureMessageMeta = (msg, messageKey, defaults = {}) => {
+  const key = textOrEmpty(messageKey).trim() || 'm0'
+  if (!msg._messageMeta[key]) {
+    msg._messageMeta[key] = {
+      messageKey: key,
+      message_id: textOrEmpty(defaults.message_id).trim() || '',
+      usage: isPlainObject(defaults.usage) ? { ...defaults.usage } : null,
+      stop_reason: textOrEmpty(defaults.stop_reason),
+      stop_sequence: textOrEmpty(defaults.stop_sequence),
+      status: textOrEmpty(defaults.status).trim() || 'streaming'
+    }
+  }
+  const meta = msg._messageMeta[key]
+  if (defaults.message_id) meta.message_id = textOrEmpty(defaults.message_id).trim()
+  if (isPlainObject(defaults.usage)) meta.usage = { ...(meta.usage || {}), ...defaults.usage }
+  if (Object.prototype.hasOwnProperty.call(defaults, 'stop_reason')) meta.stop_reason = textOrEmpty(defaults.stop_reason)
+  if (Object.prototype.hasOwnProperty.call(defaults, 'stop_sequence')) meta.stop_sequence = textOrEmpty(defaults.stop_sequence)
+  if (defaults.status) meta.status = textOrEmpty(defaults.status).trim()
+  return meta
 }
 
 const extractToolEnvelope = (block) => {
@@ -82,9 +107,11 @@ const extractToolEnvelope = (block) => {
 const ensureToolRenderBlock = (msg, patch = {}) => {
   const toolId = normalizeToolId(patch.toolId)
   const blockKey = textOrEmpty(patch.blockKey).trim()
+  const messageKey = textOrEmpty(patch.messageKey).trim() || textOrEmpty(msg._activeMessageKey).trim() || 'm0'
   const mappedBlockId = toolId ? msg._toolBlockIds[toolId] : ''
   const renderId = mappedBlockId || blockKey || `tool-${toolId || msg.renderBlocks.length + 1}`
   const block = ensureRenderBlock(msg, renderId, 'tool', {
+    messageKey,
     status: textOrEmpty(patch.status).trim() || 'pending',
     tool: {
       id: toolId || renderId,
@@ -93,7 +120,10 @@ const ensureToolRenderBlock = (msg, patch = {}) => {
       name: textOrEmpty(patch.name).trim() || 'Tool',
       status: textOrEmpty(patch.status).trim() || 'pending',
       input: null,
-      output: null
+      output: null,
+      _callComplete: false,
+      _runtimeStarted: false,
+      _resultStarted: false
     }
   })
 
@@ -105,7 +135,10 @@ const ensureToolRenderBlock = (msg, patch = {}) => {
       name: textOrEmpty(patch.name).trim() || 'Tool',
       status: textOrEmpty(patch.status).trim() || 'pending',
       input: null,
-      output: null
+      output: null,
+      _callComplete: false,
+      _runtimeStarted: false,
+      _resultStarted: false
     }
   }
 
@@ -132,8 +165,17 @@ const ensureToolRenderBlock = (msg, patch = {}) => {
     tool.status = textOrEmpty(patch.status).trim()
     block.status = tool.status
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'callComplete')) {
+    tool._callComplete = Boolean(patch.callComplete)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'runtimeStarted')) {
+    tool._runtimeStarted = Boolean(patch.runtimeStarted)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'resultStarted')) {
+    tool._resultStarted = Boolean(patch.resultStarted)
+  }
 
-  if (['pending', 'streaming'].includes(tool.status)) {
+  if (tool._runtimeStarted && ['pending', 'streaming'].includes(tool.status)) {
     tool._startedAt = tool._startedAt || Date.now()
     delete tool._completedAt
   }
@@ -189,12 +231,15 @@ export const createAssistantMessageState = (seed = {}) => ({
   citations: Array.isArray(seed.citations) ? [...seed.citations] : [],
   error: seed.error || null,
   stop_reason: textOrEmpty(seed.stop_reason),
+  stop_sequence: textOrEmpty(seed.stop_sequence),
+  usage: isPlainObject(seed.usage) ? { ...seed.usage } : null,
   provider_id: seed.provider_id || null,
   model: seed.model || null,
   created_at: seed.created_at || new Date().toISOString(),
   renderBlocks: [],
   _renderBlockMap: Object.create(null),
   _toolBlockIds: Object.create(null),
+  _messageMeta: Object.create(null),
   _streamMessageSeq: 0,
   _activeMessageKey: 'm0',
   _rawBlockIds: Object.create(null)
@@ -207,13 +252,22 @@ export const hydrateAssistantMessageState = (message) => {
     content: textOrEmpty(message?.content),
     status: textOrEmpty(message?.status).trim() || 'success',
     stop_reason: textOrEmpty(message?.stop_reason),
+    stop_sequence: textOrEmpty(message?.stop_sequence),
     created_at: message?.created_at,
     error: isPlainObject(message?.error) ? message.error : null,
     provider_id: message?.provider_id || null,
-    model: message?.model || null
+    model: message?.model || null,
+    usage: isPlainObject(message?.usage) ? message.usage : null
   })
 
   const rawBlocks = Array.isArray(message?.blocks) ? message.blocks : []
+  ensureMessageMeta(msg, 'm0', {
+    message_id: textOrEmpty(message?.message_id).trim(),
+    usage: isPlainObject(message?.usage) ? message.usage : null,
+    stop_reason: textOrEmpty(message?.stop_reason),
+    stop_sequence: textOrEmpty(message?.stop_sequence),
+    status: textOrEmpty(message?.status).trim() || 'success'
+  })
   for (const rawBlock of rawBlocks) {
     if (!isPlainObject(rawBlock)) continue
     const blockId = textOrEmpty(rawBlock.block_id).trim() || `stored-${msg.renderBlocks.length + 1}`
@@ -222,16 +276,19 @@ export const hydrateAssistantMessageState = (message) => {
 
     if (blockType === 'thinking') {
       const block = ensureTextBlock(msg, blockId, 'thinking')
+      block.messageKey = 'm0'
       block.status = blockStatus
       block.text = textOrEmpty(rawBlock.text)
       msg.thinkingText = appendStr(msg.thinkingText, block.text)
     } else if (blockType === 'main_text') {
       const block = ensureTextBlock(msg, blockId, 'main_text')
+      block.messageKey = 'm0'
       block.status = blockStatus
       block.text = textOrEmpty(rawBlock.text)
       msg.mainText = appendStr(msg.mainText, block.text)
     } else if (blockType === 'error') {
       const block = ensureRenderBlock(msg, blockId, 'error', { status: 'failed', text: textOrEmpty(rawBlock.text) })
+      block.messageKey = 'm0'
       block.status = 'failed'
       block.text = textOrEmpty(rawBlock.text)
       msg.error = msg.error || { message: block.text }
@@ -239,13 +296,17 @@ export const hydrateAssistantMessageState = (message) => {
 
     const envelope = extractToolEnvelope(rawBlock)
     if (envelope) {
+      const envelopeStatus = textOrEmpty(envelope.status).trim() || 'success'
       ensureToolRenderBlock(msg, {
         toolId: envelope.toolId,
         blockKey: `${blockId}::tool`,
+        messageKey: 'm0',
         name: envelope.name,
         input: envelope.input,
         output: envelope.output,
-        status: envelope.status
+        status: envelopeStatus,
+        callComplete: true,
+        runtimeStarted: true
       })
     }
 
@@ -301,8 +362,14 @@ export const processAssistantStreamEvent = (msg, event) => {
   if (type === 'message_start') {
     const message = isPlainObject(event.message) ? event.message : (isPlainObject(payload.message) ? payload.message : {})
     beginNewStreamMessage()
+    ensureMessageMeta(msg, ensureActiveMessageKey(), {
+      message_id: textOrEmpty(message.id).trim(),
+      usage: isPlainObject(message.usage) ? message.usage : null,
+      status: 'streaming'
+    })
     if (message.id) msg.message_id = textOrEmpty(message.id)
     if (message.model) msg.model = textOrEmpty(message.model)
+    if (isPlainObject(message.usage)) msg.usage = { ...message.usage }
     msg.status = 'streaming'
     return
   }
@@ -340,26 +407,42 @@ export const processAssistantStreamEvent = (msg, event) => {
       return
     }
 
-    if (contentType === 'tool_use') {
-      ensureToolRenderBlock(msg, {
+    if (contentType === 'tool_use' || contentType === 'server_tool_use') {
+      const block = ensureToolRenderBlock(msg, {
         toolId: contentBlock.id,
         blockKey: blockId,
+        messageKey: ensureActiveMessageKey(),
         name: contentBlock.name || 'Tool',
         input: Object.prototype.hasOwnProperty.call(contentBlock, 'input') ? contentBlock.input : undefined,
-        status: 'streaming'
+        status: 'streaming',
+        callComplete: false,
+        runtimeStarted: false
       })
+      bindRawBlockId(rawBlockId, block.id)
       return
     }
 
     if (contentType === 'tool_result') {
-      ensureToolRenderBlock(msg, {
+      const block = ensureToolRenderBlock(msg, {
         toolId: contentBlock.tool_use_id,
         blockKey: blockId,
+        messageKey: ensureActiveMessageKey(),
         name: contentBlock.name || 'Tool',
         output: Object.prototype.hasOwnProperty.call(contentBlock, 'content') ? contentBlock.content : undefined,
-        status: 'streaming'
+        status: 'streaming',
+        callComplete: true,
+        runtimeStarted: true,
+        resultStarted: true
       })
+      bindRawBlockId(rawBlockId, block.id)
+      return
     }
+    const block = ensureRenderBlock(msg, blockId, 'raw', {
+      messageKey: ensureActiveMessageKey(),
+      status: 'streaming',
+      payload: isPlainObject(contentBlock) ? { ...contentBlock } : {}
+    })
+    block.payload = isPlainObject(contentBlock) ? { ...contentBlock } : {}
     return
   }
 
@@ -388,7 +471,13 @@ export const processAssistantStreamEvent = (msg, event) => {
     }
 
     if (deltaType === 'input_json_delta') {
-      const block = ensureToolRenderBlock(msg, { blockKey: blockId, status: 'streaming' })
+      const block = ensureToolRenderBlock(msg, {
+        blockKey: blockId,
+        messageKey: ensureActiveMessageKey(),
+        status: 'streaming',
+        callComplete: false,
+        runtimeStarted: false
+      })
       block._partialJson = appendStr(block._partialJson, delta.partial_json || '')
       const parsed = parseMaybeJson(block._partialJson)
       block.tool.input = parsed !== null ? parsed : block._partialJson
@@ -397,6 +486,18 @@ export const processAssistantStreamEvent = (msg, event) => {
 
     if (deltaType === 'citation_start_delta' && delta.citation) {
       msg.citations.push(delta.citation)
+      const block = msg._renderBlockMap[blockId]
+      if (block) {
+        block.payload = isPlainObject(block.payload) ? block.payload : {}
+        block.payload.citations = Array.isArray(block.payload.citations) ? [...block.payload.citations, delta.citation] : [delta.citation]
+      }
+      return
+    }
+
+    if (deltaType === 'signature_delta') {
+      const block = msg._renderBlockMap[blockId] || ensureRenderBlock(msg, blockId, 'raw', { status: 'streaming' })
+      block.payload = isPlainObject(block.payload) ? block.payload : {}
+      block.payload.signature = appendStr(block.payload.signature, delta.signature || '')
     }
     return
   }
@@ -406,7 +507,22 @@ export const processAssistantStreamEvent = (msg, event) => {
     const block = msg._renderBlockMap[resolveRenderBlockId(`cb-${index}`)]
     if (!block) return
     if (block.kind === 'tool' && block.tool && block.status !== 'failed') {
-      block.status = block.tool.status === 'failed' ? 'failed' : (block.tool.status === 'success' ? 'success' : 'streaming')
+      block.tool._callComplete = true
+      if (block.tool.status === 'failed') {
+        block.status = 'failed'
+        return
+      }
+      if (block.tool._resultStarted) {
+        block.tool.status = 'success'
+        block.tool._completedAt = block.tool._completedAt || Date.now()
+        block.status = 'success'
+        return
+      }
+      if (block.tool.status === 'success') {
+        block.status = 'success'
+        return
+      }
+      block.status = 'streaming'
       return
     }
     if (block.status !== 'failed') block.status = 'success'
@@ -415,11 +531,21 @@ export const processAssistantStreamEvent = (msg, event) => {
 
   if (type === 'message_delta') {
     const delta = isPlainObject(event.delta) ? event.delta : (isPlainObject(payload.delta) ? payload.delta : {})
+    ensureMessageMeta(msg, ensureActiveMessageKey(), {
+      stop_reason: delta.stop_reason,
+      stop_sequence: delta.stop_sequence,
+      usage: isPlainObject(delta.usage) ? delta.usage : null
+    })
     if (delta.stop_reason != null) msg.stop_reason = textOrEmpty(delta.stop_reason)
+    if (delta.stop_sequence != null) msg.stop_sequence = textOrEmpty(delta.stop_sequence)
+    if (isPlainObject(delta.usage)) {
+      msg.usage = { ...(msg.usage || {}), ...delta.usage }
+    }
     return
   }
 
   if (type === 'message_stop') {
+    ensureMessageMeta(msg, ensureActiveMessageKey(), { status: 'success' })
     markMessageBlocksComplete(msg)
     return
   }
@@ -463,20 +589,27 @@ export const processAssistantStreamEvent = (msg, event) => {
   }
 
   if (type.startsWith('tool.')) {
+    const runtimeStarted = type !== 'tool.failed'
     ensureToolRenderBlock(msg, {
       toolId: payload.tool_id || payload.block_id,
       blockKey: resolveRenderBlockId(payload.block_id) || payload.block_id,
       name: payload.tool_name || 'Tool',
       input: Object.prototype.hasOwnProperty.call(payload, 'input') ? payload.input : undefined,
       output: Object.prototype.hasOwnProperty.call(payload, 'output') ? payload.output : undefined,
-      status: toolStatusFromEvent(type)
+      status: toolStatusFromEvent(type),
+      callComplete: true,
+      runtimeStarted: runtimeStarted || ['success', 'failed'].includes(toolStatusFromEvent(type))
     })
     return
   }
 
   if (type === 'error') {
     msg.status = 'failed'
-    msg.error = { message: textOrEmpty(payload.message || '请求失败') }
+    const errorPayload = isPlainObject(payload.error) ? payload.error : payload
+    msg.error = {
+      message: textOrEmpty(errorPayload.message || payload.message || '请求失败'),
+      type: textOrEmpty(errorPayload.type || payload.type)
+    }
     createErrorBlock(msg, msg.error.message)
     return
   }
@@ -484,6 +617,11 @@ export const processAssistantStreamEvent = (msg, event) => {
   if (type === 'done') {
     msg.status = textOrEmpty(payload.status).trim() || msg.status || 'success'
     if (payload.model) msg.model = textOrEmpty(payload.model)
+    if (payload.stop_reason != null) msg.stop_reason = textOrEmpty(payload.stop_reason)
+    if (payload.stop_sequence != null) msg.stop_sequence = textOrEmpty(payload.stop_sequence)
+    if (isPlainObject(payload.usage)) {
+      msg.usage = { ...(msg.usage || {}), ...payload.usage }
+    }
     if (payload.error) {
       const errorMessage = isPlainObject(payload.error)
         ? textOrEmpty(payload.error.message || '请求失败')

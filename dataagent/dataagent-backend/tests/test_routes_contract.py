@@ -86,6 +86,9 @@ class _FakeStore:
         run_id: str,
         content: str,
         status: str,
+        stop_reason: str | None,
+        stop_sequence: str | None,
+        usage: dict | None,
         blocks: list[dict],
         error: dict | None,
         provider_id: str,
@@ -98,6 +101,9 @@ class _FakeStore:
             "run_id": run_id,
             "content": content,
             "status": status,
+            "stop_reason": stop_reason,
+            "stop_sequence": stop_sequence,
+            "usage": usage,
             "blocks": blocks,
             "error": error,
             "provider_id": provider_id,
@@ -156,6 +162,9 @@ async def _fake_stream_agent_reply(run_input):
                 },
             ],
             "error": None,
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 12, "output_tokens": 6},
             "provider_id": run_input.provider_id,
             "model": run_input.model,
         },
@@ -227,6 +236,9 @@ def test_session_message_stream_and_non_stream_contract(monkeypatch):
         "run_id",
         "status",
         "content",
+        "stop_reason",
+        "stop_sequence",
+        "usage",
         "blocks",
         "error",
         "provider_id",
@@ -239,6 +251,8 @@ def test_session_message_stream_and_non_stream_contract(monkeypatch):
     assert "resolved_database" not in non_stream_data
     assert non_stream_data["content"] == stream_done["content"]
     assert non_stream_data["status"] == stream_done["status"]
+    assert non_stream_data["stop_reason"] == stream_done["stop_reason"]
+    assert non_stream_data["usage"] == stream_done["usage"]
     assert non_stream_data["provider_id"] == stream_done["provider_id"]
     assert non_stream_data["model"] == stream_done["model"]
 

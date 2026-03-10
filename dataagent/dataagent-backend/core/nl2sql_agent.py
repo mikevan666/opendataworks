@@ -57,6 +57,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     thinking_text = ""
     result_subtype = ""
     result_error = ""
+    stop_reason = ""
+    stop_sequence = ""
+    usage: dict[str, Any] | None = None
 
     block_order: list[str] = []
     blocks: dict[str, dict[str, Any]] = {}
@@ -212,6 +215,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
             content=reason,
             blocks=_serialize_blocks(),
             error=error_payload,
+            stop_reason=stop_reason,
+            stop_sequence=stop_sequence,
+            usage=usage,
             provider_id=provider_id,
             model=model,
         )
@@ -283,6 +289,11 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                         event_type = str(raw_event.get("type") or "").strip()
                         if event_type:
                             saw_partial_stream = True
+
+                            if event_type == "message_start":
+                                message_payload = raw_event.get("message")
+                                if isinstance(message_payload, dict) and isinstance(message_payload.get("usage"), dict):
+                                    usage = dict(message_payload.get("usage") or {})
 
                             # 同步维护 main/thinking 聚合文本，供 done/sql/execution 复用
                             if event_type == "content_block_start":
@@ -357,6 +368,19 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
                                 for block in blocks.values():
                                     if block.get("status") in {"streaming", "pending", "in_progress"}:
                                         block["status"] = "success"
+
+                            if event_type == "message_delta":
+                                delta_payload = raw_event.get("delta")
+                                if isinstance(delta_payload, dict):
+                                    if delta_payload.get("stop_reason") is not None:
+                                        stop_reason = str(delta_payload.get("stop_reason") or "")
+                                    if delta_payload.get("stop_sequence") is not None:
+                                        stop_sequence = str(delta_payload.get("stop_sequence") or "")
+                                    if isinstance(delta_payload.get("usage"), dict):
+                                        usage = {
+                                            **(usage or {}),
+                                            **dict(delta_payload.get("usage") or {}),
+                                        }
 
                             # 把 Claude 原生流式事件透传给前端（放在 payload）
                             yield _emit(event_type, raw_event)
@@ -542,6 +566,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
             content=_sanitize_user_visible_content(params.question, main_text.strip() or reason),
             blocks=_serialize_blocks(),
             error=error_payload,
+            stop_reason=stop_reason,
+            stop_sequence=stop_sequence,
+            usage=usage,
             provider_id=provider_id,
             model=model,
         )
@@ -591,6 +618,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         content=final_content,
         blocks=blocks_payload,
         error=error_payload,
+        stop_reason=stop_reason,
+        stop_sequence=stop_sequence,
+        usage=usage,
         provider_id=provider_id,
         model=model,
     )
@@ -872,6 +902,9 @@ def _build_done_payload(
     content: str,
     blocks: list[dict[str, Any]],
     error: dict[str, Any] | None,
+    stop_reason: str | None,
+    stop_sequence: str | None,
+    usage: dict[str, Any] | None,
     provider_id: str,
     model: str,
 ) -> dict[str, Any]:
@@ -880,6 +913,9 @@ def _build_done_payload(
         "content": content,
         "blocks": blocks,
         "error": error,
+        "stop_reason": str(stop_reason or "").strip() or None,
+        "stop_sequence": str(stop_sequence) if stop_sequence is not None else None,
+        "usage": usage if isinstance(usage, dict) else None,
         "provider_id": provider_id,
         "model": model,
     }

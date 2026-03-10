@@ -284,6 +284,10 @@ async def _persist_run(
 ) -> AssistantMessageResponse:
     status = str(done_payload.get("status") or "success")
     content = str(done_payload.get("content") or "")
+    stop_reason = str(done_payload.get("stop_reason") or "").strip() or None
+    stop_sequence = str(done_payload.get("stop_sequence")) if done_payload.get("stop_sequence") is not None else None
+    usage_payload = done_payload.get("usage")
+    usage = usage_payload if isinstance(usage_payload, dict) else None
     blocks = done_payload.get("blocks")
     if not isinstance(blocks, list):
         blocks = []
@@ -298,6 +302,9 @@ async def _persist_run(
         run_id=run_input.run_id,
         content=content,
         status=status,
+        stop_reason=stop_reason,
+        stop_sequence=stop_sequence,
+        usage=usage,
         blocks=blocks,
         error=error,
         provider_id=provider_id,
@@ -316,6 +323,9 @@ async def _persist_run(
         "status": status,
         "run_id": run_input.run_id,
         "content": content,
+        "stop_reason": stop_reason,
+        "stop_sequence": stop_sequence,
+        "usage": usage,
         "blocks": blocks,
         "error": error,
         "provider_id": provider_id,
@@ -347,6 +357,9 @@ def _to_assistant_message_response(message: dict[str, Any]) -> AssistantMessageR
         run_id=str(message.get("run_id") or ""),
         status=str(message.get("status") or "success"),
         content=str(message.get("content") or ""),
+        stop_reason=str(message.get("stop_reason") or "") or None,
+        stop_sequence=str(message.get("stop_sequence") or "") or None,
+        usage=message.get("usage") if isinstance(message.get("usage"), dict) else None,
         blocks=blocks,
         error=message.get("error") if isinstance(message.get("error"), dict) else None,
         provider_id=str(message.get("provider_id") or ""),
@@ -376,6 +389,9 @@ def _normalize_session(session: dict[str, Any]) -> dict[str, Any]:
             "role": str(message.get("role") or "assistant"),
             "content": str(message.get("content") or ""),
             "status": str(message.get("status") or "success"),
+            "stop_reason": str(message.get("stop_reason") or "") or None,
+            "stop_sequence": str(message.get("stop_sequence") or "") or None,
+            "usage": message.get("usage") if isinstance(message.get("usage"), dict) else None,
             "run_id": str(message.get("run_id") or "") or None,
             "blocks": message.get("blocks") if isinstance(message.get("blocks"), list) else [],
             "error": message.get("error") if isinstance(message.get("error"), dict) else None,

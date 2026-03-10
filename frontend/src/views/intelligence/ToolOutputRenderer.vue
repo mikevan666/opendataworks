@@ -1,7 +1,12 @@
 <template>
   <div class="tool-output" :class="{ failed: hasError, 'tool-output-shell': showTrace }">
     <div v-if="showTrace" class="shell-trace">
-      <button type="button" class="shell-trace-summary" @click="shellOpen = !shellOpen">
+      <button
+        v-if="traceHasPanel"
+        type="button"
+        class="shell-trace-summary"
+        @click="shellOpen = !shellOpen"
+      >
         <span class="shell-trace-summary-text">
           {{ traceSummaryText }}
         </span>
@@ -11,7 +16,16 @@
         <span class="shell-trace-summary-chevron" :class="{ open: shellOpen }">⌄</span>
       </button>
 
-      <div v-if="shellOpen" class="shell-trace-panel">
+      <div v-else class="shell-trace-summary shell-trace-summary-static">
+        <span class="shell-trace-summary-text">
+          {{ traceSummaryText }}
+        </span>
+        <span class="shell-trace-summary-status" :class="`is-${traceStatusTone}`">
+          {{ statusLabel }}
+        </span>
+      </div>
+
+      <div v-if="traceHasPanel && shellOpen" class="shell-trace-panel">
         <div class="shell-trace-panel-title">{{ traceTitle }}</div>
         <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
         <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
@@ -98,7 +112,7 @@
       <pre v-if="resultText" class="tool-code tool-code-light"><code>{{ resultText }}</code></pre>
     </template>
 
-    <pre v-else-if="rawText" class="tool-code tool-code-light"><code>{{ rawText }}</code></pre>
+    <pre v-else-if="showRawPayload" class="tool-code tool-code-light"><code>{{ rawText }}</code></pre>
   </div>
 </template>
 
@@ -271,6 +285,7 @@ const traceKind = computed(() => {
 })
 
 const showTrace = computed(() => Boolean(traceKind.value))
+const traceHasPanel = computed(() => traceKind.value !== 'read')
 const showMainHeader = computed(() => {
   if (!showTrace.value) return true
   if (kind.value === 'chart_spec') return false
@@ -306,7 +321,7 @@ const traceDescription = computed(() => {
 
 const traceSummaryText = computed(() => {
   if (traceKind.value === 'read') {
-    return traceDescription.value || traceCommand.value || '读取参考内容'
+    return traceCommand.value || traceDescription.value || '读取参考内容'
   }
   if (traceKind.value === 'skill') {
     return traceDescription.value || traceCommand.value || '加载技能'
@@ -317,7 +332,11 @@ const traceSummaryText = computed(() => {
 
 const traceStatusTone = computed(() => {
   const status = String(props.tool?.status || 'success')
+  const callComplete = Boolean(props.tool?._callComplete)
+  const runtimeStarted = Boolean(props.tool?._runtimeStarted)
   if (status === 'failed') return 'failed'
+  if (!callComplete) return 'running'
+  if (callComplete && !runtimeStarted) return 'success'
   if (status === 'pending' || status === 'streaming') return 'running'
   return 'success'
 })
@@ -330,19 +349,27 @@ const elapsedSeconds = computed(() => {
 
 const statusLabel = computed(() => {
   const status = String(props.tool?.status || 'success')
+  const callComplete = Boolean(props.tool?._callComplete)
+  const runtimeStarted = Boolean(props.tool?._runtimeStarted)
   if (traceKind.value === 'shell') {
+    if (!callComplete) return '正在发起命令'
+    if (callComplete && !runtimeStarted) return '已发起命令'
     if (status === 'pending' || status === 'streaming') return `正在运行命令（${elapsedSeconds.value}s）`
     if (status === 'failed') return '命令失败'
     return '已运行命令'
   }
 
   if (traceKind.value === 'read') {
+    if (!callComplete) return '正在发起浏览'
+    if (callComplete && !runtimeStarted) return '已发起浏览'
     if (status === 'pending' || status === 'streaming') return '正在浏览'
     if (status === 'failed') return '浏览失败'
     return '已浏览'
   }
 
   if (traceKind.value === 'skill') {
+    if (!callComplete) return '正在发起技能'
+    if (callComplete && !runtimeStarted) return '已发起技能'
     if (status === 'pending' || status === 'streaming') return '正在加载技能'
     if (status === 'failed') return '技能加载失败'
     return '已加载技能'
@@ -368,6 +395,7 @@ const showChartRawText = computed(() => {
   if (kind.value !== 'chart_spec') return false
   return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(rawText.value)
 })
+const showRawPayload = computed(() => Boolean(rawText.value) && traceKind.value !== 'read')
 
 let chartRefreshFrame = 0
 let chartInstance = null
@@ -413,9 +441,11 @@ watch(
 )
 
 onMounted(() => {
-  if (showTrace.value) {
+  if (showTrace.value && traceHasPanel.value) {
     const status = String(props.tool?.status || 'success')
-    shellOpen.value = status === 'pending' || status === 'streaming'
+    const callComplete = Boolean(props.tool?._callComplete)
+    const runtimeStarted = Boolean(props.tool?._runtimeStarted)
+    shellOpen.value = (!callComplete) || (runtimeStarted && (status === 'pending' || status === 'streaming'))
   }
   if (chartRenderState.value === 'renderable' && chartOption.value) {
     refreshChart()
@@ -429,11 +459,11 @@ onMounted(() => {
 })
 
 watch(
-  () => props.tool?.status,
-  (status) => {
-    if (!showTrace.value) return
+  () => [props.tool?.status, props.tool?._callComplete, props.tool?._runtimeStarted],
+  ([status, callComplete, runtimeStarted]) => {
+    if (!showTrace.value || !traceHasPanel.value) return
     const value = String(status || 'success')
-    shellOpen.value = value === 'pending' || value === 'streaming'
+    shellOpen.value = !Boolean(callComplete) || (Boolean(runtimeStarted) && (value === 'pending' || value === 'streaming'))
   },
   { immediate: true }
 )
@@ -489,6 +519,10 @@ onBeforeUnmount(() => {
   background: transparent;
   cursor: pointer;
   text-align: left;
+}
+
+.shell-trace-summary-static {
+  cursor: default;
 }
 
 .shell-trace-summary-text {

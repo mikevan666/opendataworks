@@ -109,6 +109,8 @@ describe('ToolOutputRenderer', () => {
     const wrapper = mountRenderer({
       name: 'Bash',
       status: 'streaming',
+      _callComplete: true,
+      _runtimeStarted: true,
       input: {
         command: 'python scripts/build_chart_spec.py --chart-type pie',
         description: '生成占比图表'
@@ -127,6 +129,8 @@ describe('ToolOutputRenderer', () => {
       tool: {
         name: 'Bash',
         status: 'success',
+        _callComplete: true,
+        _runtimeStarted: true,
         input: {
           command: 'python scripts/build_chart_spec.py --chart-type pie',
           description: '生成占比图表'
@@ -139,10 +143,12 @@ describe('ToolOutputRenderer', () => {
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
   })
 
-  it('renders read tools as compact trace rows', async () => {
+  it('renders read tools as compact one-line traces without output panels', async () => {
     const wrapper = mountRenderer({
       name: 'Read',
       status: 'streaming',
+      _callComplete: true,
+      _runtimeStarted: true,
       input: {
         file_path: '/tmp/reference/00-skill-map.md'
       },
@@ -150,14 +156,16 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.text()).toContain('正在浏览')
-    expect(wrapper.text()).toContain('Read')
     expect(wrapper.text()).toContain('/tmp/reference/00-skill-map.md')
-    expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('## skill map')
 
     await wrapper.setProps({
       tool: {
         name: 'Read',
         status: 'success',
+        _callComplete: true,
+        _runtimeStarted: true,
         input: {
           file_path: '/tmp/reference/00-skill-map.md'
         },
@@ -166,6 +174,55 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.text()).toContain('已浏览')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('## skill map')
+  })
+
+  it('keeps read traces compact across invocation and runtime states', async () => {
+    const wrapper = mountRenderer({
+      name: 'Read',
+      status: 'streaming',
+      _callComplete: false,
+      _runtimeStarted: false,
+      input: {
+        file_path: '/tmp/reference/30-tool-recipes.md'
+      },
+      output: ''
+    })
+
+    expect(wrapper.text()).toContain('正在发起浏览')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+
+    await wrapper.setProps({
+      tool: {
+        name: 'Read',
+        status: 'streaming',
+        _callComplete: true,
+        _runtimeStarted: false,
+        input: {
+          file_path: '/tmp/reference/30-tool-recipes.md'
+        },
+        output: ''
+      }
+    })
+
+    expect(wrapper.text()).toContain('已发起浏览')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+
+    await wrapper.setProps({
+      tool: {
+        name: 'Read',
+        status: 'streaming',
+        _callComplete: true,
+        _runtimeStarted: true,
+        input: {
+          file_path: '/tmp/reference/30-tool-recipes.md'
+        },
+        output: '正在读取...'
+      }
+    })
+
+    expect(wrapper.text()).toContain('正在浏览')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
   })
 })

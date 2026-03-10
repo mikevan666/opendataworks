@@ -104,6 +104,13 @@
                     <span class="query-error-label">错误</span>
                     <span>{{ block.text }}</span>
                   </div>
+
+                  <div v-if="segmentUsageFooter(msg, block)" class="query-message-meta">
+                    <span class="query-message-meta-total">Tokens: {{ segmentUsageFooter(msg, block).total }}</span>
+                    <span v-if="segmentUsageFooter(msg, block).input" class="query-message-meta-arrow is-up">↑{{ segmentUsageFooter(msg, block).input }}</span>
+                    <span v-if="segmentUsageFooter(msg, block).output" class="query-message-meta-arrow is-down">↓{{ segmentUsageFooter(msg, block).output }}</span>
+                    <span v-if="segmentUsageFooter(msg, block).cacheRead" class="query-message-meta-cache">命中 {{ segmentUsageFooter(msg, block).cacheRead }}</span>
+                  </div>
                 </div>
 
                 <div v-if="msg.citations.length" class="query-citations">
@@ -135,6 +142,7 @@
                     <span>.</span>
                   </span>
                 </div>
+
               </div>
             </div>
           </template>
@@ -191,6 +199,7 @@ import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { extractChartSpecsFromText, parseChartSpec, stripChartSpecsFromText } from './chartSpec'
+import { formatUsageFooter } from './messageUsage'
 import {
   activeStreamingBlock as activeStreamingMessageBlock,
   createAssistantMessageState,
@@ -511,6 +520,21 @@ const streamingActivity = (msg) => {
     text: '正在思考',
     preview
   }
+}
+
+const isLastBlockInSegment = (msg, block) => {
+  const key = String(block?.messageKey || '').trim()
+  if (!key) return false
+  const blocks = renderBlocksForMessage(msg)
+  const last = [...blocks].reverse().find((item) => String(item?.messageKey || '').trim() === key)
+  return Boolean(last && last.id === block?.id)
+}
+
+const segmentUsageFooter = (msg, block) => {
+  if (!isLastBlockInSegment(msg, block)) return null
+  const key = String(block?.messageKey || '').trim()
+  const usage = msg?._messageMeta?.[key]?.usage || (key === 'm0' ? msg?.usage : null)
+  return formatUsageFooter(usage)
 }
 const processEvent = processAssistantStreamEvent
 
@@ -1479,6 +1503,44 @@ details[open] > .query-step-summary .query-step-chevron {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.query-message-meta {
+  margin-top: 8px;
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  color: rgba(96, 113, 133, 0.74);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.query-message-meta-total {
+  color: rgba(96, 113, 133, 0.82);
+  font-weight: 400;
+}
+
+.query-message-meta-arrow,
+.query-message-meta-cache {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(120, 132, 145, 0.76);
+}
+
+.query-message-meta-arrow {
+  gap: 2px;
+}
+
+.query-message-meta-arrow.is-up,
+.query-message-meta-arrow.is-down {
+  font-variant-numeric: tabular-nums;
+}
+
+.query-message-meta-cache {
+  margin-left: 1px;
+  color: rgba(140, 152, 166, 0.72);
 }
 
 .query-loading-dots {

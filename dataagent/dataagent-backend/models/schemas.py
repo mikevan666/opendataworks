@@ -113,6 +113,9 @@ class SessionMessage(BaseModel):
     role: str
     content: str = ""
     status: str = "success"
+    stop_reason: Optional[str] = None
+    stop_sequence: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
     run_id: Optional[str] = None
     blocks: List[MessageBlock] = Field(default_factory=list)
     error: Optional[Dict[str, Any]] = None
@@ -127,6 +130,9 @@ class AssistantMessageResponse(BaseModel):
     run_id: str
     status: str = "success"
     content: str
+    stop_reason: Optional[str] = None
+    stop_sequence: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
     blocks: List[MessageBlock] = Field(default_factory=list)
     error: Optional[Dict[str, Any]] = None
     provider_id: str

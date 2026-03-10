@@ -175,6 +175,51 @@ def test_user_tool_results_are_not_skipped_after_partial_stream(monkeypatch, tmp
     assert "{\"kind\":\"python_execution\",\"summary\":\"ok\"}" in str(tool_blocks[0].get("output") or "")
 
 
+def test_done_payload_keeps_usage_and_stop_metadata(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            SystemMessage(),
+            StreamEvent({"type": "message_start", "message": {"id": "sdk-msg-1", "usage": {"input_tokens": 42}}}),
+            StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "已完成"}}),
+            StreamEvent({
+                "type": "message_delta",
+                "delta": {
+                    "stop_reason": "end_turn",
+                    "stop_sequence": "\n\n",
+                    "usage": {"output_tokens": 9, "cache_read_input_tokens": 11},
+                },
+            }),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent({"type": "message_stop"}),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        agent,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+        },
+    )
+    monkeypatch.setattr(agent, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    done = _collect_done_payload(_build_run_input("active 状态表数量"))
+
+    assert done["stop_reason"] == "end_turn"
+    assert done["stop_sequence"] == "\n\n"
+    assert done["usage"] == {
+        "input_tokens": 42,
+        "output_tokens": 9,
+        "cache_read_input_tokens": 11,
+    }
+
+
 def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
     fake_cfg = SimpleNamespace(
         mysql_host="127.0.0.1",
