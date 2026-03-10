@@ -319,4 +319,5 @@ describe('messageStream', () => {
     expect(msg.renderBlocks[0].tool._resultStarted).toBe(true)
     expect(msg.renderBlocks[0].tool.status).toBe('success')
   })
+
 })
