@@ -30,10 +30,13 @@ deploy/
 # 在项目根目录下执行
 cp deploy/.env.example deploy/.env
 
-# 2. 启动服务
+# 2. 拉取最新镜像
+docker compose -f deploy/docker-compose.dev.yml pull
+
+# 3. 启动服务
 docker compose -f deploy/docker-compose.dev.yml up -d
 
-# 3. 访问应用
+# 4. 访问应用
 # 前端地址: http://localhost:8081
 ```
 

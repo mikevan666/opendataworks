@@ -92,7 +92,10 @@ npm run dev
 # 1. 准备配置
 cp deploy/.env.example deploy/.env
 
-# 2. 启动服务
+# 2. 拉取最新镜像
+docker compose -f deploy/docker-compose.dev.yml pull
+
+# 3. 启动服务
 docker compose -f deploy/docker-compose.dev.yml up -d
 
 # 访问
