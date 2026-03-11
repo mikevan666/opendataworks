@@ -50,7 +50,7 @@ export default defineConfig({
       dts: false,
       resolvers: [
         ElementPlusResolver({
-          importStyle: false,
+          importStyle: 'css',
           directives: true
         })
       ]
