@@ -137,7 +137,7 @@
               type="primary"
               size="small"
               plain
-              :disabled="!currentNode?.tableId"
+              :disabled="isDemoMode || !currentNode?.tableId"
               @click="goCreateRelatedTask('write')"
             >
               <el-icon><Plus /></el-icon>
@@ -147,7 +147,7 @@
           <div v-if="relatedTasks.writeTasks.length" class="task-entry-list">
             <div v-for="task in relatedTasks.writeTasks" :key="task.id" class="task-entry-item">
               <div class="task-entry-title">
-                <el-link type="primary" @click="goTaskDetail(task.id)">
+                <el-link type="primary" :disabled="isDemoMode" @click="goTaskDetail(task.id)">
                   {{ task.taskName || '-' }}
                 </el-link>
                 <el-tag v-if="task.status" size="small" :type="taskStatusTag(task.status)">
@@ -170,7 +170,7 @@
               type="primary"
               size="small"
               plain
-              :disabled="!currentNode?.tableId"
+              :disabled="isDemoMode || !currentNode?.tableId"
               @click="goCreateRelatedTask('read')"
             >
               <el-icon><Plus /></el-icon>
@@ -180,7 +180,7 @@
           <div v-if="relatedTasks.readTasks.length" class="task-entry-list">
             <div v-for="task in relatedTasks.readTasks" :key="task.id" class="task-entry-item">
               <div class="task-entry-title">
-                <el-link type="primary" @click="goTaskDetail(task.id)">
+                <el-link type="primary" :disabled="isDemoMode" @click="goTaskDetail(task.id)">
                   {{ task.taskName || '-' }}
                 </el-link>
                 <el-tag v-if="task.status" size="small" :type="taskStatusTag(task.status)">
@@ -218,6 +218,7 @@ import { lineageApi } from '@/api/lineage'
 import { businessDomainApi, dataDomainApi } from '@/api/domain'
 import { tableApi } from '@/api/table'
 import { dorisClusterApi } from '@/api/doris'
+import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 import { ElMessage, ElNotification } from 'element-plus'
 import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
 import LineageFlow from './LineageFlow.vue'
@@ -559,6 +560,10 @@ const goToTableDetail = async () => {
 }
 
 const goCreateRelatedTask = (relation) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('新增关联任务')
+    return
+  }
   const tableId = currentNode.value?.tableId
   if (!tableId) return
   taskDrawerRef.value?.open(null, { relation, tableId })
@@ -566,6 +571,10 @@ const goCreateRelatedTask = (relation) => {
 
 const goTaskDetail = (taskId) => {
   if (!taskId) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('任务详情')
+    return
+  }
   taskDrawerRef.value?.open(taskId)
 }
 

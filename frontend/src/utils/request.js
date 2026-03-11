@@ -1,10 +1,16 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { demoAdapter } from '@/demo/mockServer'
+import { isDemoMode } from '@/demo/runtime'
 
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: isDemoMode ? '' : '/api',
   timeout: 60000  // 增加到60秒，支持较长时间的操作（如工作流执行）
 })
+
+if (isDemoMode) {
+  request.defaults.adapter = demoAdapter
+}
 
 const shouldSkipErrorMessage = (config) => {
   return !!(config && (config.skipErrorMessage || config.silent))
