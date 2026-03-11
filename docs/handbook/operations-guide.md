@@ -28,8 +28,10 @@ scripts/build/build-multiarch.sh --namespace your-registry
   - `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE=opendataworks`, `MYSQL_USER=opendataworks`
   - `SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/opendataworks`
   - `DATAAGENT_MYSQL_USER=dataagent`, `DATAAGENT_SESSION_MYSQL_DATABASE=dataagent`
+  - `DATAAGENT_RUNTIME_UID/GID` 控制 DataAgent 容器的运行身份，默认 `1000:1000`
   - DolphinScheduler 配置请在系统管理界面进行
 - 若升级时保留已有 `mysql-data` volume，初始化脚本不会补跑；切换到独立 `dataagent` 用户前请先手动补建该用户。
+- 若 DataAgent 挂载的 skills 目录存在宿主机权限不匹配，优先调整 `DATAAGENT_RUNTIME_UID/GID` 对齐目录拥有者，或直接修正挂载目录权限。
 - 需要扩展端口（如前端 80 → 8081）时，直接修改 `ports`。
 
 ## 离线部署

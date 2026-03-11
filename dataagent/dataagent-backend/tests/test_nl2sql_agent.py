@@ -42,8 +42,10 @@ class ResultMessage:
         self.result = result
 
 
-def _install_fake_sdk(monkeypatch, messages):
+def _install_fake_sdk(monkeypatch, messages, *, capture_options=None):
     async def fake_query(*, prompt, options):
+        if capture_options is not None:
+            capture_options.append(options)
         for message in messages:
             yield message
 
@@ -218,6 +220,43 @@ def test_done_payload_keeps_usage_and_stop_metadata(monkeypatch, tmp_path: Path)
         "output_tokens": 9,
         "cache_read_input_tokens": 11,
     }
+
+
+def test_root_runtime_does_not_use_bypass_permissions(monkeypatch, tmp_path: Path):
+    captured_options = []
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            SystemMessage(),
+            StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "已完成"}}),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent({"type": "message_stop"}),
+            ResultMessage("success"),
+        ],
+        capture_options=captured_options,
+    )
+    monkeypatch.setattr(
+        agent,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+        },
+    )
+    monkeypatch.setattr(agent, "resolve_agent_project_cwd", lambda: tmp_path)
+    monkeypatch.setattr(agent, "_is_running_as_root", lambda: True)
+
+    done = _collect_done_payload(_build_run_input("active 状态表数量"))
+
+    assert done["status"] == "success"
+    assert len(captured_options) == 1
+    option_kwargs = captured_options[0].kwargs
+    assert option_kwargs["permission_mode"] == "default"
+    assert option_kwargs["allowed_tools"] == ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
 
 
 def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):

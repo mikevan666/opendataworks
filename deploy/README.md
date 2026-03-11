@@ -52,6 +52,8 @@ Use this method if you have internet access and are deploying directly from the 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
    >
    > 若保留旧的 `mysql-data` volume 升级，初始化脚本不会重跑；切换到独立 `dataagent` 用户前，需要先手动补建该用户或清空 volume 重新初始化。
+   >
+   > DataAgent 在 `docker-compose.prod.yml` 中默认以非 root 用户运行（`DATAAGENT_RUNTIME_UID/GID`，默认 `1000:1000`）。若 `dataagent/.claude/skills/` 无法写入，请把这两个值改成宿主机目录拥有者的 UID/GID，或先调整目录权限。
 
 ---
 
@@ -98,6 +100,8 @@ Use this method for isolated environments without internet access. You will use 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
    >
    > 若保留旧的 `mysql-data` volume 升级，初始化脚本不会重跑；切换到独立 `dataagent` 用户前，需要先手动补建该用户或清空 volume 重新初始化。
+   >
+   > 离线包中的 DataAgent 也默认以非 root 用户运行（`DATAAGENT_RUNTIME_UID/GID`，默认 `1000:1000`）。若 `deploy/dataagent-runtime/skills/` 无法写入，请把这两个值改成目标机器目录拥有者的 UID/GID，或先调整目录权限。
 
 ---
 

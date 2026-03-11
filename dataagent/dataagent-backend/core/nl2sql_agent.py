@@ -22,6 +22,8 @@ from core.stream_events import EventSequencer
 
 logger = logging.getLogger(__name__)
 
+SAFE_AUTO_ALLOWED_TOOLS = ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
+
 
 @dataclass
 class AgentRunInput:
@@ -237,14 +239,13 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     project_cwd = resolve_agent_project_cwd()
     # provider/base_url/token 全由后端运行时注入，避免依赖用户本地的 Claude 配置文件
     setting_sources = ["project"]
-    allowed_tools = ["Skill", "Bash"]
-
-    options = ClaudeAgentOptions(
+    allowed_tools = list(SAFE_AUTO_ALLOWED_TOOLS)
+    permission_mode = _resolve_sdk_permission_mode()
+    options_kwargs = dict(
         system_prompt=system_prompt,
         model=model,
         cwd=str(project_cwd),
         setting_sources=setting_sources,
-        permission_mode="bypassPermissions",
         max_turns=max(1, int(cfg.agent_max_turns)),
         allowed_tools=allowed_tools,
         # 关键：开启 SDK partial stream，才能拿到 content_block_delta 等细粒度增量
@@ -258,15 +259,19 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
             str(line or "").rstrip(),
         ),
     )
+    if permission_mode:
+        options_kwargs["permission_mode"] = permission_mode
+    options = ClaudeAgentOptions(**options_kwargs)
     timeout_seconds = max(10, int(cfg.agent_timeout_seconds))
     logger.info(
-        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s timeout_hint=%s base_url=%s",
+        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s base_url=%s",
         params.run_id,
         provider_id,
         model,
         project_cwd,
         ",".join(setting_sources),
         ",".join(allowed_tools),
+        permission_mode or "(sdk-default)",
         timeout_seconds,
         _safe_base_url(env_payload.get("ANTHROPIC_BASE_URL")),
     )
@@ -842,6 +847,24 @@ def _build_runtime_env(cfg, provider_env: dict[str, str]) -> dict[str, str]:
         }
     )
     return runtime_env
+
+
+def _is_running_as_root() -> bool:
+    geteuid = getattr(os, "geteuid", None)
+    if not callable(geteuid):
+        return False
+    try:
+        return int(geteuid()) == 0
+    except Exception:
+        return False
+
+
+def _resolve_sdk_permission_mode() -> str:
+    if _is_running_as_root():
+        # Claude Code rejects bypassPermissions under root/sudo. Fall back to the
+        # standard mode and rely on allowed_tools for the read-only + script path.
+        return "default"
+    return "bypassPermissions"
 
 
 def _default_model_for_provider(provider_id: str) -> str:
