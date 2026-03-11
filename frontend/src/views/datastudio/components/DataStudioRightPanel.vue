@@ -540,10 +540,10 @@
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Warning } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
 import { tableApi } from '@/api/table'
 import DataStudioRightPanelLineage from './DataStudioRightPanelLineage.vue'
 import { isDemoMode } from '@/demo/runtime'
+import { loadEcharts } from '@/utils/loadEcharts'
 
 const props = defineProps({
   visualVariant: {
@@ -812,7 +812,7 @@ const loadTrendSeries = async () => {
   }
 
   await nextTick()
-  renderTrendChart()
+  void renderTrendChart()
 }
 
 const buildTrendValues = () => {
@@ -829,10 +829,14 @@ const buildTrendValues = () => {
   return { labels, values }
 }
 
-const renderTrendChart = () => {
+const renderTrendChart = async () => {
   if (!trendDialogVisible.value || !trendChartRef.value || !trendSeries.value.length) return
 
   if (!trendChartInstance) {
+    const echarts = await loadEcharts()
+    if (!trendDialogVisible.value || !trendChartRef.value || !trendSeries.value.length) {
+      return
+    }
     trendChartInstance = echarts.init(trendChartRef.value)
   }
 
@@ -898,7 +902,7 @@ watch(
   () => trendMetric.value,
   () => {
     if (trendDialogVisible.value) {
-      renderTrendChart()
+      void renderTrendChart()
     }
   }
 )
@@ -908,7 +912,7 @@ watch(
   async (visible) => {
     if (visible) {
       await nextTick()
-      renderTrendChart()
+      void renderTrendChart()
       return
     }
     if (trendChartInstance) {

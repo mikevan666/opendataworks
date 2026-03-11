@@ -211,7 +211,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, Plus } from '@element-plus/icons-vue'
 import { lineageApi } from '@/api/lineage'
@@ -221,7 +221,11 @@ import { dorisClusterApi } from '@/api/doris'
 import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 import { ElMessage, ElNotification } from 'element-plus'
 import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
-import LineageFlow from './LineageFlow.vue'
+
+const LineageFlow = defineAsyncComponent({
+  loader: () => import('./LineageFlow.vue'),
+  suspensible: false
+})
 
 const loading = ref(false)
 const graphData = ref(null)

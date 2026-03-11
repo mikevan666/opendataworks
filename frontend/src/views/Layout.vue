@@ -16,7 +16,13 @@
           mode="horizontal"
           class="menu"
         >
-          <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
+          <el-menu-item
+            v-for="item in menuItems"
+            :key="item.index"
+            :index="item.index"
+            @mouseenter="preloadMenuRoute(item.index)"
+            @focus="preloadMenuRoute(item.index)"
+          >
             <el-icon><component :is="item.icon" /></el-icon>
             <span>{{ item.label }}</span>
           </el-menu-item>
@@ -31,12 +37,14 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { DataBoard, DataLine, Connection, Collection, Warning, Setting, Share, Link, Message } from '@element-plus/icons-vue'
 import { isDemoMode } from '@/demo/runtime'
+import { preloadRouteComponents, scheduleRouteWarmup } from '@/router/routeWarmup'
 
 const route = useRoute()
+const router = useRouter()
 const menuItems = computed(() => {
   const items = [
     { index: '/dashboard', label: '控制台', icon: DataBoard },
@@ -84,6 +92,22 @@ const activeMenu = computed(() => {
     return '/settings'
   }
   return path
+})
+
+const preloadMenuRoute = (path) => {
+  if (!path || path === activeMenu.value) {
+    return
+  }
+  void preloadRouteComponents(router, path)
+}
+
+onMounted(() => {
+  scheduleRouteWarmup(
+    router,
+    menuItems.value
+      .map((item) => item.index)
+      .filter((path) => path !== activeMenu.value)
+  )
 })
 </script>
 

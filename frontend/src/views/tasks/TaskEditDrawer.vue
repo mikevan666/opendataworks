@@ -330,13 +330,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import SqlEditor from '@/components/SqlEditor.vue'
 import { taskApi } from '@/api/task'
 import { workflowApi } from '@/api/workflow'
 import { tableApi } from '@/api/table'
+
+const SqlEditor = defineAsyncComponent({
+  loader: () => import('@/components/SqlEditor.vue'),
+  suspensible: false
+})
 
 const emit = defineEmits(['saved', 'success', 'close'])
 

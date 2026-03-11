@@ -1145,17 +1145,16 @@
       </aside>
     </div>
 
-    <CreateTableDrawer v-model="createDrawerVisible" @created="handleCreateSuccess" />
+    <CreateTableDrawer v-if="createDrawerVisible" v-model="createDrawerVisible" @created="handleCreateSuccess" />
     <TaskEditDrawer ref="taskDrawerRef" @success="handleTaskSuccess" />
 
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as echarts from 'echarts'
 import {
   Coin,
   Search,
@@ -1181,11 +1180,24 @@ import { dorisClusterApi } from '@/api/doris'
 import { dataQueryApi } from '@/api/query'
 import { businessDomainApi, dataDomainApi } from '@/api/domain'
 import PersistentTabs from '@/components/PersistentTabs.vue'
-import SqlEditor from '@/components/SqlEditor.vue'
-import CreateTableDrawer from '@/views/datastudio/CreateTableDrawer.vue'
-import DataStudioRightPanel from '@/views/datastudio/components/DataStudioRightPanel.vue'
 import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
 import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
+import { loadEcharts } from '@/utils/loadEcharts'
+
+const SqlEditor = defineAsyncComponent({
+  loader: () => import('@/components/SqlEditor.vue'),
+  suspensible: false
+})
+
+const CreateTableDrawer = defineAsyncComponent({
+  loader: () => import('@/views/datastudio/CreateTableDrawer.vue'),
+  suspensible: false
+})
+
+const DataStudioRightPanel = defineAsyncComponent({
+  loader: () => import('@/views/datastudio/components/DataStudioRightPanel.vue'),
+  suspensible: false
+})
 
 const clusterId = ref(null)
 const route = useRoute()
@@ -3926,7 +3938,7 @@ const syncResultPaneLayout = (tabId) => {
   }
 }
 
-const renderChart = (tabId, resultIndex = 0) => {
+const renderChart = async (tabId, resultIndex = 0) => {
   const state = tabStates[tabId]
   if (!state) return
   const key = getChartKey(tabId, resultIndex)
@@ -3944,6 +3956,13 @@ const renderChart = (tabId, resultIndex = 0) => {
     return
   }
   if (!instance) {
+    const echarts = await loadEcharts()
+    if (!chartRefs.value[key] || chartRefs.value[key] !== container || !container.isConnected) {
+      return
+    }
+    if (!canRenderChart(tabId, resultIndex)) {
+      return
+    }
     instance = echarts.init(container)
     chartInstances.set(key, instance)
   }
@@ -4569,7 +4588,7 @@ watch(
 		    const [tabId, idx, view] = payload
 		    await nextTick()
 		    if (view === 'chart') {
-		      renderChart(tabId, idx)
+		      void renderChart(tabId, idx)
 		      return
 		    }
 		    if (view === 'table') {
