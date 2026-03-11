@@ -2,7 +2,7 @@ let echartsPromise = null
 
 export const loadEcharts = async () => {
   if (!echartsPromise) {
-    echartsPromise = import('echarts')
+    echartsPromise = import('./echartsBundle').then((module) => module.echarts)
   }
   return echartsPromise
 }
