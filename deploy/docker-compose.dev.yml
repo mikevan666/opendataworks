@@ -91,12 +91,6 @@ services:
       MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-root123}
       MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
       SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
-      SKILLS_OUTPUT_DIR: ${DATAAGENT_SKILLS_OUTPUT_DIR:-../.claude/skills/dataagent-nl2sql}
-      LLM_PROVIDER: ${DATAAGENT_LLM_PROVIDER:-anyrouter}
-      CLAUDE_MODEL: ${DATAAGENT_CLAUDE_MODEL:-claude-opus-4-6}
-      ANTHROPIC_AUTH_TOKEN: ${DATAAGENT_ANTHROPIC_AUTH_TOKEN:-}
-      ANTHROPIC_API_KEY: ${DATAAGENT_ANTHROPIC_API_KEY:-}
-      ANTHROPIC_BASE_URL: ${DATAAGENT_ANTHROPIC_BASE_URL:-https://a-ocnfniawgw.cn-shanghai.fcapp.run}
     ports:
       - "8900:8900"
     depends_on:
@@ -110,7 +104,6 @@ services:
       start_period: 120s
     volumes:
       - ../dataagent/dataagent-backend:/workspace/dataagent/dataagent-backend
-      - ${DATAAGENT_LLM_JSON_FILE:-../dataagent/.claude/settings.json}:/workspace/dataagent/.claude/settings.json
       - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/workspace/dataagent/.claude/skills
       - dataagent-backend-pip-cache:/root/.cache/pip
 
