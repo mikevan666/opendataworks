@@ -49,7 +49,9 @@ Use this method if you have internet access and are deploying directly from the 
      - 动态元数据查询示例在 skill 的 `references/` / `scripts/` 中，不再由后端同步生成 metadata 快照
    - 主前端默认通过同源 `/api` 代理访问 DataAgent 后端，无需额外配置前端地址
 
-   > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库和用户权限。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
+   > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
+   >
+   > 若保留旧的 `mysql-data` volume 升级，初始化脚本不会重跑；切换到独立 `dataagent` 用户前，需要先手动补建该用户或清空 volume 重新初始化。
 
 ---
 
@@ -93,7 +95,9 @@ Use this method for isolated environments without internet access. You will use 
    - 大模型供应商、Token 与候选模型仍通过主前端配置页管理
    - 动态元数据查询示例保留在 skill 的 `references/` / `scripts/` 中
 
-   > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库和用户权限。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
+   > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
+   >
+   > 若保留旧的 `mysql-data` volume 升级，初始化脚本不会重跑；切换到独立 `dataagent` 用户前，需要先手动补建该用户或清空 volume 重新初始化。
 
 ---
 
