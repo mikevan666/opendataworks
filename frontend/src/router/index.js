@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { isDemoMode } from '@/demo/runtime'
 
-const demoHomePath = '/workflows'
+const demoHomePath = '/dashboard'
 const defaultHomePath = isDemoMode ? demoHomePath : '/dashboard'
 
 const routes = [
@@ -107,7 +107,16 @@ const router = createRouter({
 })
 
 if (isDemoMode) {
-  const allowedPrefixes = ['/workflows', '/tasks', '/monitor', '/lineage', '/datastudio', '/datastudio-new']
+  const allowedPrefixes = [
+    '/dashboard',
+    '/domains',
+    '/workflows',
+    '/tasks',
+    '/monitor',
+    '/lineage',
+    '/datastudio',
+    '/datastudio-new'
+  ]
 
   router.beforeEach((to) => {
     if (to.path === '/') {

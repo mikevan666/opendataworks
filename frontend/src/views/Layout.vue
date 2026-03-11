@@ -52,7 +52,7 @@ const menuItems = computed(() => {
   if (!isDemoMode) {
     return items
   }
-  return items.filter((item) => ['/datastudio', '/workflows', '/lineage'].includes(item.index))
+  return items.filter((item) => ['/dashboard', '/domains', '/datastudio', '/workflows', '/lineage'].includes(item.index))
 })
 const activeMenu = computed(() => {
   const path = route.path

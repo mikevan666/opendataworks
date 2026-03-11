@@ -861,6 +861,59 @@ const getLineageForTable = (tableId) => {
   }
 }
 
+const getDashboardStatistics = (params = {}) => {
+  if (params.clusterId && Number(params.clusterId) !== DEMO_CLUSTER_ID) {
+    return {
+      totalTables: 0,
+      totalDomains: 0,
+      hotWindowDays: 30,
+      coldWindowDays: 90,
+      hotTables: [],
+      longUnusedTables: [],
+      totalTasks: 0,
+      totalExecutions: 0,
+      runningExecutions: 0,
+      openIssues: 0,
+      criticalIssues: 0,
+      successExecutions: 0,
+      failedExecutions: 0,
+      executionSuccessRate: 0,
+      todayExecutions: 0,
+      todaySuccessExecutions: 0,
+      todayFailedExecutions: 0,
+      tableAccessNote: '当前筛选数据源暂无样例资产'
+    }
+  }
+
+  return {
+    totalTables: 5,
+    totalDomains: 3,
+    hotWindowDays: 30,
+    coldWindowDays: 90,
+    hotTables: [
+      { dbName: DEMO_DATABASE, tableName: 'demo_order_detail', accessCount: 128, lastAccessTime: '2026-03-11T09:18:00' },
+      { dbName: DEMO_DATABASE, tableName: 'demo_store_sales_daily', accessCount: 76, lastAccessTime: '2026-03-11T08:42:00' },
+      { dbName: DEMO_DATABASE, tableName: 'demo_member_profile', accessCount: 52, lastAccessTime: '2026-03-10T18:05:00' }
+    ],
+    longUnusedTables: [
+      { dbName: DEMO_DATABASE, tableName: 'demo_order_risk_alert', lastAccessTime: '2025-12-28T11:20:00', daysSinceLastAccess: 73 },
+      { dbName: DEMO_DATABASE, tableName: 'demo_member_profile', lastAccessTime: '2026-01-14T09:00:00', daysSinceLastAccess: 56 }
+    ],
+    totalTasks: 3,
+    totalExecutions: 6,
+    runningExecutions: 1,
+    openIssues: 2,
+    criticalIssues: 1,
+    successExecutions: 4,
+    failedExecutions: 1,
+    executionSuccessRate: 80,
+    todayExecutions: 3,
+    todaySuccessExecutions: 2,
+    todayFailedExecutions: 1,
+    tableAccessNote: '表访问统计为 README 演示样例数据，用于展示热点表与长期未用表分析。'
+  }
+}
+
 const buildLineageGraph = (params = {}) => {
   const centerTableId = Number(params.tableId || 0)
   if (centerTableId) {
@@ -1402,6 +1455,10 @@ export const demoAdapter = async (config) => {
     return execution
       ? createResponse(config, execution)
       : createRejectedResponse(config, '执行记录不存在', 404)
+  }
+
+  if (method === 'get' && pathname === '/v1/dashboard/statistics') {
+    return createResponse(config, getDashboardStatistics(params))
   }
 
   if (method === 'get' && pathname === '/v1/doris-clusters') {

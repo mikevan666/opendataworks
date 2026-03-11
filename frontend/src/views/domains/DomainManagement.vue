@@ -1,6 +1,14 @@
 <template>
   <div class="domain-management" v-loading="loading">
     <el-page-header content="数据建模" class="page-header" />
+    <el-alert
+      v-if="isDemoMode"
+      :title="demoReadonlyMessage"
+      type="info"
+      show-icon
+      :closable="false"
+      class="readonly-alert"
+    />
 
     <el-row :gutter="20">
       <el-col :span="12">
@@ -8,7 +16,7 @@
           <template #header>
             <div class="card-header">
               业务域
-              <el-button type="primary" size="small" @click="openBusinessDialog()">
+              <el-button type="primary" size="small" :disabled="isDemoMode" @click="openBusinessDialog()">
                 <el-icon><Plus /></el-icon>
                 新建
               </el-button>
@@ -21,10 +29,10 @@
             <el-table-column prop="description" label="描述" />
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openBusinessDialog(row)">编辑</el-button>
-                <el-popconfirm title="确定删除该业务域吗?" @confirm="removeBusiness(row.id)">
+                <el-button link type="primary" :disabled="isDemoMode" @click="openBusinessDialog(row)">编辑</el-button>
+                <el-popconfirm title="确定删除该业务域吗?" :disabled="isDemoMode" @confirm="removeBusiness(row.id)">
                   <template #reference>
-                    <el-button link type="danger">删除</el-button>
+                    <el-button link type="danger" :disabled="isDemoMode">删除</el-button>
                   </template>
                 </el-popconfirm>
               </template>
@@ -53,7 +61,7 @@
                     :value="item.domainCode"
                   />
                 </el-select>
-                <el-button type="primary" size="small" @click="openDataDialog()">
+                <el-button type="primary" size="small" :disabled="isDemoMode" @click="openDataDialog()">
                   <el-icon><Plus /></el-icon>
                   新建
                 </el-button>
@@ -72,10 +80,10 @@
             <el-table-column prop="description" label="描述" />
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openDataDialog(row)">编辑</el-button>
-                <el-popconfirm title="确定删除该数据域吗?" @confirm="removeDataDomain(row.id)">
+                <el-button link type="primary" :disabled="isDemoMode" @click="openDataDialog(row)">编辑</el-button>
+                <el-popconfirm title="确定删除该数据域吗?" :disabled="isDemoMode" @confirm="removeDataDomain(row.id)">
                   <template #reference>
-                    <el-button link type="danger">删除</el-button>
+                    <el-button link type="danger" :disabled="isDemoMode">删除</el-button>
                   </template>
                 </el-popconfirm>
               </template>
@@ -150,6 +158,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { businessDomainApi, dataDomainApi } from '@/api/domain'
+import { demoReadonlyMessage, isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 
 const loading = ref(false)
 
@@ -204,6 +213,10 @@ const loadDataDomains = async () => {
 }
 
 const openBusinessDialog = (row) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('维护业务域')
+    return
+  }
   resetBusinessForm()
   if (row) {
     Object.assign(businessForm, row)
@@ -212,6 +225,10 @@ const openBusinessDialog = (row) => {
 }
 
 const openDataDialog = (row) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('维护数据域')
+    return
+  }
   resetDataForm()
   if (row) {
     Object.assign(dataForm, row)
@@ -239,6 +256,10 @@ const resetDataForm = () => {
 }
 
 const submitBusiness = async () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('保存业务域')
+    return
+  }
   await businessFormRef.value.validate()
   savingBusiness.value = true
   try {
@@ -260,6 +281,10 @@ const submitBusiness = async () => {
 }
 
 const submitDataDomain = async () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('保存数据域')
+    return
+  }
   await dataFormRef.value.validate()
   savingData.value = true
   try {
@@ -280,6 +305,10 @@ const submitDataDomain = async () => {
 }
 
 const removeBusiness = async (id) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('删除业务域')
+    return
+  }
   try {
     await businessDomainApi.remove(id)
     ElMessage.success('删除业务域成功')
@@ -291,6 +320,10 @@ const removeBusiness = async (id) => {
 }
 
 const removeDataDomain = async (id) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('删除数据域')
+    return
+  }
   try {
     await dataDomainApi.remove(id)
     ElMessage.success('删除数据域成功')
@@ -322,6 +355,10 @@ onMounted(async () => {
 }
 
 .page-header {
+  margin-bottom: 12px;
+}
+
+.readonly-alert {
   margin-bottom: 12px;
 }
 
