@@ -667,6 +667,20 @@ const baseExecutions = [
   }
 ]
 
+const businessDomainOptions = [
+  {
+    id: 1,
+    domainCode: 'tech',
+    domainName: '技术域',
+    description: 'README 演示业务域'
+  }
+]
+
+const dataDomainOptions = [
+  { id: 1, domainCode: 'dev', domainName: '研发域', businessDomain: 'tech', description: '研发相关元数据' },
+  { id: 2, domainCode: 'ops', domainName: '运维域', businessDomain: 'tech', description: '任务调度与治理相关数据' },
+  { id: 3, domainCode: 'public', domainName: '公共域', businessDomain: 'tech', description: '公共维度与字典数据' }
+]
 const baseQueryHistory = [
   {
     id: 90003,
@@ -858,59 +872,6 @@ const getLineageForTable = (tableId) => {
   return {
     upstreamTables: baseTables.filter((item) => upstreamIds.includes(item.id)).map((item) => ({ ...item })),
     downstreamTables: baseTables.filter((item) => downstreamIds.includes(item.id)).map((item) => ({ ...item }))
-  }
-}
-
-const getDashboardStatistics = (params = {}) => {
-  if (params.clusterId && Number(params.clusterId) !== DEMO_CLUSTER_ID) {
-    return {
-      totalTables: 0,
-      totalDomains: 0,
-      hotWindowDays: 30,
-      coldWindowDays: 90,
-      hotTables: [],
-      longUnusedTables: [],
-      totalTasks: 0,
-      totalExecutions: 0,
-      runningExecutions: 0,
-      openIssues: 0,
-      criticalIssues: 0,
-      successExecutions: 0,
-      failedExecutions: 0,
-      executionSuccessRate: 0,
-      todayExecutions: 0,
-      todaySuccessExecutions: 0,
-      todayFailedExecutions: 0,
-      tableAccessNote: '当前筛选数据源暂无样例资产'
-    }
-  }
-
-  return {
-    totalTables: 5,
-    totalDomains: 3,
-    hotWindowDays: 30,
-    coldWindowDays: 90,
-    hotTables: [
-      { dbName: DEMO_DATABASE, tableName: 'demo_order_detail', accessCount: 128, lastAccessTime: '2026-03-11T09:18:00' },
-      { dbName: DEMO_DATABASE, tableName: 'demo_store_sales_daily', accessCount: 76, lastAccessTime: '2026-03-11T08:42:00' },
-      { dbName: DEMO_DATABASE, tableName: 'demo_member_profile', accessCount: 52, lastAccessTime: '2026-03-10T18:05:00' }
-    ],
-    longUnusedTables: [
-      { dbName: DEMO_DATABASE, tableName: 'demo_order_risk_alert', lastAccessTime: '2025-12-28T11:20:00', daysSinceLastAccess: 73 },
-      { dbName: DEMO_DATABASE, tableName: 'demo_member_profile', lastAccessTime: '2026-01-14T09:00:00', daysSinceLastAccess: 56 }
-    ],
-    totalTasks: 3,
-    totalExecutions: 6,
-    runningExecutions: 1,
-    openIssues: 2,
-    criticalIssues: 1,
-    successExecutions: 4,
-    failedExecutions: 1,
-    executionSuccessRate: 80,
-    todayExecutions: 3,
-    todaySuccessExecutions: 2,
-    todayFailedExecutions: 1,
-    tableAccessNote: '表访问统计为 README 演示样例数据，用于展示热点表与长期未用表分析。'
   }
 }
 
@@ -1356,6 +1317,81 @@ const handleExecutionStats = (params) => {
   }
 }
 
+const toDashboardDate = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const daysSince = (value) => {
+  const target = toDashboardDate(value)
+  if (!target) return 999
+  const now = new Date('2026-03-11T23:59:59')
+  return Math.max(0, Math.floor((now.getTime() - target.getTime()) / (24 * 60 * 60 * 1000)))
+}
+
+const handleDashboardStatistics = (params = {}) => {
+  const clusterId = params.clusterId ? Number(params.clusterId) : null
+  const tables = getTables().filter((item) => !clusterId || item.clusterId === clusterId)
+  const tasks = getTasks()
+  const executions = filterExecutions({})
+
+  const hotTables = tables
+    .map((item) => {
+      const stats = accessStatsMap[item.id] || {}
+      return {
+        dbName: item.dbName,
+        tableName: item.tableName,
+        accessCount: Number(stats.accessCount30d || stats.totalAccessCount || stats.recentAccessCount || 0),
+        lastAccessTime: stats.lastAccessTime || null
+      }
+    })
+    .sort((left, right) => right.accessCount - left.accessCount || String(left.tableName).localeCompare(String(right.tableName)))
+    .slice(0, 5)
+
+  const longUnusedTables = tables
+    .map((item) => {
+      const stats = accessStatsMap[item.id] || {}
+      const lastAccessTime = stats.lastAccessTime || null
+      return {
+        dbName: item.dbName,
+        tableName: item.tableName,
+        lastAccessTime,
+        daysSinceLastAccess: lastAccessTime ? daysSince(lastAccessTime) : 120
+      }
+    })
+    .sort((left, right) => right.daysSinceLastAccess - left.daysSinceLastAccess || String(left.tableName).localeCompare(String(right.tableName)))
+    .slice(0, 5)
+
+  const totalExecutions = executions.length
+  const successExecutions = executions.filter((item) => item.status === 'success').length
+  const failedExecutions = executions.filter((item) => item.status === 'failed').length
+  const runningExecutions = executions.filter((item) => item.status === 'running').length
+  const todayExecutions = executions.filter((item) => String(item.startTime || '').startsWith('2026-03-11')).length
+  const todaySuccessExecutions = executions.filter((item) => item.status === 'success' && String(item.startTime || '').startsWith('2026-03-11')).length
+  const todayFailedExecutions = executions.filter((item) => item.status === 'failed' && String(item.startTime || '').startsWith('2026-03-11')).length
+
+  return {
+    totalTables: tables.length,
+    totalDomains: dataDomainOptions.length,
+    tableAccessNote: '演示环境展示样例访问统计数据。',
+    hotTables,
+    hotWindowDays: 30,
+    longUnusedTables,
+    coldWindowDays: 90,
+    totalTasks: tasks.length,
+    totalExecutions,
+    runningExecutions,
+    openIssues: 2,
+    criticalIssues: 1,
+    successExecutions,
+    executionSuccessRate: totalExecutions ? Number(((successExecutions / totalExecutions) * 100).toFixed(2)) : 0,
+    failedExecutions,
+    todayExecutions,
+    todaySuccessExecutions,
+    todayFailedExecutions
+  }
+}
 const handleTablesByDatabase = (params) => {
   let records = getTables()
   if (params.database) {
@@ -1420,6 +1456,9 @@ export const demoAdapter = async (config) => {
     return createResponse(config, { webuiUrl: '' })
   }
 
+  if (method === 'get' && pathname === '/v1/dashboard/statistics') {
+    return createResponse(config, handleDashboardStatistics(params))
+  }
   if (method === 'get' && pathname === '/v1/workflows') {
     return createResponse(config, handleWorkflowList(params))
   }
@@ -1455,10 +1494,6 @@ export const demoAdapter = async (config) => {
     return execution
       ? createResponse(config, execution)
       : createRejectedResponse(config, '执行记录不存在', 404)
-  }
-
-  if (method === 'get' && pathname === '/v1/dashboard/statistics') {
-    return createResponse(config, getDashboardStatistics(params))
   }
 
   if (method === 'get' && pathname === '/v1/doris-clusters') {
@@ -1508,25 +1543,13 @@ export const demoAdapter = async (config) => {
   }
 
   if (method === 'get' && pathname === '/v1/business-domains') {
-    return createResponse(config, [
-      {
-        id: 1,
-        domainCode: 'tech',
-        domainName: '技术域',
-        description: 'README 演示业务域'
-      }
-    ])
+    return createResponse(config, clone(businessDomainOptions))
   }
 
   if (method === 'get' && pathname === '/v1/data-domains') {
-    const options = [
-      { id: 1, domainCode: 'dev', domainName: '研发域', businessDomain: 'tech', description: '研发相关元数据' },
-      { id: 2, domainCode: 'ops', domainName: '运维域', businessDomain: 'tech', description: '任务调度与治理相关数据' },
-      { id: 3, domainCode: 'public', domainName: '公共域', businessDomain: 'tech', description: '公共维度与字典数据' }
-    ]
     const filtered = params.businessDomain
-      ? options.filter((item) => item.businessDomain === params.businessDomain)
-      : options
+      ? dataDomainOptions.filter((item) => item.businessDomain === params.businessDomain)
+      : dataDomainOptions
     return createResponse(config, filtered)
   }
 

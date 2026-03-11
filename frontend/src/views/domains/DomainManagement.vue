@@ -214,7 +214,7 @@ const loadDataDomains = async () => {
 
 const openBusinessDialog = (row) => {
   if (isDemoMode) {
-    showDemoReadonlyMessage('维护业务域')
+    showDemoReadonlyMessage(row ? '编辑业务域' : '新建业务域')
     return
   }
   resetBusinessForm()
@@ -226,7 +226,7 @@ const openBusinessDialog = (row) => {
 
 const openDataDialog = (row) => {
   if (isDemoMode) {
-    showDemoReadonlyMessage('维护数据域')
+    showDemoReadonlyMessage(row ? '编辑数据域' : '新建数据域')
     return
   }
   resetDataForm()
