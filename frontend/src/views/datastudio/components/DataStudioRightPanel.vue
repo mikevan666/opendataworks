@@ -20,7 +20,13 @@
                           <el-button type="primary" size="small" disabled>编辑</el-button>
                         </span>
                       </el-tooltip>
-                      <el-button v-else-if="!state.metaEditing" type="primary" size="small" @click="startMetaEdit(activeTabId)">
+                      <el-button
+                        v-else-if="!state.metaEditing"
+                        type="primary"
+                        size="small"
+                        :disabled="isDemoMode"
+                        @click="startMetaEdit(activeTabId)"
+                      >
                         编辑
                       </el-button>
 
@@ -33,13 +39,26 @@
                           <el-button type="danger" plain size="small" disabled>删除表</el-button>
                         </span>
                       </el-tooltip>
-                      <el-button v-else-if="!state.metaEditing" type="danger" plain size="small" @click="handleDeleteTable">
+                      <el-button
+                        v-else-if="!state.metaEditing"
+                        type="danger"
+                        plain
+                        size="small"
+                        :disabled="isDemoMode"
+                        @click="handleDeleteTable"
+                      >
                         删除表
                       </el-button>
 
                       <template v-else>
                         <el-button size="small" @click="cancelMetaEdit(activeTabId)">取消</el-button>
-                        <el-button type="primary" size="small" :loading="state.metaSaving" @click="saveMetaEdit(activeTabId)">
+                        <el-button
+                          type="primary"
+                          size="small"
+                          :loading="state.metaSaving"
+                          :disabled="isDemoMode"
+                          @click="saveMetaEdit(activeTabId)"
+                        >
                           保存
                         </el-button>
                       </template>
@@ -239,7 +258,13 @@
                         <el-button type="primary" size="small" disabled>编辑</el-button>
                       </span>
                     </el-tooltip>
-                    <el-button v-else-if="!state.fieldsEditing" type="primary" size="small" @click="startFieldsEdit(activeTabId)">
+                    <el-button
+                      v-else-if="!state.fieldsEditing"
+                      type="primary"
+                      size="small"
+                      :disabled="isDemoMode"
+                      @click="startFieldsEdit(activeTabId)"
+                    >
                       编辑
                     </el-button>
                     <template v-else>
@@ -250,6 +275,7 @@
                         type="primary"
                         size="small"
                         :loading="state.fieldSubmitting"
+                        :disabled="isDemoMode"
                         @click="saveFieldsEdit(activeTabId)"
                       >
                         保存修改
@@ -382,8 +408,8 @@
                       v-if="state.fieldsEditing"
                       type="primary"
                       size="small"
+                      :disabled="isDemoMode || isAggregateTable(state.table)"
                       @click="addField(activeTabId)"
-                      :disabled="isAggregateTable(state.table)"
                     >
                       新增字段
                     </el-button>
@@ -517,6 +543,7 @@ import { Warning } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { tableApi } from '@/api/table'
 import DataStudioRightPanelLineage from './DataStudioRightPanelLineage.vue'
+import { isDemoMode } from '@/demo/runtime'
 
 const props = defineProps({
   visualVariant: {

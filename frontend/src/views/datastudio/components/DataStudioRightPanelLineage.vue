@@ -69,7 +69,7 @@
               type="primary"
               size="small"
               plain
-              :disabled="!currentTable?.id"
+              :disabled="isDemoMode || !currentTable?.id"
               @click.stop="emit('create-task', 'write')"
             >
               <el-icon><Plus /></el-icon>
@@ -171,7 +171,7 @@
               type="primary"
               size="small"
               plain
-              :disabled="!currentTable?.id"
+              :disabled="isDemoMode || !currentTable?.id"
               @click.stop="emit('create-task', 'read')"
             >
               <el-icon><Plus /></el-icon>
@@ -249,6 +249,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { Grid, Operation, Plus, QuestionFilled } from '@element-plus/icons-vue'
+import { isDemoMode } from '@/demo/runtime'
 
 const props = defineProps({
   currentTable: {

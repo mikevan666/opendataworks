@@ -201,6 +201,7 @@
               type="primary"
               size="small"
               v-if="!isTerminalStatus(row.status)"
+              :disabled="isDemoMode"
               @click="handleSyncStatus(row)"
             >
               同步状态
@@ -373,6 +374,7 @@ import {
   getRunningExecutions,
   syncExecutionStatus
 } from '@/api/execution'
+import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 
 // 数据定义
 const loading = ref(false)
@@ -518,6 +520,10 @@ const handleViewDetail = async (row) => {
 
 // 同步状态
 const handleSyncStatus = async (row) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('同步执行状态')
+    return
+  }
   try {
     await syncExecutionStatus(row.id)
     ElMessage.success('状态同步成功')

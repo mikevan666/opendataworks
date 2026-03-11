@@ -20,7 +20,7 @@
               <el-icon><Refresh /></el-icon>
               刷新
             </el-button>
-            <el-button size="small" type="primary" @click="handleCreateTable">
+            <el-button size="small" type="primary" :disabled="isDemoMode" @click="handleCreateTable">
               <el-icon><Plus /></el-icon>
               新建表
             </el-button>
@@ -305,7 +305,7 @@
                           size="small"
                           type="success"
                           plain
-                          :disabled="tabStates[tab.id].queryLoading"
+                          :disabled="tabStates[tab.id].queryLoading || isDemoMode"
                           @click="saveAsTask(tab.id)"
                         >
                           存为任务
@@ -1185,6 +1185,7 @@ import SqlEditor from '@/components/SqlEditor.vue'
 import CreateTableDrawer from '@/views/datastudio/CreateTableDrawer.vue'
 import DataStudioRightPanel from '@/views/datastudio/components/DataStudioRightPanel.vue'
 import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
+import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 
 const clusterId = ref(null)
 const route = useRoute()
@@ -1292,7 +1293,9 @@ const tabStates = reactive({})
 const queryTimerHandles = new Map()
 const queryTabCounter = ref(1)
 
-const TAB_PERSIST_KEY = 'odw:datastudio:workspace-tabs:v1'
+const TAB_PERSIST_KEY = isDemoMode
+  ? 'odw:datastudio:workspace-tabs:demo-v1'
+  : 'odw:datastudio:workspace-tabs:v1'
 const isRestoringTabs = ref(false)
 let persistTabsTimer = null
 
@@ -3595,6 +3598,10 @@ const resetQuery = (tabId) => {
 }
 
 const saveAsTask = (tabId) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('保存查询任务')
+    return
+  }
   const state = tabStates[tabId]
   if (!state?.query?.sql?.trim()) {
     ElMessage.warning('请先输入 SQL')
@@ -3665,10 +3672,18 @@ const applyHistory = (row, tabId) => {
 }
 
 const handleCreateTable = () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('新建表')
+    return
+  }
   createDrawerVisible.value = true
 }
 
 const handleDeleteTable = async () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('删除表')
+    return
+  }
   const active = activeTab.value
   const state = active ? tabStates[active] : null
   const table = state?.table
@@ -4019,6 +4034,10 @@ const handleResize = () => {
 }
 
 const startMetaEdit = async (tabId) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('编辑表信息')
+    return
+  }
   const state = tabStates[tabId]
   if (!state) return
   if (!ensureClusterSelected(state.table)) return
@@ -4039,6 +4058,10 @@ const cancelMetaEdit = async (tabId) => {
 }
 
 const saveMetaEdit = async (tabId) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('保存表信息')
+    return
+  }
   const state = tabStates[tabId]
   if (!state?.table?.id) return
   if (!ensureClusterSelected(state.table)) return
@@ -4154,6 +4177,10 @@ const syncTabKey = (oldKey, updatedTable) => {
 }
 
 const startFieldsEdit = (tabId) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('编辑字段')
+    return
+  }
   const state = tabStates[tabId]
   if (!state) return
   if (!ensureClusterSelected(state.table)) return
@@ -4251,6 +4278,10 @@ const isOnlyCommentChanged = (next, original) => {
 }
 
 const saveFieldsEdit = async (tabId) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('保存字段')
+    return
+  }
   const state = tabStates[tabId]
   if (!state?.table?.id) return
   if (!ensureClusterSelected(state.table)) return
@@ -4396,10 +4427,18 @@ const copyDdl = async (tabId) => {
 
 const openTask = (taskId) => {
   if (!taskId) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('任务详情')
+    return
+  }
   taskDrawerRef.value?.open(taskId)
 }
 
 const goCreateRelatedTask = (tabId, relation) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('新增关联任务')
+    return
+  }
   const state = tabStates[String(tabId || '')]
   const tableId = state?.table?.id
   if (!tableId) {
