@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     # ---- MySQL（会话存储 + MySQL 查询工具）----
     mysql_host: str = "localhost"
     mysql_port: int = 3306
-    mysql_user: str = "root"
-    mysql_password: str = ""
+    mysql_user: str = "dataagent"
+    mysql_password: str = "dataagent123"
     mysql_database: str = "opendataworks"
     session_mysql_database: str = "dataagent"
 

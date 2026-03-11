@@ -78,16 +78,18 @@ services:
     image: ${OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE:-mikefan2019/opendataworks-dataagent-backend:0.8.0}
     container_name: opendataworks-dataagent-backend
     restart: always
+    user: "${DATAAGENT_RUNTIME_UID:-1000}:${DATAAGENT_RUNTIME_GID:-1000}"
     env_file:
       - ./.env
     environment:
       PYTHONUNBUFFERED: "1"
+      HOME: /tmp/dataagent-home
       HOST: 0.0.0.0
       PORT: 8900
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      MYSQL_USER: ${DATAAGENT_MYSQL_USER:-root}
-      MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-root123}
+      MYSQL_USER: ${DATAAGENT_MYSQL_USER:-dataagent}
+      MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-dataagent123}
       MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
       SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
       SKILLS_OUTPUT_DIR: ${DATAAGENT_SKILLS_OUTPUT_DIR:-../.claude/skills/dataagent-nl2sql}
