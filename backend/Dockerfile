@@ -20,6 +20,11 @@ FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
+# 运行时健康检查依赖
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # 复制构建的 jar 文件
 COPY --from=builder /app/target/*.jar app.jar
 

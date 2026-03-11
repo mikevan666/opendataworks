@@ -33,7 +33,7 @@ scripts/build/build-multiarch.sh --namespace your-registry
 ## 离线部署
 
 1. 执行 `scripts/create-offline-package.sh`，生成 `opendataworks-deployment-*.tar.gz`（可指定 `--platform` 或镜像标签）。
-2. 目标机器解压后包含：`deploy/docker-compose*.yml`、`deploy/.env.example`、`scripts/` 控制脚本、`deploy/docker-images/*.tar`。
+2. 目标机器解压后包含：`deploy/docker-compose*.yml`、`deploy/.env.example`、`deploy/dataagent-runtime/`、`scripts/` 控制脚本、`deploy/docker-images/*.tar`。
 3. 使用 `scripts/load-package-and-start.sh --package <tar>` 自动解压、加载镜像并启动。
 
 ## 裸机部署 (systemd)
@@ -107,7 +107,7 @@ server {
 1. **启动前**：确认 `.env`、`application.yml`、数据库账号、Dolphin API 可连通。
 2. **启动中**：观察 Compose/systemd 日志；若 Backend 启动 >60s，优先检查 MySQL 连接。
 3. **启动后**：
-   - `curl http://<host>:8080/api/actuator/health`
+   - `curl http://<host>:8080/api/v1/health`
    - `mysql -u opendataworks -popendataworks123 -h <db> opendataworks -e "SHOW TABLES"`
    - 前端页面是否可打开/登录
 4. **巡检**：定期查看 `inspection_issue`、`task_execution_log`，配合 [testing-guide.md](testing-guide.md) 的脚本回归关键流程。

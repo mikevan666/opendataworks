@@ -89,7 +89,7 @@ Use this method for isolated environments without internet access. You will use 
    DataAgent 默认地址：
    - 主前端智能问数入口: `http://localhost:8081/intelligent-query`
    - DataAgent Backend: `http://localhost:8900`
-   - 离线包内同样保留 `dataagent/.claude/skills/` 可直接编辑
+   - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑
    - 大模型供应商、Token 与候选模型仍通过主前端配置页管理
    - 动态元数据查询示例保留在 skill 的 `references/` / `scripts/` 中
 

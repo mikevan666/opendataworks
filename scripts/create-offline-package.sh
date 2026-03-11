@@ -111,12 +111,12 @@ mkdir -p "$PACKAGE_ROOT"
 # 定义包内目录结构
 PACKAGED_DEPLOY_DIR="$PACKAGE_ROOT/deploy"
 PACKAGED_SCRIPTS_DIR="$PACKAGE_ROOT/scripts"
-PACKAGED_DATAAGENT_DIR="$PACKAGE_ROOT/dataagent"
+PACKAGED_DATAAGENT_RUNTIME_DIR="$PACKAGED_DEPLOY_DIR/dataagent-runtime"
 DEPLOY_IMAGE_DIR="$PACKAGED_DEPLOY_DIR/docker-images"
 
 mkdir -p "$PACKAGED_DEPLOY_DIR"
 mkdir -p "$PACKAGED_SCRIPTS_DIR"
-mkdir -p "$PACKAGED_DATAAGENT_DIR"
+mkdir -p "$PACKAGED_DATAAGENT_RUNTIME_DIR/skills"
 mkdir -p "$DEPLOY_IMAGE_DIR"
 
 # 1. 复制 deploy/ 下的内容
@@ -127,14 +127,18 @@ tar -C "$REPO_ROOT/deploy" --exclude='docker-images/*.tar' -cf - . | tar -C "$PA
 log "Copying scripts/ content to package scripts/"
 tar -C "$REPO_ROOT/scripts" --exclude='build' -cf - . | tar -C "$PACKAGED_SCRIPTS_DIR" -xf -
 
-# 3. 复制 DataAgent 目录（保留 .claude 可编辑配置，排除大体积开发产物）
-if [[ -d "$REPO_ROOT/dataagent" ]]; then
-    log "Copying dataagent/ sources and editable runtime config"
-    tar -C "$REPO_ROOT/dataagent" \
-        --exclude='dataagent-backend/.venv' \
-        --exclude='dataagent-backend/.pytest_cache' \
-        --exclude='dataagent-backend/__pycache__' \
-        -cf - . | tar -C "$PACKAGED_DATAAGENT_DIR" -xf -
+# 3. 复制 DataAgent 运行时配置（不打包整个 dataagent 源码目录）
+if [[ -f "$REPO_ROOT/dataagent/.claude/settings.json" ]]; then
+    log "Copying DataAgent runtime settings"
+    cp "$REPO_ROOT/dataagent/.claude/settings.json" "$PACKAGED_DATAAGENT_RUNTIME_DIR/settings.json"
+else
+    log "No DataAgent settings.json found, creating empty runtime settings"
+    printf '{\n}\n' > "$PACKAGED_DATAAGENT_RUNTIME_DIR/settings.json"
+fi
+
+if [[ -d "$REPO_ROOT/dataagent/.claude/skills" ]]; then
+    log "Copying DataAgent editable skills"
+    tar -C "$REPO_ROOT/dataagent/.claude/skills" -cf - . | tar -C "$PACKAGED_DATAAGENT_RUNTIME_DIR/skills" -xf -
 fi
 
 # 4. 清理旧的 tar 包（如果不知何故被复制了）
@@ -184,31 +188,37 @@ if [[ ! -f "$PACKAGED_DEPLOY_DIR/.env.example" ]]; then
     fi
 fi
 
-# 为离线部署设置镜像变量（使用短名称，与 load-images 加载后的标签一致）
-# 优先取消注释并替换 .env.example 中的注释行，若无则追加
-_env_file="$PACKAGED_DEPLOY_DIR/.env"
-if [[ -f "$_env_file" ]]; then
-    # 处理 BACKEND：匹配 "# OPENDATAWORKS_BACKEND_IMAGE=..." 或 "OPENDATAWORKS_BACKEND_IMAGE=..."，取消注释并替换
-    sed -e "s|^# *OPENDATAWORKS_BACKEND_IMAGE=.*|OPENDATAWORKS_BACKEND_IMAGE=opendataworks-backend:${PARSER_TAG}|" \
+rewrite_offline_env_file() {
+    local env_file="$1"
+    if [[ ! -f "$env_file" ]]; then
+        return
+    fi
+
+    sed \
+        -e "s|^# *OPENDATAWORKS_BACKEND_IMAGE=.*|OPENDATAWORKS_BACKEND_IMAGE=opendataworks-backend:${PARSER_TAG}|" \
         -e "s|^OPENDATAWORKS_BACKEND_IMAGE=.*|OPENDATAWORKS_BACKEND_IMAGE=opendataworks-backend:${PARSER_TAG}|" \
-        "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
-    grep -q '^OPENDATAWORKS_BACKEND_IMAGE=' "$_env_file" 2>/dev/null || \
-        { echo ""; echo "# 离线部署镜像（由 create-offline-package 自动设置）"; echo "OPENDATAWORKS_BACKEND_IMAGE=opendataworks-backend:${PARSER_TAG}"; } >> "$_env_file"
-
-    # 处理 FRONTEND：同上
-    sed -e "s|^# *OPENDATAWORKS_FRONTEND_IMAGE=.*|OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}|" \
+        -e "s|^# *OPENDATAWORKS_FRONTEND_IMAGE=.*|OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}|" \
         -e "s|^OPENDATAWORKS_FRONTEND_IMAGE=.*|OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}|" \
-        "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
-    grep -q '^OPENDATAWORKS_FRONTEND_IMAGE=' "$_env_file" 2>/dev/null || \
-        echo "OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}" >> "$_env_file"
-
-    sed -e "s|^# *OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=.*|OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}|" \
+        -e "s|^# *OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=.*|OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}|" \
         -e "s|^OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=.*|OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}|" \
-        "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
-    grep -q '^OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=' "$_env_file" 2>/dev/null || \
-        echo "OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}" >> "$_env_file"
+        -e "s|^DATAAGENT_LLM_JSON_FILE=.*|DATAAGENT_LLM_JSON_FILE=./dataagent-runtime/settings.json|" \
+        -e "s|^DATAAGENT_SKILLS_DIR=.*|DATAAGENT_SKILLS_DIR=./dataagent-runtime/skills|" \
+        "$env_file" > "${env_file}.tmp" && mv "${env_file}.tmp" "$env_file"
 
-fi
+    grep -q '^OPENDATAWORKS_BACKEND_IMAGE=' "$env_file" 2>/dev/null || \
+        { echo ""; echo "# 离线部署镜像（由 create-offline-package 自动设置）"; echo "OPENDATAWORKS_BACKEND_IMAGE=opendataworks-backend:${PARSER_TAG}"; } >> "$env_file"
+    grep -q '^OPENDATAWORKS_FRONTEND_IMAGE=' "$env_file" 2>/dev/null || \
+        echo "OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}" >> "$env_file"
+    grep -q '^OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=' "$env_file" 2>/dev/null || \
+        echo "OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}" >> "$env_file"
+    grep -q '^DATAAGENT_LLM_JSON_FILE=' "$env_file" 2>/dev/null || \
+        echo "DATAAGENT_LLM_JSON_FILE=./dataagent-runtime/settings.json" >> "$env_file"
+    grep -q '^DATAAGENT_SKILLS_DIR=' "$env_file" 2>/dev/null || \
+        echo "DATAAGENT_SKILLS_DIR=./dataagent-runtime/skills" >> "$env_file"
+}
+
+rewrite_offline_env_file "$PACKAGED_DEPLOY_DIR/.env"
+rewrite_offline_env_file "$PACKAGED_DEPLOY_DIR/.env.example"
 
 declare -a MANIFEST_RAW=()
 
@@ -225,18 +235,6 @@ save_image() {
     local image="$1"
     local archive="$2"
     "$CONTAINER_CMD" save -o "$DEPLOY_IMAGE_DIR/$archive" "$image"
-}
-
-build_image() {
-    local dockerfile="$1"
-    local context="$2"
-    local target="$3"
-    shift 3
-    if [[ -n "$PARSER_PLATFORM" ]]; then
-        "$CONTAINER_CMD" build --platform "$PARSER_PLATFORM" -f "$dockerfile" -t "$target" "$@" "$context"
-    else
-        "$CONTAINER_CMD" build -f "$dockerfile" -t "$target" "$@" "$context"
-    fi
 }
 
 retag_image() {
@@ -267,14 +265,11 @@ OP_TAG="$PARSER_TAG"
 MAIN_IMAGES=(
     "opendataworks-frontend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-frontend:${OP_TAG}|opendataworks-frontend:${OP_TAG}"
     "opendataworks-backend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-backend:${OP_TAG}|opendataworks-backend:${OP_TAG}"
+    "opendataworks-dataagent-backend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-dataagent-backend:${OP_TAG}|opendataworks-dataagent-backend:${OP_TAG}"
 )
 
 EXTRA_IMAGES=(
     "mysql-8.0.tar|docker.io/library/mysql:8.0|mysql:8.0"
-)
-
-DATAAGENT_IMAGES=(
-    "opendataworks-dataagent-backend.tar|$REPO_ROOT/dataagent/dataagent-backend/Dockerfile|$REPO_ROOT/dataagent|opendataworks-dataagent-backend:${OP_TAG}"
 )
 
 log "Pulling application images from ${PARSER_REGISTRY}/${PARSER_NAMESPACE} tag ${OP_TAG}"
@@ -299,16 +294,6 @@ for entry in "${EXTRA_IMAGES[@]}"; do
     save_image "$target" "$archive"
     digest=$(get_digest "$source")
     MANIFEST_RAW+=("$archive|$source|$target|$digest")
-done
-
-log "Building DataAgent images from local source"
-for entry in "${DATAAGENT_IMAGES[@]}"; do
-    IFS='|' read -r archive dockerfile context target <<<"$entry"
-    log "Building $target"
-    build_image "$dockerfile" "$context" "$target"
-    log "Saving $target to deploy/docker-images/$archive"
-    save_image "$target" "$archive"
-    MANIFEST_RAW+=("$archive|local-build:${dockerfile#$REPO_ROOT/}|$target|")
 done
 
 MANIFEST_FILE="$DEPLOY_IMAGE_DIR/manifest.json"
