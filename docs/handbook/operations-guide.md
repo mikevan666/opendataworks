@@ -23,17 +23,21 @@ scripts/build/build-multiarch.sh --namespace your-registry
 
 - MySQL 卷：`mysql-data`
 - 后端日志卷：`backend-logs`
-- **数据库自动初始化**：MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建数据库和用户。无需手动创建数据库。表结构由后端服务的 Flyway 自动创建。
+- **数据库自动初始化**：MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建数据库和用户。`opendataworks` 用户供后端使用，`dataagent` 用户默认供 DataAgent 使用。无需手动创建数据库。表结构由后端服务的 Flyway 自动创建。
 - 环境变量重点：
   - `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE=opendataworks`, `MYSQL_USER=opendataworks`
   - `SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/opendataworks`
+  - `DATAAGENT_MYSQL_USER=dataagent`, `DATAAGENT_SESSION_MYSQL_DATABASE=dataagent`
+  - `DATAAGENT_RUNTIME_UID/GID` 控制 DataAgent 容器的运行身份，默认 `1000:1000`
   - DolphinScheduler 配置请在系统管理界面进行
+- 若升级时保留已有 `mysql-data` volume，初始化脚本不会补跑；切换到独立 `dataagent` 用户前请先手动补建该用户。
+- 若 DataAgent 挂载的 skills 目录存在宿主机权限不匹配，优先调整 `DATAAGENT_RUNTIME_UID/GID` 对齐目录拥有者，或直接修正挂载目录权限。
 - 需要扩展端口（如前端 80 → 8081）时，直接修改 `ports`。
 
 ## 离线部署
 
 1. 执行 `scripts/create-offline-package.sh`，生成 `opendataworks-deployment-*.tar.gz`（可指定 `--platform` 或镜像标签）。
-2. 目标机器解压后包含：`deploy/docker-compose*.yml`、`deploy/.env.example`、`scripts/` 控制脚本、`deploy/docker-images/*.tar`。
+2. 目标机器解压后包含：`deploy/docker-compose*.yml`、`deploy/.env.example`、`deploy/dataagent-runtime/`、`scripts/` 控制脚本、`deploy/docker-images/*.tar`。
 3. 使用 `scripts/load-package-and-start.sh --package <tar>` 自动解压、加载镜像并启动。
 
 ## 裸机部署 (systemd)
@@ -107,7 +111,7 @@ server {
 1. **启动前**：确认 `.env`、`application.yml`、数据库账号、Dolphin API 可连通。
 2. **启动中**：观察 Compose/systemd 日志；若 Backend 启动 >60s，优先检查 MySQL 连接。
 3. **启动后**：
-   - `curl http://<host>:8080/api/actuator/health`
+   - `curl http://<host>:8080/api/v1/health`
    - `mysql -u opendataworks -popendataworks123 -h <db> opendataworks -e "SHOW TABLES"`
    - 前端页面是否可打开/登录
 4. **巡检**：定期查看 `inspection_issue`、`task_execution_log`，配合 [testing-guide.md](testing-guide.md) 的脚本回归关键流程。

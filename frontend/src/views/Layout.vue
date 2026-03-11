@@ -8,6 +8,7 @@
             <img src="/opendataworks-icon-light.svg" alt="OpenDataWorks 图标">
           </picture>
           <h2>数据门户</h2>
+          <el-tag v-if="isDemoMode" size="small" effect="dark" class="demo-tag">演示环境</el-tag>
         </div>
         <el-menu
           :default-active="activeMenu"
@@ -15,41 +16,9 @@
           mode="horizontal"
           class="menu"
         >
-          <el-menu-item index="/dashboard">
-            <el-icon><DataBoard /></el-icon>
-            <span>控制台</span>
-          </el-menu-item>
-          <el-menu-item index="/intelligent-query">
-            <el-icon><Message /></el-icon>
-            <span>智能问数</span>
-          </el-menu-item>
-          <el-menu-item index="/datastudio">
-            <el-icon><DataLine /></el-icon>
-            <span>Data Studio</span>
-          </el-menu-item>
-          <el-menu-item index="/workflows">
-            <el-icon><Share /></el-icon>
-            <span>任务调度</span>
-          </el-menu-item>
-          <el-menu-item index="/domains">
-            <el-icon><Collection /></el-icon>
-            <span>数据建模</span>
-          </el-menu-item>
-          <el-menu-item index="/lineage">
-            <el-icon><Connection /></el-icon>
-            <span>数据血缘</span>
-          </el-menu-item>
-          <el-menu-item index="/inspection">
-            <el-icon><Warning /></el-icon>
-            <span>数据质量</span>
-          </el-menu-item>
-          <el-menu-item index="/integration">
-            <el-icon><Link /></el-icon>
-            <span>数据集成</span>
-          </el-menu-item>
-          <el-menu-item index="/settings">
-            <el-icon><Setting /></el-icon>
-            <span>管理员</span>
+          <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.label }}</span>
           </el-menu-item>
         </el-menu>
       </div>
@@ -65,8 +34,26 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { DataBoard, DataLine, Connection, Collection, Warning, Setting, Share, Link, Message } from '@element-plus/icons-vue'
+import { isDemoMode } from '@/demo/runtime'
 
 const route = useRoute()
+const menuItems = computed(() => {
+  const items = [
+    { index: '/dashboard', label: '控制台', icon: DataBoard },
+    { index: '/intelligent-query', label: '智能问数', icon: Message },
+    { index: '/datastudio', label: 'Data Studio', icon: DataLine },
+    { index: '/workflows', label: '任务调度', icon: Share },
+    { index: '/domains', label: '数据建模', icon: Collection },
+    { index: '/lineage', label: '数据血缘', icon: Connection },
+    { index: '/inspection', label: '数据质量', icon: Warning },
+    { index: '/integration', label: '数据集成', icon: Link },
+    { index: '/settings', label: '管理员', icon: Setting }
+  ]
+  if (!isDemoMode) {
+    return items
+  }
+  return items.filter((item) => ['/dashboard', '/domains', '/datastudio', '/workflows', '/lineage'].includes(item.index))
+})
 const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/dashboard')) {
@@ -149,6 +136,13 @@ const activeMenu = computed(() => {
   font-weight: 600;
   margin: 0;
   letter-spacing: 1px;
+}
+
+.demo-tag {
+  margin-left: 12px;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
 .menu {

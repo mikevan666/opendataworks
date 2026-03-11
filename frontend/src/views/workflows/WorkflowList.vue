@@ -30,8 +30,8 @@
           <el-button @click="handleReset">重置</el-button>
         </div>
         <div class="toolbar-actions">
-          <el-button @click="openImportDialog">导入工作流</el-button>
-          <el-button type="primary" :icon="Plus" plain @click="openCreateDrawer">
+          <el-button :disabled="isDemoMode" @click="openImportDialog">导入工作流</el-button>
+          <el-button type="primary" :icon="Plus" plain :disabled="isDemoMode" @click="openCreateDrawer">
             新建工作流
           </el-button>
         </div>
@@ -46,7 +46,13 @@
         <el-table-column label="工作流" min-width="260">
           <template #default="{ row }">
             <div class="workflow-name">
-              <span class="name-link" @click="handleViewDetail(row)">{{ row.workflowName }}</span>
+              <span
+                class="name-link"
+                :class="{ 'is-disabled': isDemoMode }"
+                @click="handleViewDetail(row)"
+              >
+                {{ row.workflowName }}
+              </span>
               <el-tag size="small" :type="getWorkflowStatusType(row.status)">
                 {{ getWorkflowStatusText(row.status) }}
               </el-tag>
@@ -183,6 +189,7 @@
             <el-button
               link
               type="primary"
+              :disabled="isDemoMode"
               @click="handleViewDetail(row)"
             >
               详情
@@ -233,11 +240,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Link, Plus } from '@element-plus/icons-vue'
 import { workflowApi } from '@/api/workflow'
 import { taskApi } from '@/api/task'
+import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 import {
   buildPublishPreviewHtml,
   buildPublishRepairHtml,
   firstPreviewErrorMessage,
-  isDialogCancel
+  isDialogCancel,
+  resolvePublishVersionId
 } from './publishPreviewHelper'
 import WorkflowCreateDrawer from './WorkflowCreateDrawer.vue'
 import WorkflowBackfillDialog from './WorkflowBackfillDialog.vue'
@@ -302,6 +311,10 @@ const handleReset = () => {
 }
 
 const openCreateDrawer = () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('新建工作流')
+    return
+  }
   editingWorkflowId.value = null
   createDrawerVisible.value = true
 }
@@ -318,6 +331,10 @@ const handleCreateSuccess = () => {
 }
 
 const openImportDialog = () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('导入工作流')
+    return
+  }
   importDialogVisible.value = true
 }
 
@@ -343,6 +360,10 @@ const handleCurrentChange = () => {
 
 const handleViewDetail = (row) => {
   if (!row?.id) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('工作流详情')
+    return
+  }
   router.push(`/workflows/${row.id}`)
 }
 
@@ -598,6 +619,10 @@ const previewPublishAndConfirm = async (row) => {
 
 const handleDeploy = async (row) => {
   if (!row?.id) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('发布工作流')
+    return
+  }
   setActionLoading(row.id, 'deploy', true)
   try {
     const canPublish = await previewPublishAndConfirm(row)
@@ -627,6 +652,10 @@ const handleDeploy = async (row) => {
 
 const handleExecute = async (row) => {
   if (!row?.id) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('执行工作流')
+    return
+  }
   if (row.status !== 'online') {
     ElMessage.warning('工作流未上线，请先上线后再执行')
     return
@@ -645,6 +674,10 @@ const handleExecute = async (row) => {
 }
 
 const openBackfill = (row) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('工作流补数')
+    return
+  }
   if (row?.status !== 'online') {
     ElMessage.warning('工作流未上线，请先上线后再补数')
     return
@@ -659,26 +692,19 @@ const handleBackfillSubmitted = () => {
 
 const handleOnline = async (row) => {
   if (!row?.id) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('上线工作流')
+    return
+  }
+  if (!row?.workflowCode) {
+    ElMessage.warning('工作流尚未发布，请先执行发布后再上线')
+    return
+  }
   setActionLoading(row.id, 'online', true)
   try {
-    const canPublish = await previewPublishAndConfirm(row)
-    if (!canPublish) {
-      return
-    }
-    const deployRecord = await workflowApi.publish(row.id, {
-      operation: 'deploy',
-      requireApproval: false,
-      operator: 'portal-ui',
-      confirmDiff: true
-    })
-    updatePendingFlag(row.id, deployRecord?.status)
-    if (deployRecord?.status === 'pending_approval') {
-      ElMessage.warning('部署已提交审批，审批通过后再上线')
-      return
-    }
-
     const onlineRecord = await workflowApi.publish(row.id, {
       operation: 'online',
+      versionId: resolvePublishVersionId(row),
       requireApproval: false,
       operator: 'portal-ui'
     })
@@ -699,10 +725,15 @@ const handleOnline = async (row) => {
 
 const handleOffline = async (row) => {
   if (!row?.id) return
+  if (isDemoMode) {
+    showDemoReadonlyMessage('下线工作流')
+    return
+  }
   setActionLoading(row.id, 'offline', true)
   try {
     const record = await workflowApi.publish(row.id, {
       operation: 'offline',
+      versionId: resolvePublishVersionId(row),
       requireApproval: false,
       operator: 'portal-ui'
     })
@@ -904,6 +935,15 @@ onMounted(() => {
 
 .workflow-name .name-link:hover {
   text-decoration: underline;
+}
+
+.workflow-name .name-link.is-disabled {
+  cursor: default;
+  color: inherit;
+}
+
+.workflow-name .name-link.is-disabled:hover {
+  text-decoration: none;
 }
 
 .workflow-meta {

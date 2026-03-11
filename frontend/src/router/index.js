@@ -1,10 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { isDemoMode } from '@/demo/runtime'
+
+const demoHomePath = '/dashboard'
+const defaultHomePath = isDemoMode ? demoHomePath : '/dashboard'
 
 const routes = [
   {
     path: '/',
     component: () => import('@/views/Layout.vue'),
-    redirect: '/dashboard',
+    redirect: defaultHomePath,
     children: [
       {
         path: '/dashboard',
@@ -101,5 +105,28 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 })
+
+if (isDemoMode) {
+  const allowedPrefixes = [
+    '/dashboard',
+    '/domains',
+    '/workflows',
+    '/tasks',
+    '/monitor',
+    '/lineage',
+    '/datastudio',
+    '/datastudio-new'
+  ]
+
+  router.beforeEach((to) => {
+    if (to.path === '/') {
+      return true
+    }
+    if (allowedPrefixes.some((prefix) => to.path.startsWith(prefix))) {
+      return true
+    }
+    return { path: demoHomePath }
+  })
+}
 
 export default router

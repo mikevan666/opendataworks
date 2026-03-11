@@ -158,6 +158,29 @@ class WorkflowPublishServiceTest {
     }
 
     @Test
+    void publishOnlineShouldUseLastPublishedVersionWhenRequestVersionAbsent() {
+        DataWorkflow workflow = workflow(1L, 90001L, 101L);
+        workflow.setLastPublishedVersionId(88L);
+        workflow.setStatus("offline");
+        WorkflowVersion publishedVersion = version(88L, 3);
+
+        when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+        when(workflowVersionMapper.selectById(88L)).thenReturn(publishedVersion);
+
+        WorkflowPublishRequest request = new WorkflowPublishRequest();
+        request.setOperation("online");
+        request.setRequireApproval(false);
+        request.setOperator("tester");
+
+        WorkflowPublishRecord record = service.publish(1L, request);
+
+        assertEquals("success", record.getStatus());
+        assertEquals(88L, record.getVersionId());
+        verify(workflowVersionMapper, times(1)).selectById(88L);
+        verify(workflowVersionMapper, never()).selectById(101L);
+    }
+
+    @Test
     void previewPublishShouldExposeReadableDiffAcrossWorkflowScheduleTasksAndEdges() {
         WorkflowPublishService previewService = buildPreviewServiceWithRealDiff();
 
@@ -373,35 +396,51 @@ class WorkflowPublishServiceTest {
                 .anyMatch(item -> item.contains("schedule.failureStrategy")));
         assertTrue(preview.getDiffSummary().getScheduleChanges().stream()
                 .anyMatch(item -> item.contains("schedule.scheduleId")), "应保留 schedule.scheduleId 差异");
-        assertFalse(preview.getRepairIssues().isEmpty(), "应给出可修复问题列表");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "schedule.failureStrategy".equals(item.getField())),
-                "应保留非噪声调度修复提示");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "task.datasourceId".equals(item.getField())),
-                "datasourceId 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "task.datasourceName".equals(item.getField())),
-                "datasourceName 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "task.taskGroupId".equals(item.getField())),
-                "taskGroupId 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "task.taskGroupName".equals(item.getField())),
-                "taskGroupName 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "task.taskPriority".equals(item.getField())),
-                "taskPriority 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .anyMatch(item -> "schedule.scheduleId".equals(item.getField())),
-                "scheduleId 差异应出现在修复提示中");
-        assertTrue(preview.getRepairIssues().stream()
-                .noneMatch(item -> "task.inputTableIds".equals(item.getField())
-                        || "task.outputTableIds".equals(item.getField())
-                        || "task.taskVersion".equals(item.getField())
-                        || "schedule.releaseState".equals(item.getField())),
-                "噪声字段不应出现在修复提示中");
+        assertTrue(preview.getRepairIssues().isEmpty(), "普通发布差异应走发布确认，不应触发元数据修复步骤");
         assertTrue(Boolean.TRUE.equals(preview.getRequireConfirm()), "存在调度差异时应要求确认");
+    }
+
+    @Test
+    void previewPublishShouldKeepSqlDiffForConfirmButNotTreatItAsRepairIssue() {
+        DataWorkflow workflow = workflow(1L, 5001L, 101L);
+        workflow.setWorkflowName("wf_platform");
+        when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+        mockPreviewInputs(workflow);
+
+        RuntimeWorkflowDefinition runtimeDefinition = new RuntimeWorkflowDefinition();
+        runtimeDefinition.setProjectCode(11L);
+        runtimeDefinition.setWorkflowCode(5001L);
+        runtimeDefinition.setWorkflowName("wf_platform");
+        runtimeDefinition.setTasks(Collections.singletonList(
+                runtimeTask(10001L,
+                        "task_a",
+                        "INSERT INTO dws.t1 SELECT * FROM ods.runtime_t1",
+                        Collections.emptyList(),
+                        Collections.emptyList())));
+        when(runtimeDefinitionService.loadRuntimeDefinitionFromExport(11L, 5001L))
+                .thenReturn(runtimeDefinition);
+
+        RuntimeDiffSummary diff = new RuntimeDiffSummary();
+        diff.setChanged(true);
+        RuntimeTaskChange modified = new RuntimeTaskChange();
+        modified.setTaskCode(10001L);
+        modified.setTaskName("task_a");
+        modified.setFieldChanges(Collections.singletonList(
+                fieldChange("task.sql",
+                        "INSERT INTO dws.t1 SELECT * FROM ods.runtime_t1",
+                        "INSERT INTO dws.t1 SELECT * FROM ods.t1")));
+        diff.setTaskModified(Collections.singletonList(modified));
+        when(runtimeDiffService.buildDiff(any(), any())).thenReturn(diff);
+
+        WorkflowPublishPreviewResponse preview = service.previewPublish(1L);
+
+        assertTrue(Boolean.TRUE.equals(preview.getRequireConfirm()), "SQL 变更仍应进入发布确认");
+        assertTrue(preview.getRepairIssues().isEmpty(), "SQL 变更不应触发元数据修复");
+        assertTrue(preview.getDiffSummary().getTaskModified().stream()
+                .flatMap(item -> item.getFieldChanges() == null
+                        ? java.util.stream.Stream.empty()
+                        : item.getFieldChanges().stream())
+                .anyMatch(item -> "task.sql".equals(item.getField())), "SQL 变更应保留在发布确认中");
     }
 
     @Test

@@ -58,7 +58,7 @@
 | 组件 | 端口 | 健康检查 | 日志|
 | --- | --- | --- | --- |
 | MySQL | 3306 | `mysqladmin ping` | Docker 卷 `mysql-data` or `/var/lib/mysql` |
-| Backend | 8080 | `/actuator/health` | `docker volume backend-logs` 或 `backend/logs/` |
+| Backend | 8080 | `/api/v1/health` | `docker volume backend-logs` 或 `backend/logs/` |
 | DolphinScheduler | 12345 (示例) | `/dolphinscheduler` 登录页或 OpenAPI `/projects` | 外部集群日志 |
 | Frontend | 80/3000/5173 | `/`、`/intelligent-query` | Nginx 日志或 `frontend/dist` |
 | DataAgent Backend | 8900 | `/api/v1/nl2sql/health` | 容器日志或 `dataagent/dataagent-backend` |

@@ -149,7 +149,7 @@ public class WorkflowPublishService {
         if (workflow == null) {
             throw new IllegalArgumentException("Workflow not found: " + workflowId);
         }
-        Long versionId = request.getVersionId() != null ? request.getVersionId() : workflow.getCurrentVersionId();
+        Long versionId = resolvePublishVersionId(workflow, request);
         WorkflowVersion version = versionId == null ? null : workflowVersionMapper.selectById(versionId);
         if (version == null) {
             throw new IllegalArgumentException("Workflow version not found for publish");
@@ -265,9 +265,9 @@ public class WorkflowPublishService {
             // Workflow 没有运行态 scheduleId（未创建调度）时，schedule.* 仅反映平台侧配置，不应作为发布修复差异。
             rawDiffSummary.setScheduleChanges(Collections.emptyList());
         }
-        List<WorkflowPublishRepairIssue> repairIssues = new ArrayList<>(buildRepairIssues(rawDiffSummary));
-        repairIssues.addAll(buildPublishMetadataRepairIssues(workflow, platformDefinition));
-        response.setRepairIssues(repairIssues);
+        // 发布确认负责承载正常定义差异；修复元数据仅保留真实的元数据缺失问题，
+        // 避免把 SQL / 调度等合理发布变更误判成“先修复元数据”。
+        response.setRepairIssues(buildPublishMetadataRepairIssues(workflow, platformDefinition));
         RuntimeDiffSummary diffSummary = normalizePublishDiffSummary(rawDiffSummary);
         response.setDiffSummary(diffSummary);
         response.setRequireConfirm(diffSummary != null && Boolean.TRUE.equals(diffSummary.getChanged()));
@@ -523,62 +523,24 @@ public class WorkflowPublishService {
         return status;
     }
 
-    private String toDateTimeText(LocalDateTime value) {
-        return value != null ? value.format(SCHEDULE_TIME_FORMATTER) : null;
+    private Long resolvePublishVersionId(DataWorkflow workflow, WorkflowPublishRequest request) {
+        if (request != null && request.getVersionId() != null) {
+            return request.getVersionId();
+        }
+        String operation = request != null ? request.getOperation() : null;
+        if (StringUtils.hasText(operation)) {
+            String normalized = operation.trim().toLowerCase();
+            if (("online".equals(normalized) || "offline".equals(normalized))
+                    && workflow != null
+                    && workflow.getLastPublishedVersionId() != null) {
+                return workflow.getLastPublishedVersionId();
+            }
+        }
+        return workflow != null ? workflow.getCurrentVersionId() : null;
     }
 
-    private List<WorkflowPublishRepairIssue> buildRepairIssues(RuntimeDiffSummary summary) {
-        if (summary == null) {
-            return Collections.emptyList();
-        }
-        List<WorkflowPublishRepairIssue> result = new ArrayList<>();
-        Set<String> dedupe = new LinkedHashSet<>();
-
-        if (!CollectionUtils.isEmpty(summary.getTaskModified())) {
-            for (RuntimeTaskChange taskChange : summary.getTaskModified()) {
-                if (taskChange == null || CollectionUtils.isEmpty(taskChange.getFieldChanges())) {
-                    continue;
-                }
-                for (RuntimeDiffFieldChange fieldChange : taskChange.getFieldChanges()) {
-                    if (!isMeaningfulPublishTaskFieldChange(fieldChange)) {
-                        continue;
-                    }
-                    WorkflowPublishRepairIssue issue = new WorkflowPublishRepairIssue();
-                    issue.setCode(PUBLISH_METADATA_REPAIR_RECOMMENDED);
-                    issue.setSeverity("WARNING");
-                    issue.setRepairable(true);
-                    issue.setField(fieldChange != null ? fieldChange.getField() : null);
-                    issue.setTaskCode(taskChange.getTaskCode());
-                    issue.setTaskName(taskChange.getTaskName());
-                    issue.setBefore(fieldChange != null ? fieldChange.getBefore() : null);
-                    issue.setAfter(fieldChange != null ? fieldChange.getAfter() : null);
-                    issue.setMessage(String.format("任务[%s(%s)] 字段 %s 与运行态不一致，建议先修复元数据",
-                            taskChange.getTaskName() == null ? "-" : taskChange.getTaskName(),
-                            taskChange.getTaskCode() == null ? "-" : String.valueOf(taskChange.getTaskCode()),
-                            fieldChange == null ? "-" : fieldChange.getField()));
-                    addRepairIssue(result, dedupe, issue);
-                }
-            }
-        }
-
-        if (!CollectionUtils.isEmpty(summary.getScheduleChanges())) {
-            for (RuntimeDiffFieldChange fieldChange : summary.getScheduleChanges()) {
-                if (!isMeaningfulPublishScheduleFieldChange(fieldChange)) {
-                    continue;
-                }
-                WorkflowPublishRepairIssue issue = new WorkflowPublishRepairIssue();
-                issue.setCode(PUBLISH_METADATA_REPAIR_RECOMMENDED);
-                issue.setSeverity("WARNING");
-                issue.setRepairable(true);
-                issue.setField(fieldChange != null ? fieldChange.getField() : null);
-                issue.setBefore(fieldChange != null ? fieldChange.getBefore() : null);
-                issue.setAfter(fieldChange != null ? fieldChange.getAfter() : null);
-                issue.setMessage(String.format("调度字段 %s 与运行态不一致，建议先修复元数据",
-                        fieldChange == null ? "-" : fieldChange.getField()));
-                addRepairIssue(result, dedupe, issue);
-            }
-        }
-        return result;
+    private String toDateTimeText(LocalDateTime value) {
+        return value != null ? value.format(SCHEDULE_TIME_FORMATTER) : null;
     }
 
     private void addRepairIssue(List<WorkflowPublishRepairIssue> collector,

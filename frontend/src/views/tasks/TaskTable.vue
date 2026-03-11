@@ -52,7 +52,7 @@
         <el-button type="primary" size="small" @click="handleFilter">查询</el-button>
         <el-button size="small" @click="resetFilters">重置</el-button>
       </div>
-      <el-button type="primary" size="small" @click="openCreateDrawer">
+      <el-button type="primary" size="small" :disabled="isDemoMode" @click="openCreateDrawer">
         <el-icon><Plus /></el-icon>
         新建任务
       </el-button>
@@ -142,7 +142,7 @@
       <el-table-column prop="owner" label="负责人" width="120" />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEditDrawer(row)">编辑</el-button>
+          <el-button link type="primary" :disabled="isDemoMode" @click="openEditDrawer(row)">编辑</el-button>
           <el-button link type="info" @click="openDolphinTask(row)" v-if="row.executionStatus && row.executionStatus.dolphinTaskUrl">
             查看任务
           </el-button>
@@ -156,7 +156,7 @@
           </el-button>
           <el-popconfirm v-if="!hideDeleteAction" title="确定删除吗?" @confirm="handleDelete(row.id)">
             <template #reference>
-              <el-button link type="danger">删除</el-button>
+              <el-button link type="danger" :disabled="isDemoMode">删除</el-button>
             </template>
           </el-popconfirm>
         </template>
@@ -184,6 +184,7 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { taskApi } from '@/api/task'
 import { workflowApi } from '@/api/workflow'
+import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 import TaskEditDrawer from './TaskEditDrawer.vue'
 
 const props = defineProps({
@@ -382,6 +383,10 @@ const resetFilters = () => {
 }
 
 const openCreateDrawer = () => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('新建任务')
+    return
+  }
   const initialData = {}
   const workflowId = props.workflowId || parseNumericFilter(filters.workflowId)
   if (workflowId) {
@@ -391,6 +396,10 @@ const openCreateDrawer = () => {
 }
 
 const openEditDrawer = (row) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('编辑任务')
+    return
+  }
   drawerRef.value?.open(row.id)
 }
 
@@ -399,6 +408,10 @@ const handleDrawerSuccess = () => {
 }
 
 const handleDelete = async (id) => {
+  if (isDemoMode) {
+    showDemoReadonlyMessage('删除任务')
+    return
+  }
   try {
     await taskApi.delete(id)
     ElMessage.success('删除成功')

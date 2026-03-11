@@ -28,7 +28,7 @@ services:
 
   # 后端服务
   backend:
-    image: mikefan2019/opendataworks-backend:latest
+    image: ${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:latest}
     pull_policy: always
     container_name: opendataworks-backend
     restart: always
@@ -41,7 +41,7 @@ services:
       mysql:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -51,10 +51,8 @@ services:
 
   # 前端服务
   frontend:
-    image: opendataworks-frontend:dev
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
+    image: ${OPENDATAWORKS_FRONTEND_IMAGE:-mikefan2019/opendataworks-frontend:latest}
+    pull_policy: always
     container_name: opendataworks-frontend
     restart: always
     env_file:
@@ -67,28 +65,29 @@ services:
       dataagent-backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # DataAgent 后端服务（NL2SQL）
   dataagent-backend:
-    image: python:3.11-slim
+    image: ${OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE:-mikefan2019/opendataworks-dataagent-backend:latest}
+    pull_policy: always
     container_name: opendataworks-dataagent-backend
     restart: always
     env_file:
       - ./.env
-    working_dir: /workspace/dataagent/dataagent-backend
-    command: 'sh -c "pip install --cache-dir /root/.cache/pip -r requirements.txt && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8900"'
+    user: "${DATAAGENT_RUNTIME_UID:-1000}:${DATAAGENT_RUNTIME_GID:-1000}"
     environment:
       PYTHONUNBUFFERED: "1"
+      HOME: /tmp/dataagent-home
       HOST: 0.0.0.0
       PORT: 8900
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      MYSQL_USER: ${DATAAGENT_MYSQL_USER:-root}
-      MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-root123}
+      MYSQL_USER: ${DATAAGENT_MYSQL_USER:-dataagent}
+      MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-dataagent123}
       MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
       SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
     ports:
@@ -101,16 +100,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 60s
     volumes:
-      - ../dataagent/dataagent-backend:/workspace/dataagent/dataagent-backend
-      - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/workspace/dataagent/.claude/skills
-      - dataagent-backend-pip-cache:/root/.cache/pip
+      - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
 
 volumes:
   mysql-data:
     driver: local
   backend-logs:
-    driver: local
-  dataagent-backend-pip-cache:
     driver: local
