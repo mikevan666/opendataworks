@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import ElementPlus from 'unplugin-element-plus/vite'
 
 const manualChunks = (id) => {
   if (!id.includes('node_modules')) {
@@ -40,7 +43,20 @@ const manualChunks = (id) => {
 }
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    Components({
+      dirs: [],
+      dts: false,
+      resolvers: [
+        ElementPlusResolver({
+          importStyle: false,
+          directives: true
+        })
+      ]
+    }),
+    ElementPlus()
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
