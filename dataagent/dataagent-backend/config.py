@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     claude_max_tokens: int = 4096
     agent_timeout_seconds: int = 180
     agent_max_turns: int = 20
+    agent_wait_timeout_seconds: int = 20
+    agent_interactive_timeout_seconds: int = 360
+    agent_background_timeout_seconds: int = 1800
+    agent_interactive_idle_timeout_seconds: int = 90
+    agent_background_idle_timeout_seconds: int = 300
+    agent_interactive_sql_read_timeout_seconds: int = 300
+    agent_background_sql_read_timeout_seconds: int = 900
+    agent_sql_write_timeout_seconds: int = 60
+    run_worker_poll_interval_seconds: int = 2
+    run_worker_lease_seconds: int = 30
+    run_worker_heartbeat_seconds: int = 5
+    run_events_stream_poll_interval_seconds: int = 1
+    run_events_stream_ping_seconds: int = 10
 
     # ---- Anthropic 兼容认证 ----
     anthropic_api_key: str = ""

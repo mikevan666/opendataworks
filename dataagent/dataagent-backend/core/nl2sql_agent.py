@@ -17,7 +17,7 @@ import anyio
 
 from config import get_settings
 from core.skill_admin_service import resolve_runtime_provider_selection
-from core.skills_loader import resolve_agent_project_cwd
+from core.skills_loader import resolve_agent_project_cwd, resolve_skills_root_dir
 from core.stream_events import EventSequencer
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,10 @@ class AgentRunInput:
     model: str
     database_hint: str | None
     debug: bool = False
+    timeout_seconds: int | None = None
+    sql_read_timeout_seconds: int | None = None
+    sql_write_timeout_seconds: int | None = None
+    execution_mode: str = "interactive"
 
 
 async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, Any]]:
@@ -232,7 +236,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         auth_token=str(runtime_target.get("auth_token") or ""),
         base_url=str(runtime_target.get("base_url") or ""),
     )
-    runtime_env = _build_runtime_env(cfg, env_payload)
+    runtime_env = _build_runtime_env(cfg, env_payload, params)
     for key, value in runtime_env.items():
         os.environ[key] = value
 
@@ -262,7 +266,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     if permission_mode:
         options_kwargs["permission_mode"] = permission_mode
     options = ClaudeAgentOptions(**options_kwargs)
-    timeout_seconds = max(10, int(cfg.agent_timeout_seconds))
+    timeout_seconds = max(10, int(params.timeout_seconds or cfg.agent_timeout_seconds))
     logger.info(
         "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s base_url=%s",
         params.run_id,
@@ -658,7 +662,11 @@ def _build_system_prompt(database_hint: str | None) -> str:
     lines = [
         "你是 DataAgent 智能问数助手。",
         "- 数据问题统一通过 dataagent-nl2sql skill 处理。",
-        f"- 需要查元数据、数据源、SQL 或 Python 时，使用 Bash 调用本地脚本：`{python_bin}` 或 `$DATAAGENT_PYTHON_BIN scripts/<name>.py ...`；不要做环境探测或依赖安装。",
+        (
+            f"- 需要查元数据、数据源、SQL 或 Python 时，遵循 skill 内定义的命令模板。"
+            f"运行时只提供通用入口：`{python_bin}` / `$DATAAGENT_PYTHON_BIN` 和 `$DATAAGENT_SKILL_ROOT`。"
+        ),
+        "- 不要自己发明部署绝对路径、脚本名或命令格式；路径和参数以 skill 文档为准。",
         "- 统计/对比/趋势/占比/明细/诊断问题只做最少阅读，然后立即调用脚本或追问；不要复述 SKILL.md，也不要把 assets/*.json 当主路径。",
         "- 不要猜数据库、表或口径；不明确就追问。只允许只读执行。",
         "- `resolve_datasource.py` 只在拿到明确 `db_name` 后调用一次；成功后直接进入 `run_sql.py`。",
@@ -825,12 +833,15 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
     }
 
 
-def _build_runtime_env(cfg, provider_env: dict[str, str]) -> dict[str, str]:
+def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput | None = None) -> dict[str, str]:
     python_bin = Path(sys.executable).absolute()
     python_dir = str(python_bin.parent)
+    skills_root = resolve_skills_root_dir()
     existing_path = str(os.getenv("PATH") or "").strip()
     runtime_path = python_dir if not existing_path else f"{python_dir}:{existing_path}"
     runtime_env = dict(provider_env)
+    sql_read_timeout = int(getattr(params, "sql_read_timeout_seconds", 0) or 0)
+    sql_write_timeout = int(getattr(params, "sql_write_timeout_seconds", 0) or 0)
     runtime_env.update(
         {
             "ODW_MYSQL_HOST": str(cfg.mysql_host or "").strip(),
@@ -840,7 +851,10 @@ def _build_runtime_env(cfg, provider_env: dict[str, str]) -> dict[str, str]:
             "ODW_MYSQL_DATABASE": str(cfg.mysql_database or "opendataworks").strip() or "opendataworks",
             "DATAAGENT_QUERY_LIMIT": str(int(cfg.query_result_limit or 100)),
             "DATAAGENT_RESULT_PREVIEW_ROWS": str(min(20, int(cfg.query_result_limit or 100))),
+            "DATAAGENT_SQL_READ_TIMEOUT_SECONDS": str(sql_read_timeout),
+            "DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS": str(sql_write_timeout),
             "DATAAGENT_PYTHON_BIN": str(python_bin),
+            "DATAAGENT_SKILL_ROOT": str(skills_root),
             "VIRTUAL_ENV": str(python_bin.parent.parent),
             "PATH": runtime_path,
             "TZ": str(os.getenv("TZ") or "Asia/Shanghai"),

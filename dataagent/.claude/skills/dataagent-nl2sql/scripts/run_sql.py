@@ -41,8 +41,8 @@ def main():
             database=resolved["database"],
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor,
-            read_timeout=60,
-            write_timeout=60,
+            read_timeout=max(1, env_int("DATAAGENT_SQL_READ_TIMEOUT_SECONDS", 60)),
+            write_timeout=max(1, env_int("DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS", 60)),
         )
         try:
             with conn.cursor() as cur:

@@ -203,6 +203,12 @@ description: Use this skill for Chinese data questions, statistics, comparison, 
 4. 引擎不清再 `resolve_datasource.py`
 5. SQL 明确后才 `run_sql.py`
 6. 结果适合图表时再 `build_chart_spec.py`
+
+## 脚本执行规范
+
+- 本地脚本统一通过 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...` 调用
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 禁止自己拼 `/app/scripts/...`、`scripts/<name>.py` 或手写猜测脚本名。
 """
 
 
@@ -271,6 +277,9 @@ def _default_reference_tools() -> str:
 
 先结论：脚本调用必须按“先澄清、再定位、后执行”的顺序进行。
 
+- 统一命令格式：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 禁止使用 `/app/scripts/...`、`scripts/<name>.py` 或自己猜脚本名
 - `inspect_metadata.py`：定位数据库、表、字段、血缘
 - `resolve_datasource.py`：判断目标引擎与数据源
 - `run_sql.py`：执行只读 SQL

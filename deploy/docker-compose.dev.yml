@@ -104,6 +104,32 @@ services:
     volumes:
       - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
 
+  dataagent-worker:
+    image: ${OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE:-mikefan2019/opendataworks-dataagent-backend:latest}
+    pull_policy: always
+    container_name: opendataworks-dataagent-worker
+    restart: always
+    env_file:
+      - ./.env
+    user: "${DATAAGENT_RUNTIME_UID:-1000}:${DATAAGENT_RUNTIME_GID:-1000}"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      HOME: /tmp/dataagent-home
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${DATAAGENT_MYSQL_USER:-dataagent}
+      MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-dataagent123}
+      MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
+      SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
+    command: ["sh", "-c", "alembic upgrade head && python worker_main.py"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      dataagent-backend:
+        condition: service_started
+    volumes:
+      - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
+
 volumes:
   mysql-data:
     driver: local

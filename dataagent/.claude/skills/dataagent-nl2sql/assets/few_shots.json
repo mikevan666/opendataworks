@@ -3,7 +3,7 @@
   "items": [
     {
       "question": "最近 30 天工作流发布次数趋势",
-      "answer": "先按趋势分析处理。确认使用 workflow_publish_record 的 created_at 作为时间字段，按天聚合发布记录数，默认输出折线图，并保留表格结果作为核对依据。",
+      "answer": "使用 workflow_publish_record 的 created_at 作为时间字段，按天聚合发布记录数，默认输出折线图，并保留表格结果作为核对依据。",
       "tags": [
         "趋势分析",
         "折线图",
@@ -12,7 +12,7 @@
     },
     {
       "question": "各数据层表数量对比",
-      "answer": "先按对比分析处理。使用 data_table.layer 作为对比维度、COUNT(id) 作为指标，默认过滤 deleted=0；如果用户强调有效表，再补 status='active' 过滤，并输出条形图。",
+      "answer": "使用 data_table.layer 作为对比维度、COUNT(id) 作为指标，默认过滤 deleted=0；如果用户强调有效表，再补 status='active' 过滤，并输出条形图。",
       "tags": [
         "对比分析",
         "条形图",
@@ -21,7 +21,7 @@
     },
     {
       "question": "各工作流发布操作类型占比",
-      "answer": "先按占比分析处理。使用 workflow_publish_record.operation 作为分类维度、COUNT(id) 作为指标；类别较少时输出饼图，否则回退为条形图或表格。",
+      "answer": "使用 workflow_publish_record.operation 作为分类维度、COUNT(id) 作为指标；类别较少时输出饼图，否则回退为条形图或表格。",
       "tags": [
         "占比分析",
         "饼图",
@@ -30,7 +30,7 @@
     },
     {
       "question": "查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘",
-      "answer": "先按诊断处理。已给出明确表名，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL，不要搜索仓库代码或文档实现，默认输出表格和简短诊断结论。",
+      "answer": "已给出明确表名时，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL，默认输出表格和简短诊断结论，不要搜索仓库代码或文档实现。",
       "tags": [
         "诊断",
         "血缘关系",

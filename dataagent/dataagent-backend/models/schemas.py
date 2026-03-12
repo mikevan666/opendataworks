@@ -54,6 +54,8 @@ class SendMessageRequest(BaseModel):
     stream: bool = True
     debug: bool = False
     database: Optional[str] = None
+    execution_mode: Optional[str] = None
+    wait_timeout_seconds: Optional[int] = None
 
 
 class ProviderSettingsUpdate(BaseModel):
@@ -138,6 +140,57 @@ class AssistantMessageResponse(BaseModel):
     provider_id: str
     model: str
     created_at: str = ""
+
+
+class AcceptedRunResponse(BaseModel):
+    accepted: bool = True
+    session_id: str
+    run_id: str
+    message_id: str
+    status: str
+    mode: str
+    wait_timeout_seconds: int = 0
+    message: AssistantMessageResponse
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str
+    session_id: str
+    user_message_id: str
+    message_id: str
+    mode: str
+    status: str
+    provider_id: str
+    model: str
+    database_hint: Optional[str] = None
+    timeout_seconds: int = 0
+    idle_timeout_seconds: int = 0
+    wait_timeout_seconds: int = 0
+    sql_read_timeout_seconds: int = 0
+    sql_write_timeout_seconds: int = 0
+    last_event_seq: int = 0
+    cancel_requested_at: Optional[str] = None
+    started_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class RunEventPageResponse(BaseModel):
+    run_id: str
+    status: str
+    after_seq: int = 0
+    next_after_seq: int = 0
+    has_more: bool = False
+    events: List["StreamEvent"] = Field(default_factory=list)
+
+
+class CancelRunResponse(BaseModel):
+    run_id: str
+    status: str
+    cancel_requested_at: Optional[str] = None
 
 
 class ProviderConfig(BaseModel):
@@ -309,3 +362,4 @@ class StreamEvent(BaseModel):
 
 
 TableMeta.model_rebuild()
+RunEventPageResponse.model_rebuild()
