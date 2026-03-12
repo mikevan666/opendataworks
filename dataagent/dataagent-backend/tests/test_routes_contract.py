@@ -461,6 +461,49 @@ def test_background_run_contract_and_cancel(monkeypatch):
     assert cancel_payload["status"] == "cancelled"
 
 
+def test_auto_run_uses_background_timeout_profile(monkeypatch):
+    fake_store = _FakeStore()
+    fake_store.create_session("s1", "新会话")
+
+    monkeypatch.setattr(routes, "get_session_store", lambda: fake_store)
+    monkeypatch.setattr(
+        routes,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id or "openrouter",
+            "model": model or "anthropic/claude-sonnet-4.5",
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://openrouter.ai/api",
+        },
+    )
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/nl2sql/sessions/s1/messages",
+        json={
+            "content": "最近 30 天工作流发布次数趋势",
+            "provider_id": "openrouter",
+            "model": "anthropic/claude-sonnet-4.5",
+            "stream": False,
+            "execution_mode": "auto",
+            "wait_timeout_seconds": 0,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["mode"] == "auto"
+
+    run = fake_store.get_run(payload["run_id"])
+    assert run is not None
+    assert run["timeout_seconds"] == 1800
+    assert run["idle_timeout_seconds"] == 300
+    assert run["sql_read_timeout_seconds"] == 900
+    assert run["wait_timeout_seconds"] == 0
+
+
 def test_ask_endpoint_removed():
     client = TestClient(app)
     response = client.post("/api/v1/nl2sql/ask", json={"question": "hello"})

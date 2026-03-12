@@ -14,7 +14,7 @@ import NL2SqlChat from './NL2SqlChat.vue'
   height: 100%;
   padding: 16px;
   background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 26%),
+    radial-gradient(circle at top right, rgba(102, 126, 234, 0.12), transparent 28%),
     linear-gradient(180deg, #f4f7fb 0%, #edf2f8 100%);
 }
 

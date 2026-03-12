@@ -42,52 +42,56 @@ const manualChunks = (id) => {
   return 'vendor-misc'
 }
 
-export default defineConfig({
-  plugins: [
-    vue(),
-    Components({
-      dirs: [],
-      dts: false,
-      resolvers: [
-        ElementPlusResolver({
-          importStyle: 'css',
-          directives: true
-        })
-      ]
-    }),
-    ElementPlus()
-  ],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src')
-    }
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks
+export default defineConfig(() => {
+  const isTest = process.env.VITEST === 'true'
+
+  return {
+    plugins: [
+      vue(),
+      Components({
+        dirs: [],
+        dts: false,
+        resolvers: [
+          ElementPlusResolver({
+            importStyle: isTest ? false : 'css',
+            directives: true
+          })
+        ]
+      }),
+      !isTest && ElementPlus()
+    ].filter(Boolean),
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src')
       }
-    }
-  },
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    css: true
-  },
-  server: {
-    port: 3000,
-    proxy: {
-      '/api/v1/dataagent': {
-        target: 'http://localhost:8900',
-        changeOrigin: true
-      },
-      '/api/v1/nl2sql': {
-        target: 'http://localhost:8900',
-        changeOrigin: true
-      },
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks
+        }
+      }
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      css: true
+    },
+    server: {
+      port: 3000,
+      proxy: {
+        '/api/v1/dataagent': {
+          target: 'http://localhost:8900',
+          changeOrigin: true
+        },
+        '/api/v1/nl2sql': {
+          target: 'http://localhost:8900',
+          changeOrigin: true
+        },
+        '/api': {
+          target: 'http://localhost:8080',
+          changeOrigin: true
+        }
       }
     }
   }

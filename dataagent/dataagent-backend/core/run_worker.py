@@ -29,7 +29,7 @@ def normalize_execution_mode(raw_mode: str | None, *, stream: bool) -> str:
 def resolve_run_timeouts(mode: str) -> dict[str, int]:
     cfg = get_settings()
     normalized = normalize_execution_mode(mode, stream=False)
-    is_background = normalized == "background"
+    is_background = normalized in {"background", "auto"}
     if is_background:
         timeout_seconds = int(cfg.agent_background_timeout_seconds or 1800)
         idle_timeout_seconds = int(cfg.agent_background_idle_timeout_seconds or 300)
@@ -298,19 +298,50 @@ async def execute_run(
 
 
 class RunWorker:
-    def __init__(self, *, store: SessionStore | None = None, worker_id: str | None = None):
+    def __init__(
+        self,
+        *,
+        store: SessionStore | None = None,
+        worker_id: str | None = None,
+        max_concurrency: int | None = None,
+    ):
         self.store = store or get_session_store()
         self.worker_id = worker_id or build_worker_id()
+        self.max_concurrency = max(1, int(max_concurrency or get_settings().run_worker_max_concurrency or 1))
+
+    async def _run_claimed(self, run: dict[str, Any], active_run_ids: set[str]):
+        run_id = str(run.get("run_id") or "")
+        try:
+            await execute_run(self.store, run, worker_id=self.worker_id)
+        finally:
+            if run_id:
+                active_run_ids.discard(run_id)
 
     async def run_forever(self):
         self.store.init_schema()
         cfg = get_settings()
         poll_interval = max(1, int(cfg.run_worker_poll_interval_seconds or 2))
         lease_seconds = max(1, int(cfg.run_worker_lease_seconds or 30))
-        logger.info("Run worker started worker_id=%s poll_interval=%s", self.worker_id, poll_interval)
-        while True:
-            run = self.store.claim_runnable_run(worker_id=self.worker_id, lease_seconds=lease_seconds)
-            if not run:
-                await anyio.sleep(poll_interval)
-                continue
-            await execute_run(self.store, run, worker_id=self.worker_id)
+        max_concurrency = max(1, int(self.max_concurrency or cfg.run_worker_max_concurrency or 1))
+        active_run_ids: set[str] = set()
+        logger.info(
+            "Run worker started worker_id=%s poll_interval=%s max_concurrency=%s",
+            self.worker_id,
+            poll_interval,
+            max_concurrency,
+        )
+        async with anyio.create_task_group() as task_group:
+            while True:
+                claimed_any = False
+                while len(active_run_ids) < max_concurrency:
+                    run = self.store.claim_runnable_run(worker_id=self.worker_id, lease_seconds=lease_seconds)
+                    if not run:
+                        break
+                    run_id = str(run.get("run_id") or "")
+                    if not run_id or run_id in active_run_ids:
+                        continue
+                    active_run_ids.add(run_id)
+                    claimed_any = True
+                    task_group.start_soon(self._run_claimed, run, active_run_ids)
+
+                await anyio.sleep(0 if claimed_any else poll_interval)

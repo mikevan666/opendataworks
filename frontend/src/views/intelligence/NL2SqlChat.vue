@@ -76,18 +76,8 @@
 
             <div v-else class="query-message-row query-message-assistant">
               <div class="query-assistant-body">
-                <div v-for="block in renderBlocksForMessage(msg)" :key="block.id" class="query-step-row">
-                  <details v-if="block.kind === 'thinking'" class="query-step-details" :open="isThinkingBlockActive(block)">
-                    <summary class="query-step-summary">
-                      <span class="query-step-badge">{{ isThinkingBlockActive(block) ? '思考中' : '已思考' }}</span>
-                      <span>{{ isThinkingBlockActive(block) ? '正在思考' : '思考完成' }}</span>
-                      <span v-if="thinkingPreview(block)" class="query-step-preview">{{ thinkingPreview(block) }}</span>
-                      <span class="query-step-chevron">></span>
-                    </summary>
-                    <div class="query-thinking-content">{{ block.text }}</div>
-                  </details>
-
-                  <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
+                <div v-for="block in visibleBlocksForMessage(msg)" :key="block.id" class="query-step-row">
+                  <ToolOutputRenderer v-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
 
                   <template v-else-if="block.kind === 'main_text'">
                     <div v-if="displayTextBlock(block, msg)" class="query-main-text">
@@ -132,10 +122,10 @@
                   <span>{{ errorMessage(msg.error) }}</span>
                 </div>
 
-                <div v-if="streamingActivity(msg)" class="query-loading" :class="{ executing: streamingActivity(msg)?.kind === 'executing' }">
-                  <span class="query-loading-badge">{{ streamingActivity(msg)?.kind === 'executing' ? '执行中' : '思考中' }}</span>
-                  <span class="query-loading-text">{{ streamingActivity(msg)?.text }}</span>
-                  <span v-if="streamingActivity(msg)?.preview" class="query-loading-preview">{{ streamingActivity(msg)?.preview }}</span>
+                <div v-if="visibleStreamingActivity(msg)" class="query-loading">
+                  <span class="query-loading-badge">思考中</span>
+                  <span class="query-loading-text">{{ visibleStreamingActivity(msg)?.text }}</span>
+                  <span v-if="visibleStreamingActivity(msg)?.preview" class="query-loading-preview">{{ visibleStreamingActivity(msg)?.preview }}</span>
                   <button v-if="msg.run_id" class="query-loading-cancel" @click="cancelRun(msg)">取消</button>
                   <span class="query-loading-dots">
                     <span>.</span>
@@ -183,7 +173,7 @@
               @keydown.ctrl.enter.prevent="handleSend"
               @keydown.meta.enter.prevent="handleSend"
             />
-            <button class="query-btn-send" :disabled="!inputText.trim() || generating || !selectedProvider || !selectedModel" @click="handleSend">
+            <button class="query-btn-send" :disabled="!inputText.trim() || activeSessionSubmitting || !selectedProvider || !selectedModel" @click="handleSend">
               发送
             </button>
           </div>
@@ -215,13 +205,13 @@ const api = createNl2SqlApiClient({ timeout: 300000 })
 
 const sessions = ref([])
 const activeSessionId = ref('')
-const generating = ref(false)
 const inputText = ref('')
 const searchKeyword = ref('')
 const messagesRef = ref(null)
 const autoScroll = ref(true)
 const hydratedIds = new Set()
 const runSubscriptions = new Map()
+const pendingSubmitKeys = ref(new Set())
 
 const settings = reactive({
   default_provider_id: 'openrouter',
@@ -261,6 +251,38 @@ const availableModels = computed(() => {
   }
   return models
 })
+
+const NEW_SESSION_PENDING_KEY = '__new_session__'
+
+const normalizePendingSessionKey = (sessionId) => String(sessionId || NEW_SESSION_PENDING_KEY)
+
+const isSessionSubmitting = (sessionId) => pendingSubmitKeys.value.has(normalizePendingSessionKey(sessionId))
+
+const markSessionSubmitting = (sessionId) => {
+  const key = normalizePendingSessionKey(sessionId)
+  const next = new Set(pendingSubmitKeys.value)
+  next.add(key)
+  pendingSubmitKeys.value = next
+  return key
+}
+
+const moveSessionSubmitting = (fromSessionId, toSessionId) => {
+  const fromKey = normalizePendingSessionKey(fromSessionId)
+  const toKey = normalizePendingSessionKey(toSessionId)
+  const next = new Set(pendingSubmitKeys.value)
+  next.delete(fromKey)
+  next.add(toKey)
+  pendingSubmitKeys.value = next
+  return toKey
+}
+
+const clearSessionSubmitting = (key) => {
+  const next = new Set(pendingSubmitKeys.value)
+  next.delete(String(key || ''))
+  pendingSubmitKeys.value = next
+}
+
+const activeSessionSubmitting = computed(() => isSessionSubmitting(activeSessionId.value))
 
 const truncate = (value, max) => {
   const text = String(value || '新会话')
@@ -362,6 +384,9 @@ const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.
   return ['thinking', 'main_text', 'error'].includes(String(block.kind || ''))
 })
 
+const visibleBlocksForMessage = (msg) => renderBlocksForMessage(msg)
+  .filter((block) => block.kind !== 'thinking')
+
 const toolBlocks = (msg) => renderBlocksForMessage(msg)
   .filter((block) => block.kind === 'tool' && block.tool)
   .map((block) => block.tool)
@@ -447,8 +472,6 @@ const parseToolInput = (value) => {
   return {}
 }
 
-const isThinkingBlockActive = (block) => String(block?.kind || '') === 'thinking' && String(block?.status || '') === 'streaming'
-
 const describeToolActivity = (tool) => {
   const input = parseToolInput(tool?.input)
   const name = String(tool?.name || '').trim()
@@ -513,6 +536,12 @@ const streamingActivity = (msg) => {
     text: '正在思考',
     preview
   }
+}
+
+const visibleStreamingActivity = (msg) => {
+  const activity = streamingActivity(msg)
+  if (!activity) return null
+  return activity.kind === 'executing' ? null : activity
 }
 
 const isLastBlockInSegment = (msg, block) => {
@@ -754,7 +783,7 @@ const handleSelectSession = async (sessionId) => {
 
 const handleSend = async () => {
   const text = inputText.value.trim()
-  if (!text || generating.value || !selectedProvider.value || !selectedModel.value) return
+  if (!text || isSessionSubmitting(activeSessionId.value) || !selectedProvider.value || !selectedModel.value) return
 
   inputText.value = ''
   autoScroll.value = true
@@ -762,6 +791,8 @@ const handleSend = async () => {
 
   let session = null
   let assistantMsg = null
+  let submitSessionId = activeSessionId.value
+  let pendingKey = markSessionSubmitting(submitSessionId)
 
   try {
     if (!activeSessionId.value) {
@@ -770,11 +801,14 @@ const handleSend = async () => {
       sessions.value.unshift(created)
       hydratedIds.add(created.session_id)
       activeSessionId.value = created.session_id
+      submitSessionId = created.session_id
+      pendingKey = moveSessionSubmitting('', submitSessionId)
     }
 
-    await hydrateSession(activeSessionId.value)
+    submitSessionId = activeSessionId.value
+    await hydrateSession(submitSessionId)
 
-    session = activeSession.value
+    session = sessions.value.find((item) => item.session_id === submitSessionId) || null
     if (!session) {
       throw new Error('会话初始化失败')
     }
@@ -793,11 +827,10 @@ const handleSend = async () => {
     assistantMsg = makeAssistantMsg()
     assistantMsg.status = 'queued'
     session.messages.push(assistantMsg)
-    generating.value = true
     scrollToBottom(true)
 
     const response = await api.sendMessage(
-      activeSessionId.value,
+      submitSessionId,
       {
         content: text,
         provider_id: selectedProvider.value,
@@ -838,7 +871,7 @@ const handleSend = async () => {
       ElMessage.error(message)
     }
   } finally {
-    generating.value = false
+    clearSessionSubmitting(pendingKey)
   }
 }
 
@@ -887,21 +920,21 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .query-workbench {
-  --sidebar-bg: linear-gradient(180deg, #102033 0%, #1a334c 100%);
+  --sidebar-bg: linear-gradient(180deg, #243961 0%, #2d4a79 100%);
   --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-text: rgba(237, 245, 255, 0.92);
-  --sidebar-text-muted: rgba(201, 214, 229, 0.7);
+  --sidebar-text: rgba(241, 246, 255, 0.94);
+  --sidebar-text-muted: rgba(205, 217, 238, 0.72);
   --surface: #fbfcfe;
-  --surface-muted: #f3f7fb;
-  --surface-soft: #eef3f8;
-  --line: #d7e4ef;
-  --line-soft: #e6eef5;
+  --surface-muted: #f4f7fd;
+  --surface-soft: #eef2fb;
+  --line: #d8e1f1;
+  --line-soft: #e7edf8;
   --text: #162131;
-  --text-muted: #607185;
-  --text-soft: #8da0b3;
-  --accent: #0f8c7b;
-  --accent-soft: rgba(15, 140, 123, 0.12);
-  --primary: #0f172a;
+  --text-muted: #5f7087;
+  --text-soft: #899bb1;
+  --accent: #667eea;
+  --accent-soft: rgba(102, 126, 234, 0.12);
+  --primary: #409eff;
   height: 100%;
   min-height: 0;
   display: grid;
@@ -945,18 +978,19 @@ onBeforeUnmount(() => {
 .query-btn-new {
   height: 34px;
   padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid #409eff;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: #409eff;
   color: #f8fbff;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.18s ease, transform 0.18s ease;
+  transition: background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 8px 18px rgba(64, 158, 255, 0.2);
 }
 
 .query-btn-new:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: #66b1ff;
   transform: translateY(-1px);
 }
 
@@ -981,7 +1015,7 @@ onBeforeUnmount(() => {
 }
 
 .query-search-input:focus {
-  border-color: rgba(147, 197, 253, 0.6);
+  border-color: rgba(102, 126, 234, 0.45);
   background: rgba(255, 255, 255, 0.12);
 }
 
@@ -1041,8 +1075,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(circle at top right, rgba(15, 140, 123, 0.08), transparent 24%),
-    linear-gradient(180deg, #fbfcfe 0%, #f6f9fc 100%);
+    radial-gradient(circle at top right, rgba(102, 126, 234, 0.08), transparent 24%),
+    linear-gradient(180deg, #fbfcfe 0%, #f5f7fc 100%);
 }
 
 .query-messages {
@@ -1151,13 +1185,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 24px;
-  background:
-    linear-gradient(135deg, #0f172a 0%, #165d63 100%);
+  background: linear-gradient(135deg, #667eea 0%, #5369d6 100%);
   color: #f8fbff;
   font-size: 28px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 16px 32px rgba(102, 126, 234, 0.22);
 }
 
 .query-empty-title {
@@ -1195,7 +1228,7 @@ onBeforeUnmount(() => {
 }
 
 .query-suggestion:hover {
-  border-color: rgba(15, 140, 123, 0.35);
+  border-color: rgba(102, 126, 234, 0.35);
   background: #ffffff;
   transform: translateY(-1px);
 }
@@ -1213,12 +1246,12 @@ onBeforeUnmount(() => {
   max-width: 72%;
   padding: 13px 16px;
   border-radius: 20px 20px 6px 20px;
-  background: linear-gradient(135deg, #101828 0%, #1f4250 100%);
+  background: linear-gradient(135deg, #667eea 0%, #5369d6 100%);
   color: #f8fbff;
   font-size: 14px;
   line-height: 1.75;
   white-space: pre-wrap;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 14px 28px rgba(102, 126, 234, 0.18);
 }
 
 .query-message-assistant {
@@ -1357,8 +1390,8 @@ details[open] > .query-step-summary .query-step-chevron {
 .query-main-text :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: #edf4fa;
-  color: #19516e;
+  background: #edf2ff;
+  color: #425cc8;
   font-size: 13px;
 }
 
@@ -1366,8 +1399,8 @@ details[open] > .query-step-summary .query-step-chevron {
   margin: 12px 0;
   padding: 14px 16px;
   border-radius: 16px;
-  background: #0f172a;
-  color: #dbeafe;
+  background: #1c2647;
+  color: #e6ebff;
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.65;
@@ -1384,7 +1417,7 @@ details[open] > .query-step-summary .query-step-chevron {
   margin: 10px 0;
   padding: 8px 14px;
   border-left: 3px solid var(--accent);
-  background: rgba(15, 140, 123, 0.05);
+  background: rgba(102, 126, 234, 0.06);
   color: var(--text-muted);
 }
 
@@ -1443,7 +1476,7 @@ details[open] > .query-step-summary .query-step-chevron {
 }
 
 .query-citation-chip:hover {
-  border-color: rgba(15, 140, 123, 0.35);
+  border-color: rgba(102, 126, 234, 0.35);
   color: var(--accent);
 }
 
@@ -1507,20 +1540,20 @@ details[open] > .query-step-summary .query-step-chevron {
 }
 
 .query-btn-sm:hover {
-  border-color: rgba(15, 140, 123, 0.28);
-  background: #f9fcfb;
+  border-color: rgba(102, 126, 234, 0.28);
+  background: #f7f9ff;
 }
 
 .query-btn-primary {
-  border-color: rgba(15, 140, 123, 0.35);
+  border-color: rgba(102, 126, 234, 0.35);
   color: var(--accent);
 }
 
 .query-sql-code {
   margin: 0;
   padding: 15px 16px;
-  background: #0f172a;
-  color: #dbeafe;
+  background: #1c2647;
+  color: #e6ebff;
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.65;
@@ -1558,7 +1591,7 @@ details[open] > .query-step-summary .query-step-chevron {
 }
 
 .query-table th {
-  background: #f6fafc;
+  background: #f4f7ff;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -1785,12 +1818,13 @@ details[open] > .query-step-summary .query-step-chevron {
   padding: 0 16px;
   border: none;
   border-radius: 999px;
-  background: linear-gradient(135deg, #0f172a 0%, #165d63 100%);
+  background: #409eff;
   color: #f8fbff;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
+  box-shadow: 0 10px 22px rgba(64, 158, 255, 0.22);
 }
 
 .query-btn-send:disabled {
@@ -1799,7 +1833,7 @@ details[open] > .query-step-summary .query-step-chevron {
 }
 
 .query-btn-send:not(:disabled):hover {
-  opacity: 0.92;
+  background: #66b1ff;
   transform: translateY(-1px);
 }
 

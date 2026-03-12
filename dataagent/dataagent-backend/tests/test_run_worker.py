@@ -164,3 +164,58 @@ def test_execute_run_persists_events_and_terminal_message(monkeypatch):
     assert store.run["finished_at"]
     assert store.session["messages"][0]["status"] == "success"
     assert store.session["messages"][0]["content"] == "分析完成"
+
+
+class _QueueStore:
+    def __init__(self, runs: list[dict]):
+        self.runs = list(runs)
+
+    def init_schema(self):
+        return None
+
+    def claim_runnable_run(self, *, worker_id: str, lease_seconds: int):
+        if not self.runs:
+            return None
+        return self.runs.pop(0)
+
+
+def test_run_worker_claims_multiple_runs_up_to_max_concurrency(monkeypatch):
+    claimed_runs = [
+        {"run_id": "run-1"},
+        {"run_id": "run-2"},
+    ]
+    store = _QueueStore(claimed_runs)
+    active_run_ids: set[str] = set()
+    max_parallel = {"value": 0}
+
+    async def _fake_execute_run(store_arg, run, *, worker_id):
+        run_id = str(run.get("run_id") or "")
+        active_run_ids.add(run_id)
+        max_parallel["value"] = max(max_parallel["value"], len(active_run_ids))
+        await run_worker.anyio.sleep(0.05)
+        active_run_ids.discard(run_id)
+        return run
+
+    monkeypatch.setattr(run_worker, "execute_run", _fake_execute_run)
+    monkeypatch.setattr(
+        run_worker,
+        "get_settings",
+        lambda: type(
+            "_Cfg",
+            (),
+            {
+                "run_worker_poll_interval_seconds": 2,
+                "run_worker_lease_seconds": 30,
+                "run_worker_max_concurrency": 2,
+            },
+        )(),
+    )
+
+    async def _exercise():
+        worker = run_worker.RunWorker(store=store, worker_id="worker:test", max_concurrency=2)
+        with run_worker.anyio.move_on_after(0.2):
+            await worker.run_forever()
+
+    asyncio.run(_exercise())
+
+    assert max_parallel["value"] == 2

@@ -264,7 +264,7 @@ def _create_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     mode = normalize_execution_mode(request.execution_mode, stream=bool(request.stream))
-    timeouts = resolve_run_timeouts("background" if mode == "background" else "interactive")
+    timeouts = resolve_run_timeouts(mode)
     if request.wait_timeout_seconds is not None:
         timeouts["wait_timeout_seconds"] = max(0, int(request.wait_timeout_seconds))
 

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     agent_background_sql_read_timeout_seconds: int = 900
     agent_sql_write_timeout_seconds: int = 60
     run_worker_poll_interval_seconds: int = 2
+    run_worker_max_concurrency: int = 4
     run_worker_lease_seconds: int = 30
     run_worker_heartbeat_seconds: int = 5
     run_events_stream_poll_interval_seconds: int = 1
