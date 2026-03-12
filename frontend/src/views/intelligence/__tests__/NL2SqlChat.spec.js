@@ -23,6 +23,8 @@ vi.mock('element-plus', () => ({
   }
 }))
 
+vi.mock('element-plus/theme-chalk/el-message.css', () => ({}))
+
 import NL2SqlChat from '../NL2SqlChat.vue'
 
 describe('NL2SqlChat', () => {
@@ -91,5 +93,7 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('问题类型：趋势分析')
     expect(wrapper.text()).toContain('workflow_publish_record')
     expect(wrapper.text()).toContain('opendataworks MySQL')
+    expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
+    expect(wrapper.find('.query-loading').exists()).toBe(false)
   })
 })
