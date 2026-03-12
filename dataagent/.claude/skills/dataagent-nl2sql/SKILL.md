@@ -32,8 +32,9 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - SQL 必须只读，且保留行数保护。
 - 工具层只做检索、执行和客观过滤，不做候选表推荐、打分或排序；选表逻辑留给模型根据 reference 和脚本返回自己判断。
 - 最终回答用中文，先给结论，再给依据，不要复读大段工具原文。
-- 不要在用户可见正文里叙述“我先看文档 / 我来处理 / 接下来执行脚本”这类过程播报；过程留在工具轨迹里，正文只保留结论、依据和限制。
+- 不要在用户可见正文里叙述“我先看文档 / 我来处理 / 接下来执行脚本 / SQL 执行成功 / 现在生成折线图”这类过程播报；过程留在工具轨迹里，正文只保留结论、依据和限制。
 - 统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，默认只读 `reference/*` 并尽快执行脚本；不要把 `assets/*.json` 当主路径。
+- 命中 `workflow_publish_record`、`data_table`、`data_lineage` 这类平台核心表且口径已明确时，按固定 reference 快路径一次完成脚本调用；拿到第一份口径正确的 `sql_execution` 或 `chart_spec` 后立即收口，不要继续补读资产、重复执行等价 SQL 或追加过程播报。
 
 ## 固定阅读顺序
 

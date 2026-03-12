@@ -57,6 +57,9 @@
 - 数据源规则：
   - 平台核心表固定走 `opendataworks` MySQL。
   - 托管业务表若已确定 `db_name`，再调用 `resolve_datasource.py`；成功一次后不要重复调用。
+- 快路径示例：
+  - `最近 30 天工作流发布次数趋势` 命中 `workflow_publish_record` 时，固定按 `21-metric-index.md` -> `22-sql-example-index.md` -> `run_sql.py` -> `build_chart_spec.py --chart-type line` 执行。
+  - 默认使用 `workflow_publish_record.created_at` 按天聚合发布记录数；第一次返回口径正确的 `sql_execution` 和 `chart_spec` 后就直接总结，不再重复执行等价 SQL。
 - 执行结果规则：
   - `run_sql.py` 返回 `sql_execution` 后就直接基于结果收口。
   - 如果结果为空，直接说明“当前筛选条件下无数据”，不要继续无休止切换口径。
@@ -65,6 +68,7 @@
   - 完成 `21` 和 `22` 后就进入脚本，不要继续读取原始 JSON。
   - 只要脚本参数已明确，就必须真实执行 Bash；不要停留在 reference 阅读层直接给最终 SQL。
   - 没有实际 Bash 报错时，不要声称“缺少依赖”或“环境异常”。
+  - 用户可见正文不要写“问题类型明确为趋势分析”“SQL 执行成功”“现在生成折线图”这类过程性语句。
 - 默认图表：折线图
 - 回退输出：表格
 

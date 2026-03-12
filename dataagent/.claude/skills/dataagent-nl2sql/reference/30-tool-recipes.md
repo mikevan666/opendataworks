@@ -73,6 +73,7 @@
   - 用来“试着猜一下”
 - 收口规则：
   - `sql_execution` 返回后就优先结束本轮推理
+  - 首次返回非空且口径正确的 `sql_execution` 后，不要继续换表、换字段或重复执行等价 SQL
   - 若 `row_count = 0`，直接说明无数据，不要继续无休止换表或重复试探
 
 ## build_chart_spec.py
@@ -88,6 +89,7 @@
   - 不适合图表时不输出图表，直接保留 `sql_execution`
 - 收口规则：
   - 成功返回一次 `chart_spec` 后就结束本轮，不要再次调用图表脚本
+  - 生成图表后的正文只保留结论、数据依据和限制，不要写 “SQL 执行成功” 或 “现在生成折线图” 这类过程播报
 - 参数规则：
   - 优先使用 `--input '<sql_execution_json>'`
   - 只有 JSON 过长时才使用 `--input-file`
@@ -116,6 +118,7 @@
 - 占比：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type pie`；托管业务表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type pie`
 - 明细：平台核心表可直接 `run_sql.py`；托管业务表用 `inspect_metadata.py` -> `run_sql.py`
 - 诊断：平台核心表可直接 `run_sql.py`；托管业务表用 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
+- 工作流发布趋势快路径：`21-metric-index.md` -> `22-sql-example-index.md` -> `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<按 created_at 按天聚合 workflow_publish_record 的 SQL>"` -> `build_chart_spec.py --chart-type line`；首个有效结果返回后直接总结
 
 ## 诊断直达规则
 
