@@ -48,7 +48,7 @@
   4. 托管业务表场景才用 `inspect_metadata.py`
   5. `build_chart_spec.py --chart-type line`
 - 第一条脚本动作：
-  - 平台核心表场景：直接执行 `run_sql.py --database opendataworks --engine mysql --sql "SELECT ..."`
+  - 平台核心表场景：直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT ..."`
   - 托管业务表场景：先 `inspect_metadata.py`
 - 选表规则：
   - 平台核心表问题优先直接用已知表结构，不要先兜圈读资产。

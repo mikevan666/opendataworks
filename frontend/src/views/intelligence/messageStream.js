@@ -223,6 +223,7 @@ const hasRenderableMainText = (msg) => msg.renderBlocks.some((block) => block.ki
 export const createAssistantMessageState = (seed = {}) => ({
   id: textOrEmpty(seed.id).trim() || '',
   message_id: textOrEmpty(seed.message_id || seed.id).trim() || '',
+  run_id: textOrEmpty(seed.run_id).trim() || '',
   role: 'assistant',
   content: textOrEmpty(seed.content),
   status: textOrEmpty(seed.status).trim() || 'streaming',
@@ -249,6 +250,7 @@ export const hydrateAssistantMessageState = (message) => {
   const msg = createAssistantMessageState({
     id: textOrEmpty(message?.message_id).trim(),
     message_id: textOrEmpty(message?.message_id).trim(),
+    run_id: textOrEmpty(message?.run_id).trim(),
     content: textOrEmpty(message?.content),
     status: textOrEmpty(message?.status).trim() || 'success',
     stop_reason: textOrEmpty(message?.stop_reason),
@@ -332,6 +334,7 @@ export const processAssistantStreamEvent = (msg, event) => {
   const payload = isPlainObject(event.payload) ? event.payload : {}
 
   if (event.message_id) msg.message_id = textOrEmpty(event.message_id)
+  if (event.run_id) msg.run_id = textOrEmpty(event.run_id)
   if (payload.provider_id) msg.provider_id = textOrEmpty(payload.provider_id)
   if (payload.model) msg.model = textOrEmpty(payload.model)
 

@@ -4,7 +4,9 @@
 
 ## 统一命令规则
 
-- 所有脚本都用 `$DATAAGENT_PYTHON_BIN scripts/<name>.py ...` 运行。
+- 所有命令都直接执行 skill 包内脚本：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
+- 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
 - 不要执行 `pip install`、`uv add`、`which python`、`python --version` 这类环境探测或依赖安装命令。
 - 如果脚本报错，优先收敛输入参数或向用户追问，不要切换解释器反复试探。
 - 没有真实 Bash 报错时，不要自行下结论说“缺少依赖”或“环境异常”。
@@ -27,8 +29,8 @@
   - `--table`
   - `--keyword`
 - 命令模板：
-  - `$DATAAGENT_PYTHON_BIN scripts/inspect_metadata.py --keyword "工作流发布"`
-  - `$DATAAGENT_PYTHON_BIN scripts/inspect_metadata.py --database doris_ods --table dwd_tech_ops_cmp_performance_10m_di`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --keyword "工作流发布"`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database doris_ods --table dwd_tech_ops_cmp_performance_10m_di`
 - 典型顺序：
   - 托管业务表场景的第一脚本
 
@@ -44,7 +46,7 @@
   - `--database` 必填，值直接取自 metadata 返回的 `db_name`
   - 成功一次后不要重复调用
 - 命令模板：
-  - `$DATAAGENT_PYTHON_BIN scripts/resolve_datasource.py --database doris_ods`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database doris_ods`
 - 典型顺序：
   - `inspect_metadata.py` 之后
   - `run_sql.py` 之前
@@ -64,8 +66,8 @@
   - 维度清楚
   - 数据库清楚
 - 命令模板：
-  - `$DATAAGENT_PYTHON_BIN scripts/run_sql.py --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
-  - `$DATAAGENT_PYTHON_BIN scripts/run_sql.py --database doris_ods --engine doris --sql "SELECT ..."`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT ..."`
 - 禁止：
   - 没定位到数据库就执行
   - 用来“试着猜一下”
@@ -94,8 +96,8 @@
   - 占比必须显式传 `--chart-type pie`
   - 只有用户明确要独立表格时才传 `--chart-type table`
 - 命令模板：
-  - `$DATAAGENT_PYTHON_BIN scripts/build_chart_spec.py --chart-type bar --input '{"kind":"sql_execution","rows":[...]}'`
-  - `$DATAAGENT_PYTHON_BIN scripts/build_chart_spec.py --chart-type line --input-file /tmp/sql_execution.json`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type bar --input '{"kind":"sql_execution","rows":[...]}'`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type line --input-file /tmp/sql_execution.json`
 
 ## format_answer.py
 
@@ -104,7 +106,7 @@
   - 已经拿到 SQL 执行结果
   - 需要压缩成用户可直接消费的结论
 - 命令模板：
-  - `$DATAAGENT_PYTHON_BIN scripts/format_answer.py --input-file /tmp/sql_execution.json`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/format_answer.py" --input-file /tmp/sql_execution.json`
 
 ## 推荐脚本序列
 
@@ -118,7 +120,7 @@
 ## 诊断直达规则
 
 - 对 `dwd_order`、`workflow_publish_record` 这类已经给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
-- 这类问题的第一动作应是直接执行平台表 SQL，或用 `query_opendataworks_metadata.py --kind lineage` / `run_sql.py` 查询 `data_lineage + data_table`。
+- 这类问题的第一动作应是直接执行平台表 SQL，或用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/query_opendataworks_metadata.py" --kind lineage` / `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"` 查询 `data_lineage + data_table`。
 - 如果第一次血缘 SQL 已返回非空结果，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
 - 只有表名不唯一、数据库不清或字段不清时，才允许退回 `inspect_metadata.py` 或追问。
 

@@ -269,11 +269,25 @@ def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
         query_result_limit=100,
     )
     monkeypatch.setattr(agent.sys, "executable", "/tmp/project/.venv/bin/python")
+    monkeypatch.setattr(agent, "resolve_skills_root_dir", lambda: Path("/tmp/project/.claude/skills/dataagent-nl2sql"))
 
     runtime_env = agent._build_runtime_env(fake_cfg, {})
 
     assert runtime_env["DATAAGENT_PYTHON_BIN"] == "/tmp/project/.venv/bin/python"
     assert runtime_env["VIRTUAL_ENV"] == "/tmp/project/.venv"
+    assert runtime_env["DATAAGENT_SKILL_ROOT"] == "/tmp/project/.claude/skills/dataagent-nl2sql"
+    assert "DATAAGENT_SKILL_BIN" not in runtime_env
+
+
+def test_system_prompt_uses_generic_skill_runtime_contract(monkeypatch):
+    monkeypatch.setattr(agent.sys, "executable", "/tmp/project/.venv/bin/python")
+
+    prompt = agent._build_system_prompt("opendataworks")
+
+    assert "$DATAAGENT_SKILL_ROOT" in prompt
+    assert "$DATAAGENT_SKILL_BIN" not in prompt
+    assert '路径和参数以 skill 文档为准' in prompt
+    assert "$DATAAGENT_SCRIPT_RUN_SQL" not in prompt
 
 
 @pytest.mark.parametrize(
