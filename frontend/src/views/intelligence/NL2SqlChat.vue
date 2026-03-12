@@ -76,10 +76,60 @@
 
             <div v-else class="query-message-row query-message-assistant">
               <div class="query-assistant-body">
-                <div v-for="block in visibleBlocksForMessage(msg)" :key="block.id" class="query-step-row">
-                  <ToolOutputRenderer v-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
+                <div
+                  v-if="hasProcessPanel(msg)"
+                  class="query-process-panel"
+                  :class="{ expanded: isProcessPanelExpanded(msg), complete: hasFinalResult(msg) && !isActiveRunStatus(msg.status) }"
+                >
+                  <div class="query-process-summary-row">
+                    <button type="button" class="query-process-summary" @click="toggleProcessPanel(msg)">
+                      <span class="query-process-badge">
+                        <span v-if="isActiveRunStatus(msg.status)" class="query-process-badge-dot" />
+                        思考过程
+                      </span>
+                      <span v-if="processSummaryPreview(msg)" class="query-process-summary-preview">{{ processSummaryPreview(msg) }}</span>
+                      <span class="query-process-summary-meta">{{ processSummaryMeta(msg) }}</span>
+                      <span class="query-process-summary-chevron" :class="{ open: isProcessPanelExpanded(msg) }">⌄</span>
+                    </button>
+                    <button
+                      v-if="msg.run_id && isActiveRunStatus(msg.status)"
+                      type="button"
+                      class="query-process-cancel"
+                      @click="cancelRun(msg)"
+                    >
+                      取消
+                    </button>
+                  </div>
 
-                  <template v-else-if="block.kind === 'main_text'">
+                  <div v-show="isProcessPanelExpanded(msg)" class="query-process-content">
+                    <div v-if="processPlaceholder(msg)" class="query-process-placeholder">
+                      <span class="query-process-placeholder-text">{{ processPlaceholder(msg)?.text }}</span>
+                      <span v-if="processPlaceholder(msg)?.preview" class="query-process-placeholder-preview">{{ processPlaceholder(msg)?.preview }}</span>
+                      <span class="query-loading-dots">
+                        <span>.</span>
+                        <span>.</span>
+                        <span>.</span>
+                      </span>
+                    </div>
+
+                    <div v-for="block in processBlocksForMessage(msg)" :key="block.id" class="query-step-row">
+                      <div v-if="block.kind === 'thinking' && block.text" class="query-process-note">
+                        <div class="query-process-note-head">
+                          <span class="query-process-note-badge">{{ block.status === 'streaming' ? '思考中' : '思考' }}</span>
+                        </div>
+                        <div class="query-process-note-text">
+                          {{ block.text }}
+                          <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
+                        </div>
+                      </div>
+
+                      <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
+                    </div>
+                  </div>
+                </div>
+
+                <div v-for="block in finalBlocksForMessage(msg)" :key="block.id" class="query-step-row">
+                  <template v-if="block.kind === 'main_text'">
                     <div v-if="displayTextBlock(block, msg)" class="query-main-text">
                       <div v-html="renderMarkdown(displayTextBlock(block, msg))"></div>
                       <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
@@ -95,7 +145,7 @@
                     <span>{{ block.text }}</span>
                   </div>
 
-                  <div v-if="segmentUsageFooter(msg, block)" class="query-message-meta">
+                  <div v-if="block.kind === 'main_text' && segmentUsageFooter(msg, block)" class="query-message-meta">
                     <span class="query-message-meta-total">Tokens: {{ segmentUsageFooter(msg, block).total }}</span>
                     <span v-if="segmentUsageFooter(msg, block).input" class="query-message-meta-arrow is-up">↑{{ segmentUsageFooter(msg, block).input }}</span>
                     <span v-if="segmentUsageFooter(msg, block).output" class="query-message-meta-arrow is-down">↓{{ segmentUsageFooter(msg, block).output }}</span>
@@ -121,19 +171,6 @@
                   <span class="query-error-label">错误</span>
                   <span>{{ errorMessage(msg.error) }}</span>
                 </div>
-
-                <div v-if="visibleStreamingActivity(msg)" class="query-loading">
-                  <span class="query-loading-badge">思考中</span>
-                  <span class="query-loading-text">{{ visibleStreamingActivity(msg)?.text }}</span>
-                  <span v-if="visibleStreamingActivity(msg)?.preview" class="query-loading-preview">{{ visibleStreamingActivity(msg)?.preview }}</span>
-                  <button v-if="msg.run_id" class="query-loading-cancel" @click="cancelRun(msg)">取消</button>
-                  <span class="query-loading-dots">
-                    <span>.</span>
-                    <span>.</span>
-                    <span>.</span>
-                  </span>
-                </div>
-
               </div>
             </div>
           </template>
@@ -212,6 +249,7 @@ const autoScroll = ref(true)
 const hydratedIds = new Set()
 const runSubscriptions = new Map()
 const pendingSubmitKeys = ref(new Set())
+const processPanelOverrides = reactive({})
 
 const settings = reactive({
   default_provider_id: 'openrouter',
@@ -384,8 +422,11 @@ const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.
   return ['thinking', 'main_text', 'error'].includes(String(block.kind || ''))
 })
 
-const visibleBlocksForMessage = (msg) => renderBlocksForMessage(msg)
-  .filter((block) => block.kind !== 'thinking')
+const processBlocksForMessage = (msg) => renderBlocksForMessage(msg)
+  .filter((block) => ['thinking', 'tool'].includes(block.kind))
+
+const finalBlocksForMessage = (msg) => renderBlocksForMessage(msg)
+  .filter((block) => ['main_text', 'error'].includes(block.kind))
 
 const toolBlocks = (msg) => renderBlocksForMessage(msg)
   .filter((block) => block.kind === 'tool' && block.tool)
@@ -538,10 +579,70 @@ const streamingActivity = (msg) => {
   }
 }
 
-const visibleStreamingActivity = (msg) => {
+const processPlaceholder = (msg) => {
+  const hasRenderableProcessBlock = processBlocksForMessage(msg).some((block) => {
+    if (block.kind === 'tool' && block.tool) return true
+    return Boolean(String(block.text || '').trim())
+  })
+  if (hasRenderableProcessBlock) return null
+  return streamingActivity(msg)
+}
+
+const hasFinalResult = (msg) => finalBlocksForMessage(msg)
+  .some((block) => block.kind === 'main_text' && Boolean(displayTextBlock(block, msg)))
+
+const hasProcessPanel = (msg) => processBlocksForMessage(msg).some((block) => {
+  if (block.kind === 'tool' && block.tool) return true
+  return Boolean(String(block.text || '').trim())
+}) || Boolean(processPlaceholder(msg))
+
+const processSummaryPreview = (msg) => {
   const activity = streamingActivity(msg)
-  if (!activity) return null
-  return activity.kind === 'executing' ? null : activity
+  if (activity) return activity.preview || activity.text
+
+  const latestProcessBlock = [...processBlocksForMessage(msg)].reverse().find((block) => {
+    if (block.kind === 'tool' && block.tool) return true
+    return Boolean(String(block.text || '').trim())
+  })
+
+  if (latestProcessBlock?.kind === 'tool' && latestProcessBlock.tool) {
+    const summary = describeToolActivity(latestProcessBlock.tool)
+    return summary.preview || summary.text
+  }
+
+  if (latestProcessBlock?.kind === 'thinking') {
+    return thinkingPreview(latestProcessBlock)
+  }
+
+  return hasFinalResult(msg) ? '已完成' : ''
+}
+
+const processSummaryMeta = (msg) => {
+  if (isActiveRunStatus(msg?.status)) return '进行中'
+  const steps = processBlocksForMessage(msg).filter((block) => {
+    if (block.kind === 'tool' && block.tool) return true
+    return Boolean(String(block.text || '').trim())
+  }).length
+  return `${steps || 1} 步`
+}
+
+const processPanelKey = (msg) => String(msg?.message_id || msg?.id || '')
+
+const defaultProcessPanelExpanded = (msg) => isActiveRunStatus(msg?.status) || !hasFinalResult(msg)
+
+const isProcessPanelExpanded = (msg) => {
+  const key = processPanelKey(msg)
+  if (!key) return defaultProcessPanelExpanded(msg)
+  if (Object.prototype.hasOwnProperty.call(processPanelOverrides, key)) {
+    return Boolean(processPanelOverrides[key])
+  }
+  return defaultProcessPanelExpanded(msg)
+}
+
+const toggleProcessPanel = (msg) => {
+  const key = processPanelKey(msg)
+  if (!key) return
+  processPanelOverrides[key] = !isProcessPanelExpanded(msg)
 }
 
 const isLastBlockInSegment = (msg, block) => {
@@ -1267,55 +1368,65 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
-.query-step-details {
-  border-radius: 14px;
+.query-process-panel {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(246, 249, 253, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
-.query-step-summary {
+.query-process-panel.complete {
+  background: rgba(248, 250, 254, 0.94);
+}
+
+.query-process-summary-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 0;
-  list-style: none;
+  padding: 10px 12px;
+}
+
+.query-process-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  text-align: left;
   cursor: pointer;
-  user-select: none;
 }
 
-.query-step-summary::-webkit-details-marker {
-  display: none;
-}
-
-.query-step-summary::marker {
-  display: none;
-  content: '';
-}
-
-.query-step-badge {
+.query-process-badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 46px;
-  height: 24px;
-  padding: 0 9px;
+  gap: 7px;
+  min-width: 74px;
+  height: 28px;
+  padding: 0 11px;
   border-radius: 999px;
-  background: var(--accent-soft);
+  background: rgba(102, 126, 234, 0.1);
   color: var(--accent);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
-.query-step-chevron {
-  margin-left: auto;
-  color: var(--text-soft);
-  transition: transform 0.18s ease;
+.query-process-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12);
+  animation: query-process-pulse 1.4s ease-in-out infinite;
 }
 
-.query-step-preview {
-  max-width: 360px;
+.query-process-summary-preview {
+  flex: 1;
+  min-width: 0;
   color: var(--text-soft);
   font-size: 12px;
   white-space: nowrap;
@@ -1323,39 +1434,99 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 
-details[open] > .query-step-summary .query-step-chevron {
-  transform: rotate(90deg);
+.query-process-summary-meta {
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.query-step-static {
-  cursor: default;
+.query-process-summary-chevron {
+  color: var(--text-soft);
+  font-size: 15px;
+  transition: transform 0.18s ease;
 }
 
-.query-thinking-content,
-.query-tool-file-list {
-  margin-left: 56px;
+.query-process-summary-chevron.open {
+  transform: rotate(180deg);
+}
+
+.query-process-cancel {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(96, 113, 133, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.query-process-cancel:hover {
+  border-color: rgba(96, 113, 133, 0.38);
+  color: var(--text);
+}
+
+.query-process-content {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.query-process-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px 6px;
+}
+
+.query-process-placeholder-text {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.query-process-placeholder-preview {
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.query-process-note {
   padding: 12px 14px;
   border: 1px solid var(--line-soft);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--text-muted);
-  line-height: 1.75;
+  background: rgba(255, 255, 255, 0.8);
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.03);
 }
 
-.query-thinking-content {
+.query-process-note-head {
+  display: flex;
+  align-items: center;
+}
+
+.query-process-note-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.query-process-note-text {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.75;
   white-space: pre-wrap;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.query-tool-file-item {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.query-tool-file-item + .query-tool-file-item {
-  margin-top: 4px;
 }
 
 .query-main-text {
@@ -1634,64 +1805,6 @@ details[open] > .query-step-summary .query-step-chevron {
   text-transform: uppercase;
 }
 
-.query-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-}
-
-.query-loading-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 54px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(15, 140, 123, 0.12);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.query-loading.executing .query-loading-badge {
-  background: rgba(96, 113, 133, 0.12);
-  color: #556273;
-}
-
-.query-loading-text {
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.query-loading-preview {
-  max-width: 340px;
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.query-loading-cancel {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid rgba(96, 113, 133, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.query-loading-cancel:hover {
-  border-color: rgba(96, 113, 133, 0.38);
-  color: var(--text);
-}
-
 .query-message-meta {
   margin-top: 8px;
   display: flex;
@@ -1864,6 +1977,19 @@ details[open] > .query-step-summary .query-step-chevron {
   80%,
   100% {
     opacity: 0.2;
+  }
+}
+
+@keyframes query-process-pulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 1;
   }
 }
 
