@@ -32,8 +32,8 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - SQL 必须只读，且保留行数保护。
 - 工具层只做检索、执行和客观过滤，不做候选表推荐、打分或排序；选表逻辑留给模型根据 reference 和脚本返回自己判断。
 - 最终回答用中文，先给结论，再给依据，不要复读大段工具原文。
-- 不要在用户可见正文里叙述“我先看文档 / 我来处理 / 接下来执行脚本”这类过程播报；过程留在工具轨迹里，正文只保留结论、依据和限制。
 - 统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，默认只读 `reference/*` 并尽快执行脚本；不要把 `assets/*.json` 当主路径。
+- 命中 `workflow_publish_record`、`data_table`、`data_lineage` 这类平台核心表且口径已明确时，按固定 reference 快路径一次完成脚本调用；拿到第一份口径正确的 `sql_execution` 或 `chart_spec` 后立即收口，不要继续补读资产或重复执行等价 SQL。
 
 ## 固定阅读顺序
 
@@ -86,7 +86,7 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 脚本顺序遵循以下原则：
 
 1. 术语不清：先看 `20/21/22`
-2. 问题明确指向 `opendataworks` 平台核心表且字段已知：可直接 `run_sql.py --database opendataworks --engine mysql`
+2. 问题明确指向 `opendataworks` 平台核心表且字段已知：可直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"`
 3. 表字段不清或目标表是托管业务表：先用 `inspect_metadata.py`
 4. 数据源不清：再用 `resolve_datasource.py`
 5. SQL 明确后：再用 `run_sql.py`
@@ -98,7 +98,15 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 
 ### D. 脚本执行规范
 
-- 所有本地 Python 脚本统一使用 `$DATAAGENT_PYTHON_BIN scripts/<name>.py ...`。
+- 所有本地执行统一走 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`。
+- 只允许使用 skill 包内真实脚本名：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`、`build_reference_digest.py`。
+- 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
+- 固定命令模板：
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database <db> --table <table> --keyword <keyword>`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/format_answer.py" --input '<sql_execution_json>'`
 - 不要执行 `pip install`、`uv add`、`which python`、`python --version` 等环境探测或依赖安装命令。
 - 若脚本返回错误，直接根据错误内容追问或收敛，不要反复试探解释器和依赖。
 - 只有 Bash 的真实返回明确报错时，才能说“缺少依赖”或“环境异常”；没有实际脚本输出就不要自行判断运行环境有问题。

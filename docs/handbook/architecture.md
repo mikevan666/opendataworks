@@ -1,6 +1,6 @@
 # 架构与运行时
 
-本章整合了原有 `docs/design/*.md` 与根 README 的架构描述，强调“门户 + DolphinScheduler 调度引擎”的职责划分，以及运行态观察点。
+本章沉淀稳定的架构与运行时说明。活动中的中大型变更设计请查看 `docs/design/`，本章则强调“门户 + DolphinScheduler 调度引擎”的职责划分，以及运行态观察点。
 
 ## 组件一览
 

@@ -48,7 +48,7 @@
   4. 托管业务表场景才用 `inspect_metadata.py`
   5. `build_chart_spec.py --chart-type line`
 - 第一条脚本动作：
-  - 平台核心表场景：直接执行 `run_sql.py --database opendataworks --engine mysql --sql "SELECT ..."`
+  - 平台核心表场景：直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT ..."`
   - 托管业务表场景：先 `inspect_metadata.py`
 - 选表规则：
   - 平台核心表问题优先直接用已知表结构，不要先兜圈读资产。
@@ -57,6 +57,9 @@
 - 数据源规则：
   - 平台核心表固定走 `opendataworks` MySQL。
   - 托管业务表若已确定 `db_name`，再调用 `resolve_datasource.py`；成功一次后不要重复调用。
+- 快路径示例：
+  - `最近 30 天工作流发布次数趋势` 命中 `workflow_publish_record` 时，固定按 `21-metric-index.md` -> `22-sql-example-index.md` -> `run_sql.py` -> `build_chart_spec.py --chart-type line` 执行。
+  - 默认使用 `workflow_publish_record.created_at` 按天聚合发布记录数；第一次返回口径正确的 `sql_execution` 和 `chart_spec` 后就直接总结，不再重复执行等价 SQL。
 - 执行结果规则：
   - `run_sql.py` 返回 `sql_execution` 后就直接基于结果收口。
   - 如果结果为空，直接说明“当前筛选条件下无数据”，不要继续无休止切换口径。

@@ -126,6 +126,7 @@
                   <span class="query-loading-badge">思考中</span>
                   <span class="query-loading-text">{{ visibleStreamingActivity(msg)?.text }}</span>
                   <span v-if="visibleStreamingActivity(msg)?.preview" class="query-loading-preview">{{ visibleStreamingActivity(msg)?.preview }}</span>
+                  <button v-if="msg.run_id" class="query-loading-cancel" @click="cancelRun(msg)">取消</button>
                   <span class="query-loading-dots">
                     <span>.</span>
                     <span>.</span>
@@ -172,7 +173,7 @@
               @keydown.ctrl.enter.prevent="handleSend"
               @keydown.meta.enter.prevent="handleSend"
             />
-            <button class="query-btn-send" :disabled="!inputText.trim() || generating || !selectedProvider || !selectedModel" @click="handleSend">
+            <button class="query-btn-send" :disabled="!inputText.trim() || activeSessionSubmitting || !selectedProvider || !selectedModel" @click="handleSend">
               发送
             </button>
           </div>
@@ -183,7 +184,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, triggerRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, triggerRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
@@ -204,12 +205,13 @@ const api = createNl2SqlApiClient({ timeout: 300000 })
 
 const sessions = ref([])
 const activeSessionId = ref('')
-const generating = ref(false)
 const inputText = ref('')
 const searchKeyword = ref('')
 const messagesRef = ref(null)
 const autoScroll = ref(true)
 const hydratedIds = new Set()
+const runSubscriptions = new Map()
+const pendingSubmitKeys = ref(new Set())
 
 const settings = reactive({
   default_provider_id: 'openrouter',
@@ -249,6 +251,38 @@ const availableModels = computed(() => {
   }
   return models
 })
+
+const NEW_SESSION_PENDING_KEY = '__new_session__'
+
+const normalizePendingSessionKey = (sessionId) => String(sessionId || NEW_SESSION_PENDING_KEY)
+
+const isSessionSubmitting = (sessionId) => pendingSubmitKeys.value.has(normalizePendingSessionKey(sessionId))
+
+const markSessionSubmitting = (sessionId) => {
+  const key = normalizePendingSessionKey(sessionId)
+  const next = new Set(pendingSubmitKeys.value)
+  next.add(key)
+  pendingSubmitKeys.value = next
+  return key
+}
+
+const moveSessionSubmitting = (fromSessionId, toSessionId) => {
+  const fromKey = normalizePendingSessionKey(fromSessionId)
+  const toKey = normalizePendingSessionKey(toSessionId)
+  const next = new Set(pendingSubmitKeys.value)
+  next.delete(fromKey)
+  next.add(toKey)
+  pendingSubmitKeys.value = next
+  return toKey
+}
+
+const clearSessionSubmitting = (key) => {
+  const next = new Set(pendingSubmitKeys.value)
+  next.delete(String(key || ''))
+  pendingSubmitKeys.value = next
+}
+
+const activeSessionSubmitting = computed(() => isSessionSubmitting(activeSessionId.value))
 
 const truncate = (value, max) => {
   const text = String(value || '新会话')
@@ -420,6 +454,13 @@ const makeAssistantMsg = () => reactive(createAssistantMessageState({
   created_at: new Date().toISOString()
 }))
 
+const syncAssistantMessage = (target, source) => {
+  if (!target || !source) return
+  Object.assign(target, source)
+}
+
+const isActiveRunStatus = (status) => ['queued', 'running', 'streaming'].includes(String(status || '').trim())
+
 const parseToolInput = (value) => {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value
   if (typeof value === 'string') {
@@ -465,7 +506,15 @@ const describeToolActivity = (tool) => {
 }
 
 const streamingActivity = (msg) => {
-  if (msg?.status !== 'streaming') return null
+  const status = String(msg?.status || '').trim()
+  if (!isActiveRunStatus(status)) return null
+  if (status === 'queued') {
+    return {
+      kind: 'thinking',
+      text: '等待执行',
+      preview: ''
+    }
+  }
   const activeBlock = activeStreamingMessageBlock(msg)
   if (activeBlock?.kind === 'tool' && activeBlock.tool) {
     return {
@@ -511,6 +560,147 @@ const segmentUsageFooter = (msg, block) => {
 }
 const processEvent = processAssistantStreamEvent
 
+const stopRunSubscription = (runId) => {
+  const key = String(runId || '').trim()
+  const current = runSubscriptions.get(key)
+  if (!current) return
+  current.controller.abort()
+  runSubscriptions.delete(key)
+}
+
+const stopAllRunSubscriptions = () => {
+  for (const runId of runSubscriptions.keys()) {
+    stopRunSubscription(runId)
+  }
+}
+
+const subscribeRun = (runId, assistantMsg) => {
+  const key = String(runId || assistantMsg?.run_id || '').trim()
+  if (!key || !assistantMsg || runSubscriptions.has(key)) return
+
+  const controller = new AbortController()
+  let afterSeq = 0
+
+  const finalizeWithRunState = async () => {
+    try {
+      const run = await api.getRun(key)
+      if (!run) return false
+      if (run.status === 'cancelled' && assistantMsg.status === 'queued') {
+        processEvent(assistantMsg, {
+          run_id: key,
+          message_id: assistantMsg.message_id,
+          type: 'done',
+          payload: {
+            status: 'cancelled',
+            content: '任务已取消',
+            blocks: [
+              {
+                block_id: 'cancelled-1',
+                type: 'error',
+                status: 'failed',
+                text: '任务已取消',
+                payload: { code: 'run_cancelled', message: '任务已取消' }
+              }
+            ],
+            error: { code: 'run_cancelled', message: '任务已取消' },
+            provider_id: run.provider_id,
+            model: run.model
+          }
+        })
+      } else if (run.status === 'failed' && assistantMsg.status === 'queued') {
+        assistantMsg.status = 'failed'
+      } else if (isActiveRunStatus(run.status)) {
+        assistantMsg.status = run.status
+        return true
+      }
+      triggerRef(sessions)
+      scrollToBottom()
+      return false
+    } catch (_error) {
+      return false
+    }
+  }
+
+  const pump = async () => {
+    try {
+      while (!controller.signal.aborted) {
+        try {
+          const doneEvent = await api.streamRunEvents(key, {
+            afterSeq,
+            signal: controller.signal,
+            onEvent: (event) => {
+              afterSeq = Math.max(afterSeq, Number(event?.seq || 0))
+              processEvent(assistantMsg, event)
+              triggerRef(sessions)
+              scrollToBottom()
+            }
+          })
+          if (doneEvent) {
+            afterSeq = Math.max(afterSeq, Number(doneEvent?.seq || 0))
+            break
+          }
+          const shouldContinue = await finalizeWithRunState()
+          if (!shouldContinue) break
+        } catch (error) {
+          if (controller.signal.aborted) break
+          const shouldContinue = await finalizeWithRunState()
+          if (!shouldContinue) break
+          await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        }
+      }
+    } finally {
+      runSubscriptions.delete(key)
+    }
+  }
+
+  runSubscriptions.set(key, { controller })
+  void pump()
+}
+
+const resumePendingRuns = (session) => {
+  if (!session || !Array.isArray(session.messages)) return
+  for (const message of session.messages) {
+    if (message?.role !== 'assistant') continue
+    if (!message?.run_id) continue
+    if (!isActiveRunStatus(message?.status)) continue
+    subscribeRun(message.run_id, message)
+  }
+}
+
+const cancelRun = async (msg) => {
+  const runId = String(msg?.run_id || '').trim()
+  if (!runId) return
+  try {
+    await api.cancelRun(runId)
+    stopRunSubscription(runId)
+    processEvent(msg, {
+      run_id: runId,
+      message_id: msg.message_id,
+      type: 'done',
+      payload: {
+        status: 'cancelled',
+        content: '任务已取消',
+        blocks: [
+          {
+            block_id: 'cancelled-1',
+            type: 'error',
+            status: 'failed',
+            text: '任务已取消',
+            payload: { code: 'run_cancelled', message: '任务已取消' }
+          }
+        ],
+        error: { code: 'run_cancelled', message: '任务已取消' },
+        provider_id: msg.provider_id,
+        model: msg.model
+      }
+    })
+    triggerRef(sessions)
+    scrollToBottom()
+  } catch (error) {
+    ElMessage.error(String(error?.message || '取消任务失败'))
+  }
+}
+
 const loadSettings = async () => {
   try {
     const payload = await api.getSettings()
@@ -550,6 +740,7 @@ const hydrateSession = async (sessionId) => {
         return reactive(hydrateAssistantMessageState(message))
       }).filter(Boolean)
       target.message_count = target.messages.length
+      resumePendingRuns(target)
     }
 
     hydratedIds.add(sessionId)
@@ -592,7 +783,7 @@ const handleSelectSession = async (sessionId) => {
 
 const handleSend = async () => {
   const text = inputText.value.trim()
-  if (!text || generating.value || !selectedProvider.value || !selectedModel.value) return
+  if (!text || isSessionSubmitting(activeSessionId.value) || !selectedProvider.value || !selectedModel.value) return
 
   inputText.value = ''
   autoScroll.value = true
@@ -600,8 +791,8 @@ const handleSend = async () => {
 
   let session = null
   let assistantMsg = null
-  let abortController = null
-  let fetchTimer = null
+  let submitSessionId = activeSessionId.value
+  let pendingKey = markSessionSubmitting(submitSessionId)
 
   try {
     if (!activeSessionId.value) {
@@ -610,11 +801,14 @@ const handleSend = async () => {
       sessions.value.unshift(created)
       hydratedIds.add(created.session_id)
       activeSessionId.value = created.session_id
+      submitSessionId = created.session_id
+      pendingKey = moveSessionSubmitting('', submitSessionId)
     }
 
-    await hydrateSession(activeSessionId.value)
+    submitSessionId = activeSessionId.value
+    await hydrateSession(submitSessionId)
 
-    session = activeSession.value
+    session = sessions.value.find((item) => item.session_id === submitSessionId) || null
     if (!session) {
       throw new Error('会话初始化失败')
     }
@@ -631,34 +825,34 @@ const handleSend = async () => {
     })
 
     assistantMsg = makeAssistantMsg()
+    assistantMsg.status = 'queued'
     session.messages.push(assistantMsg)
-    generating.value = true
     scrollToBottom(true)
 
-    abortController = new AbortController()
-    fetchTimer = setTimeout(() => abortController.abort(), 300000)
-
-    await api.streamMessage(
-      activeSessionId.value,
+    const response = await api.sendMessage(
+      submitSessionId,
       {
         content: text,
         provider_id: selectedProvider.value,
         model: selectedModel.value,
         debug: true,
-        stream: true
-      },
-      {
-        onEvent: (event) => {
-          processEvent(assistantMsg, event)
-          triggerRef(sessions)
-          scrollToBottom()
-        },
-        signal: abortController.signal
+        execution_mode: 'auto',
+        wait_timeout_seconds: 20
       }
     )
 
-    if (assistantMsg.status === 'streaming') {
-      assistantMsg.status = 'success'
+    if (response?.accepted) {
+      const hydrated = hydrateAssistantMessageState(response.message || {
+        message_id: response.message_id,
+        run_id: response.run_id,
+        status: response.status,
+        content: ''
+      })
+      syncAssistantMessage(assistantMsg, hydrated)
+      assistantMsg.run_id = String(response.run_id || assistantMsg.run_id || '')
+      subscribeRun(assistantMsg.run_id, assistantMsg)
+    } else {
+      syncAssistantMessage(assistantMsg, hydrateAssistantMessageState(response))
     }
     session.updated_at = new Date().toISOString()
     session.message_count = session.messages.length
@@ -666,6 +860,7 @@ const handleSend = async () => {
       session.title = text.length > 30 ? `${text.slice(0, 30)}...` : text
     }
     sortSessions()
+    triggerRef(sessions)
     scrollToBottom(true)
   } catch (error) {
     const message = String(error?.message || '请求失败')
@@ -676,8 +871,7 @@ const handleSend = async () => {
       ElMessage.error(message)
     }
   } finally {
-    if (fetchTimer) clearTimeout(fetchTimer)
-    generating.value = false
+    clearSessionSubmitting(pendingKey)
   }
 }
 
@@ -717,6 +911,10 @@ onMounted(async () => {
   await loadSettings()
   await loadSessions()
   scrollToBottom(true)
+})
+
+onBeforeUnmount(() => {
+  stopAllRunSubscriptions()
 })
 </script>
 
@@ -1476,6 +1674,22 @@ details[open] > .query-step-summary .query-step-chevron {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.query-loading-cancel {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(96, 113, 133, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.query-loading-cancel:hover {
+  border-color: rgba(96, 113, 133, 0.38);
+  color: var(--text);
 }
 
 .query-message-meta {

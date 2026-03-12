@@ -95,7 +95,7 @@
 - 占比分析且类别数 2 到 8：优先 `pie`
 - 明细场景且技能明确要求独立表格时，才输出 `table`
 - 不适合图表时，不输出 `chart_spec`，只保留 `sql_execution`
-- 生成图表时，优先把完整 `sql_execution` JSON 直接作为 `build_chart_spec.py --input` 传入；只有 JSON 过长时才落临时文件。
+- 生成图表时，优先把完整 `sql_execution` JSON 直接作为 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --input ...` 传入；只有 JSON 过长时才落临时文件。
 - 对比 / 趋势 / 占比场景，必须显式传 `--chart-type`，不要把图表类型完全交给脚本猜。
 - 前端不再从 `dataset` 自动推断 `series`、`x_field` 或排序规则；这些字段必须由技能显式给出。
 

@@ -130,6 +130,18 @@ export function createNl2SqlApiClient(options = {}) {
       })
     },
 
+    getRun(runId) {
+      return request.get(`/runs/${runId}`)
+    },
+
+    getRunEvents(runId, params = {}) {
+      return request.get(`/runs/${runId}/events`, { params })
+    },
+
+    cancelRun(runId) {
+      return request.post(`/runs/${runId}/cancel`)
+    },
+
     async streamMessage(sessionId, data, options = {}) {
       const { onEvent, signal } = options
       const response = await fetch(buildUrl(baseURL, `${API_PREFIX}/sessions/${sessionId}/messages`), {
@@ -182,6 +194,47 @@ export function createNl2SqlApiClient(options = {}) {
       if (messageStopEvent) return messageStopEvent
 
       throw new Error('SSE stream ended without done event')
+    },
+
+    async streamRunEvents(runId, options = {}) {
+      const { onEvent, signal, afterSeq = 0 } = options
+      const response = await fetch(buildUrl(baseURL, `${API_PREFIX}/runs/${runId}/events/stream?after_seq=${encodeURIComponent(afterSeq)}`), {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream'
+        },
+        signal
+      })
+
+      if (!response.ok) {
+        throw new Error(await extractHttpError(response))
+      }
+      if (!response.body) {
+        throw new Error('SSE stream body is empty')
+      }
+
+      const decoder = new TextDecoder('utf-8')
+      const reader = response.body.getReader()
+      let buffer = ''
+      let doneEvent = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const parsed = parseSseChunk(buffer, onEvent)
+        buffer = parsed.rest
+        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
+        if (doneEvent) break
+      }
+
+      if (!doneEvent && buffer.trim()) {
+        const parsed = parseSseChunk(`${buffer}\n\n`, onEvent)
+        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
+      }
+
+      return doneEvent
     },
     getSettings() {
       return request.get('/settings')
