@@ -106,7 +106,7 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('思考过程')
     expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
-    expect(wrapper.find('.query-process-content').attributes('style')).toBeUndefined()
+    expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
   })
 
   it('collapses the process panel after the final answer is ready', async () => {
@@ -162,6 +162,11 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('最终结果：北区的下单量最高。')
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
     expect(wrapper.find('.query-process-content').attributes('style')).toContain('display: none')
+
+    await wrapper.find('.query-process-summary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
   })
 
   it('allows another session to submit while the current session is still awaiting acceptance', async () => {

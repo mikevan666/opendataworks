@@ -82,7 +82,7 @@
                   :class="{ expanded: isProcessPanelExpanded(msg), complete: hasFinalResult(msg) && !isActiveRunStatus(msg.status) }"
                 >
                   <div class="query-process-summary-row">
-                    <button type="button" class="query-process-summary" @click="toggleProcessPanel(msg)">
+                    <button type="button" class="query-process-summary" @click.stop="toggleProcessPanel(msg)">
                       <span class="query-process-badge">
                         <span v-if="isActiveRunStatus(msg.status)" class="query-process-badge-dot" />
                         思考过程
@@ -249,7 +249,6 @@ const autoScroll = ref(true)
 const hydratedIds = new Set()
 const runSubscriptions = new Map()
 const pendingSubmitKeys = ref(new Set())
-const processPanelOverrides = reactive({})
 
 const settings = reactive({
   default_provider_id: 'openrouter',
@@ -631,18 +630,14 @@ const processPanelKey = (msg) => String(msg?.message_id || msg?.id || '')
 const defaultProcessPanelExpanded = (msg) => isActiveRunStatus(msg?.status) || !hasFinalResult(msg)
 
 const isProcessPanelExpanded = (msg) => {
-  const key = processPanelKey(msg)
-  if (!key) return defaultProcessPanelExpanded(msg)
-  if (Object.prototype.hasOwnProperty.call(processPanelOverrides, key)) {
-    return Boolean(processPanelOverrides[key])
-  }
+  if (msg?._processPanelTouched) return Boolean(msg._processPanelExpanded)
   return defaultProcessPanelExpanded(msg)
 }
 
 const toggleProcessPanel = (msg) => {
-  const key = processPanelKey(msg)
-  if (!key) return
-  processPanelOverrides[key] = !isProcessPanelExpanded(msg)
+  if (!processPanelKey(msg) || !msg || typeof msg !== 'object') return
+  msg._processPanelTouched = true
+  msg._processPanelExpanded = !isProcessPanelExpanded(msg)
 }
 
 const isLastBlockInSegment = (msg, block) => {

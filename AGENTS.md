@@ -68,6 +68,24 @@ When working in this repository, optimize for:
 - Always run `nvm use` successfully before frontend build/test/dev commands.
 - If a frontend command fails with Node engine/runtime errors, retry only after `nvm use`.
 
+### Python baseline
+
+- Do not assume the first `python3` on `PATH` is the correct interpreter for `dataagent/dataagent-backend`.
+- In this workspace, prefer a dedicated local virtualenv when it already exists for DataAgent work.
+- For this repository, default to `dataagent/dataagent-backend/.venv-py313` when it exists.
+- `claude-agent-sdk` requires Python `>=3.10`. Do not try to install or run the DataAgent execution path with the Xcode Python `3.9.6`.
+- If no project virtualenv is present, prefer the Xcode Python at `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` for local DataAgent commands, because the host `/usr/local/bin/python3` may point to a different interpreter without the required packages.
+- Before running backend commands, verify the interpreter can import the required runtime modules for the touched path, at minimum:
+  - `fastapi`
+  - `uvicorn`
+  - `alembic`
+  - `pymysql`
+  - `anyio`
+- For any execution path that reaches the real agent runtime, also verify:
+  - `claude_agent_sdk`
+- If the preferred interpreter cannot import the required modules, install the missing packages into the chosen environment before claiming the backend cannot be started.
+- If the runtime reports `claude-agent-sdk 未安装`, first verify the active interpreter and Python version before concluding that the package is actually missing. In this repo, that error usually means the wrong interpreter was used.
+
 ## Architecture Overview
 
 - `backend/src`: core platform logic for data assets, workflow orchestration, and lineage
@@ -163,15 +181,19 @@ When working in this repository, optimize for:
 ### Intelligent Query local smoke method
 
 - Use the local Docker MySQL exposed on `127.0.0.1:3306` as the default smoke database when it is available.
+- Treat local Docker MySQL as the default first assumption for intelligent-query validation. Do not ask the user to restate this setup unless connection checks against the expected local ports have already failed.
+- When connecting to local Docker MySQL through a published port, prefer `MYSQL_HOST=127.0.0.1` over `localhost` to avoid misleading failures caused by host resolution differences.
 - Prefer the dedicated session schema `dataagent` for local intelligent-query smoke tests. Do not mix smoke-session data into unrelated business schemas when a dedicated schema can be created.
 - If `dataagent` schema or user is missing on a reused local MySQL volume, initialize it first with the repository-standard credentials:
   - database: `dataagent`
   - user: `dataagent`
   - password: `dataagent123`
   - privileges: `SELECT` on `opendataworks.*`, full privileges on `dataagent.*`
-- For DataAgent full-flow smoke, prefer a dedicated Python `3.11` virtualenv instead of the host Python when local package versions are uncertain.
+- For DataAgent full-flow smoke, prefer a dedicated Python `3.10+` virtualenv instead of the host Python when local package versions are uncertain.
 - Standard local intelligent-query smoke sequence:
-  - create or reuse a local Python `3.11` virtualenv
+  - create or reuse a local Python `3.10+` virtualenv
+  - in this repository, prefer reusing `dataagent/dataagent-backend/.venv-py313` when it exists
+  - if no `3.10+` virtualenv is available, fall back to `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` only for non-agent tasks after confirming imports succeed there
   - install `dataagent/dataagent-backend/requirements.txt`
   - set runtime env to local MySQL:
     - `MYSQL_HOST=127.0.0.1`
@@ -185,6 +207,21 @@ When working in this repository, optimize for:
   - start `uvicorn main:app`
   - start `python worker_main.py`
   - drive the smoke through real HTTP requests, not mocked store calls
+  - do not stop at `/api/v1/nl2sql/health`; also verify `POST /api/v1/nl2sql/sessions` succeeds, because `health` can be green while session-store MySQL access is still broken
+
+### Intelligent Query environment defaults
+
+- For local UI validation of intelligent-query, default to starting:
+  - frontend dev server with `nvm use`
+  - `dataagent-backend`
+  - `dataagent-worker`
+- When switching the DataAgent Python environment or restarting services after fixing dependencies, stop any stale `main.py` and `worker_main.py` processes first. Old workers can keep claiming runs and surface outdated errors such as `claude-agent-sdk 未安装` even after the correct environment has been fixed.
+- Do not ask the user to repeat frontend `nvm`, Python interpreter choice, or Docker MySQL as long as these repository defaults are applicable.
+- If startup fails, report the concrete failed assumption directly, for example:
+  - MySQL port unreachable
+  - selected Python interpreter missing required packages
+  - wrong Python major/minor for `claude-agent-sdk`
+  - provider credentials or `da_agent_settings` not configured
 - Minimum smoke scenarios for async intelligent-query changes:
   - background run accepted: verify `POST /sessions/{session_id}/messages` returns `accepted=true` and a `run_id`
   - worker pickup: verify run status transitions `queued -> running -> success|failed|cancelled`
