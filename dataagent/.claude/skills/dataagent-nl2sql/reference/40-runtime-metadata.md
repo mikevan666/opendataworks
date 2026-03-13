@@ -23,6 +23,7 @@
 - 平台核心表结构已在本页给出，字段明确时可直接写 SQL。
 - `resolve_datasource.py` 只负责确认引擎与数据源元信息。
 - `run_sql.py` 会在执行前再次解析数据源，因此不要把 datasource 结果当成最终凭证输出。
+- 一旦数据库明确，SQL 必须写 `<schema>.<table>`；平台核心表固定用 `opendataworks.<table>`。
 
 ## 平台核心表速查
 
@@ -66,7 +67,7 @@
 
 ```sql
 SELECT layer, COUNT(*) AS table_cnt
-FROM data_table
+FROM opendataworks.data_table
 WHERE deleted = 0
 GROUP BY layer
 ORDER BY table_cnt DESC
@@ -77,7 +78,7 @@ LIMIT 20;
 
 ```sql
 SELECT DATE(created_at) AS stat_day, COUNT(*) AS publish_cnt
-FROM workflow_publish_record
+FROM opendataworks.workflow_publish_record
 WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
 GROUP BY DATE(created_at)
 ORDER BY stat_day
@@ -92,9 +93,9 @@ SELECT dl.lineage_type,
        ut.table_name AS upstream_table,
        dt.db_name AS downstream_db,
        dt.table_name AS downstream_table
-FROM data_lineage dl
-LEFT JOIN data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0
-LEFT JOIN data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0
+FROM opendataworks.data_lineage dl
+LEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0
+LEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0
 WHERE (ut.table_name = 'your_table' OR dt.table_name = 'your_table')
 ORDER BY dl.id DESC
 LIMIT 100;
@@ -115,8 +116,8 @@ SELECT du.database_name,
        dc.cluster_name,
        dc.fe_host,
        dc.fe_port
-FROM doris_database_users du
-INNER JOIN doris_cluster dc ON dc.id = du.cluster_id
+FROM opendataworks.doris_database_users du
+INNER JOIN opendataworks.doris_cluster dc ON dc.id = du.cluster_id
 WHERE du.database_name = 'your_database'
 LIMIT 20;
 ```

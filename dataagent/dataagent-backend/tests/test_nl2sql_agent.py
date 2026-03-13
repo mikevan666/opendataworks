@@ -56,7 +56,7 @@ def _install_fake_sdk(monkeypatch, messages, *, capture_options=None):
     monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_module)
 
 
-def _build_run_input(question: str = "最近 30 天工作流发布次数趋势"):
+def _build_run_input(question: str = "最近 30 天工作流发布次数趋势", *, execution_mode: str = "interactive"):
     return agent.AgentRunInput(
         run_id="run-1",
         session_id="session-1",
@@ -67,6 +67,7 @@ def _build_run_input(question: str = "最近 30 天工作流发布次数趋势")
         model="claude-opus-4-6",
         database_hint=None,
         debug=False,
+        execution_mode=execution_mode,
     )
 
 
@@ -288,6 +289,148 @@ def test_system_prompt_uses_generic_skill_runtime_contract(monkeypatch):
     assert "$DATAAGENT_SKILL_BIN" not in prompt
     assert '路径和参数以 skill 文档为准' in prompt
     assert "$DATAAGENT_SCRIPT_RUN_SQL" not in prompt
+    assert "当前 skill 和工具结果" in prompt
+    assert "局部流程提升成全局规则" in prompt
+    assert "统计/对比/趋势/占比/明细/诊断" not in prompt
+    assert "assets/*.json" not in prompt
+    assert "数据库、表或口径" not in prompt
+    assert "<schema>.<table>" not in prompt
+    assert "只查最新 `ds`" not in prompt
+    assert "`di` 增量" not in prompt
+    assert "env_name" not in prompt
+    assert "组件名称" not in prompt
+    assert "接口名称" not in prompt
+    assert "resolve_datasource.py" not in prompt
+    assert "lineage/血缘实现" not in prompt
+    assert "sql_execution" not in prompt
+    assert "chart_spec" not in prompt
+
+
+def test_background_execution_uses_background_max_turns(monkeypatch, tmp_path: Path):
+    captured_options = []
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            SystemMessage(),
+            StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "已完成"}}),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent({"type": "message_stop"}),
+            ResultMessage("success"),
+        ],
+        capture_options=captured_options,
+    )
+    monkeypatch.setattr(
+        agent,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+        },
+    )
+    monkeypatch.setattr(agent, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    done = _collect_done_payload(_build_run_input(execution_mode="background"))
+
+    assert done["status"] == "success"
+    assert captured_options[0].kwargs["max_turns"] == 40
+
+
+def test_error_max_turns_returns_partial_success_when_tool_output_exists(monkeypatch, tmp_path: Path):
+    tool_payload = {
+        "kind": "sql_execution",
+        "engine": "doris",
+        "database": "doris_ods",
+        "sql": "select * from doris_ods.some_table_df limit 1",
+        "columns": ["ds"],
+        "rows": [{"ds": "2026-03-13"}],
+        "row_count": 1,
+        "has_more": False,
+        "duration_ms": 20,
+        "summary": "返回 1 行",
+        "error": None,
+    }
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            SystemMessage(),
+            StreamEvent(
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "tool_use", "id": "bash-1", "name": "Bash", "input": {"command": "run sql"}},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent({"type": "message_stop"}),
+            UserMessage(
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "bash-1",
+                        "name": "Bash",
+                        "content": json.dumps(tool_payload, ensure_ascii=False),
+                    }
+                ]
+            ),
+            ResultMessage("error_max_turns", result="max turns"),
+        ],
+    )
+    monkeypatch.setattr(
+        agent,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+        },
+    )
+    monkeypatch.setattr(agent, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    done = _collect_done_payload(_build_run_input("查询最新快照"))
+
+    assert done["status"] == "success"
+    assert done["error"] is None
+    assert "已返回当前可用结果" in done["content"]
+    assert any(str(block.get("tool_name") or "") == "Bash" for block in done["blocks"])
+
+
+def test_timeout_returns_partial_success_when_main_text_exists(monkeypatch, tmp_path: Path):
+    async def fake_query(*, prompt, options):
+        yield SystemMessage()
+        yield StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+        yield StreamEvent({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "最新快照显示 PROD 环境有 12 个组件。"}})
+        raise TimeoutError("timed out")
+
+    fake_module = SimpleNamespace(
+        ClaudeAgentOptions=ClaudeAgentOptions,
+        query=fake_query,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_module)
+    monkeypatch.setattr(
+        agent,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+        },
+    )
+    monkeypatch.setattr(agent, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    done = _collect_done_payload(_build_run_input("查询 PROD 环境组件数"))
+
+    assert done["status"] == "success"
+    assert done["error"] is None
+    assert "最新快照显示 PROD 环境有 12 个组件。" in done["content"]
+    assert "已返回当前可用结果" in done["content"]
 
 
 @pytest.mark.parametrize(

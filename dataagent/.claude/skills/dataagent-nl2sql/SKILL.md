@@ -28,6 +28,10 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 先看地图，再看场景，再决定是否下钻资产或执行脚本。
 - 每次问题最终只落到一个数据源执行，不做跨源联查。
 - 无法唯一确定术语、指标、数据库、表或时间口径时，先追问。
+- 数据库一旦明确，SQL 中表名必须写成 `<schema>.<table>`；不要省略 schema，也不要把 `mysql` / `doris` 这类引擎名当成 schema。
+- `resolve_datasource.py` 返回的 `engine` 只表示执行引擎；真正写 SQL 时使用 metadata 返回的 `db_name` / schema 作为库名前缀。
+- Doris 数仓表若命名体现 `df` 快照含义，默认按每日全量快照理解；除非用户明确要求历史区间或归因分析，否则优先只查最新 `ds` 分区。
+- Doris 数仓表若命名体现 `di` 增量含义，默认按每日增量表理解；这类表必须带时间范围过滤，不能只查最新 `ds`，也不能无条件扫全表。
 - 图表不是必选项；不适合图表时只输出表格。
 - SQL 必须只读，且保留行数保护。
 - 工具层只做检索、执行和客观过滤，不做候选表推荐、打分或排序；选表逻辑留给模型根据 reference 和脚本返回自己判断。
@@ -80,6 +84,9 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 时间范围或时间粒度不清
 - 用户要“对比”，但未说明对比维度
 - 用户要“趋势”，但未说明指标
+- 用户说“环境名称”或“环境”，但未明确是业务 `env_name`、数据中心名称还是 CFC 环境名称
+- Doris 业务表可能是 `df` 快照表，但用户没有说明要最新快照还是历史区间
+- Doris 业务表可能是 `di` 增量表，但用户没有说明时间范围
 
 ### C. 再决定是否执行脚本
 
@@ -107,6 +114,10 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/format_answer.py" --input '<sql_execution_json>'`
+- `--database` / `db_name` / schema 是真实数据库名；`--engine` 只允许 `mysql|doris`，两者不能混用。
+- SQL 编写规则：平台核心表写 `opendataworks.<table>`；托管业务表写 `<db_name>.<table>`。
+- Doris `df` 表默认优先过滤最新 `ds`；Doris `di` 表默认必须显式写时间范围，优先使用 `ds BETWEEN ... AND ...`。
+- 业务环境默认优先理解为字段 `env_name`，常见值 `PROD` / `SIM`；不要与数据中心名称（如 `tz`、`simcx`）或 CFC 环境名称（如 `prod`、`sim`、`oasj`）混用。
 - 不要执行 `pip install`、`uv add`、`which python`、`python --version` 等环境探测或依赖安装命令。
 - 若脚本返回错误，直接根据错误内容追问或收敛，不要反复试探解释器和依赖。
 - 只有 Bash 的真实返回明确报错时，才能说“缺少依赖”或“环境异常”；没有实际脚本输出就不要自行判断运行环境有问题。

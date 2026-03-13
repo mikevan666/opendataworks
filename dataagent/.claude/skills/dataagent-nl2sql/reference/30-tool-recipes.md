@@ -45,6 +45,7 @@
 - 必须满足：
   - `--database` 必填，值直接取自 metadata 返回的 `db_name`
   - 成功一次后不要重复调用
+  - `--database` 表示真实 database / schema，不是引擎名
 - 命令模板：
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database doris_ods`
 - 典型顺序：
@@ -65,9 +66,17 @@
   - 时间范围清楚
   - 维度清楚
   - 数据库清楚
+- SQL 编写规则：
+  - 平台核心表统一写 `opendataworks.<table>`
+  - 托管业务表统一写 `<db_name>.<table>`
+  - `mysql` / `doris` 只放在 `--engine`，不要写进 SQL schema
+  - 对 Doris `df` 快照表，未指定历史区间时默认加最新 `ds` 过滤
+  - 对 Doris `di` 增量表，必须显式加时间范围过滤，优先使用 `ds >= ... AND ds <= ...`
+  - 业务环境默认优先过滤 `env_name` 的大写值；如果用户说的是数据中心或 CFC 环境，必须先改用对应字段
 - 命令模板：
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT ..."`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM opendataworks.data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT * FROM doris_ods.some_table_df WHERE ds = (SELECT MAX(ds) FROM doris_ods.some_table_df) LIMIT 100"`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT * FROM doris_ods.some_table_di WHERE ds BETWEEN '2026-03-01' AND '2026-03-13' LIMIT 100"`
 - 禁止：
   - 没定位到数据库就执行
   - 用来“试着猜一下”

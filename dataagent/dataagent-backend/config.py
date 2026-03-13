@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     claude_max_tokens: int = 4096
     agent_timeout_seconds: int = 180
     agent_max_turns: int = 20
+    agent_interactive_max_turns: int = 24
+    agent_background_max_turns: int = 40
     agent_wait_timeout_seconds: int = 20
     agent_interactive_timeout_seconds: int = 360
     agent_background_timeout_seconds: int = 1800

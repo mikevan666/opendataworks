@@ -41,6 +41,42 @@
         "上游下游"
       ],
       "definition": "查询血缘时必须明确目标表名；若同名表可能存在于多个数据库，必须先补充 db_name 再执行。"
+    },
+    {
+      "term": "SQL Schema 限定",
+      "synonyms": [
+        "schema",
+        "库名前缀",
+        "database 前缀"
+      ],
+      "definition": "目标数据库一旦明确，SQL 中必须写成 `<schema>.<table>`；平台核心表固定使用 `opendataworks.<table>`，不要省略 schema，也不要把 `mysql` / `doris` 误当成 schema。"
+    },
+    {
+      "term": "Doris 快照表",
+      "synonyms": [
+        "df表",
+        "快照表",
+        "每日全量快照"
+      ],
+      "definition": "Doris 数仓表若命名体现 `df` 快照含义，默认按每日全量快照理解；日期字段通常为 `ds`，除非用户明确要求历史回溯、趋势或归因分析，否则默认只查最新 `ds`。"
+    },
+    {
+      "term": "Doris 增量表",
+      "synonyms": [
+        "di表",
+        "增量表",
+        "每日增量"
+      ],
+      "definition": "Doris 数仓表若命名体现 `di` 增量含义，默认按每日增量表理解；日期字段通常为 `ds`，这类表必须按时间范围查询，若用户未给范围应先追问。"
+    },
+    {
+      "term": "环境名称",
+      "synonyms": [
+        "环境",
+        "业务环境",
+        "env"
+      ],
+      "definition": "业务语境中的“环境名称”默认优先映射字段 `env_name`，常见值为大写 `PROD` / `SIM`；必须与数据中心名称（如 `tz`、`simcx`）和 CFC 环境名称（如 `prod`、`sim`、`oasj`）区分。"
     }
   ]
 }

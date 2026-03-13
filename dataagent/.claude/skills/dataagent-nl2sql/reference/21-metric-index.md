@@ -49,6 +49,21 @@
 
 ## 业务规则补充
 
+### Doris 增量表
+- 同义词：di表、增量表、每日增量
+- 规则：Doris 数仓表若命名体现 `di` 增量含义，默认按每日增量表理解；日期字段通常为 `ds`，这类表必须按时间范围查询，若用户未给范围应先追问。
+- 来源：`assets/business_rules.json`
+
+### Doris 快照表
+- 同义词：df表、快照表、每日全量快照
+- 规则：Doris 数仓表若命名体现 `df` 快照含义，默认按每日全量快照理解；日期字段通常为 `ds`，除非用户明确要求历史回溯、趋势或归因分析，否则默认只查最新 `ds`。
+- 来源：`assets/business_rules.json`
+
+### SQL Schema 限定
+- 同义词：schema、库名前缀、database 前缀
+- 规则：目标数据库一旦明确，SQL 中必须写成 `<schema>.<table>`；平台核心表固定使用 `opendataworks.<table>`，不要省略 schema，也不要把 `mysql` / `doris` 误当成 schema。
+- 来源：`assets/business_rules.json`
+
 ### 上下游血缘
 - 同义词：血缘关系、上游下游
 - 规则：查询血缘时必须明确目标表名；若同名表可能存在于多个数据库，必须先补充 db_name 再执行。
@@ -67,6 +82,11 @@
 ### 数据层级
 - 同义词：层级、表层级、ODS/DWD/DIM/DWS/ADS
 - 规则：涉及层级分布或层级对比时，默认使用 data_table.layer，并排除 deleted=1 的记录；若用户强调“有效表”，再额外过滤 status='active'。
+- 来源：`assets/business_rules.json`
+
+### 环境名称
+- 同义词：环境、业务环境、env
+- 规则：业务语境中的“环境名称”默认优先映射字段 `env_name`，常见值为大写 `PROD` / `SIM`；必须与数据中心名称（如 `tz`、`simcx`）和 CFC 环境名称（如 `prod`、`sim`、`oasj`）区分。
 - 来源：`assets/business_rules.json`
 
 ### 趋势分析
