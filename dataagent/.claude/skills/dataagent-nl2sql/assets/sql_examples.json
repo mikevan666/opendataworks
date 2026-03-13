@@ -7,9 +7,10 @@
       "engine": "mysql",
       "scenario": "趋势分析",
       "question": "最近 30 天工作流发布次数趋势",
-      "sql": "SELECT DATE(created_at) AS stat_day, COUNT(*) AS publish_cnt\nFROM workflow_publish_record\nWHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)\nGROUP BY DATE(created_at)\nORDER BY stat_day\nLIMIT 100;",
+      "sql": "SELECT DATE(created_at) AS stat_day, COUNT(*) AS publish_cnt\nFROM opendataworks.workflow_publish_record\nWHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)\nGROUP BY DATE(created_at)\nORDER BY stat_day\nLIMIT 100;",
       "notes": [
         "默认按 created_at 做按天趋势。",
+        "平台核心表 SQL 也要保留 schema 前缀。",
         "如果用户要求只看失败发布，需要额外加 status='failed' 过滤。"
       ],
       "related_terms": [
@@ -23,9 +24,10 @@
       "engine": "mysql",
       "scenario": "对比分析",
       "question": "各数据层表数量对比",
-      "sql": "SELECT layer, COUNT(*) AS table_cnt\nFROM data_table\nWHERE deleted = 0\nGROUP BY layer\nORDER BY table_cnt DESC\nLIMIT 20;",
+      "sql": "SELECT layer, COUNT(*) AS table_cnt\nFROM opendataworks.data_table\nWHERE deleted = 0\nGROUP BY layer\nORDER BY table_cnt DESC\nLIMIT 20;",
       "notes": [
         "若用户强调有效表，可追加 status='active'。",
+        "平台核心表 SQL 也要保留 schema 前缀。",
         "layer 是对比维度，默认输出条形图。"
       ],
       "related_terms": [
@@ -39,9 +41,10 @@
       "engine": "mysql",
       "scenario": "占比分析",
       "question": "各工作流发布操作类型占比",
-      "sql": "SELECT operation, COUNT(*) AS publish_cnt\nFROM workflow_publish_record\nGROUP BY operation\nORDER BY publish_cnt DESC\nLIMIT 20;",
+      "sql": "SELECT operation, COUNT(*) AS publish_cnt\nFROM opendataworks.workflow_publish_record\nGROUP BY operation\nORDER BY publish_cnt DESC\nLIMIT 20;",
       "notes": [
         "如果操作类型类别超过 8 个，应回退为条形图或表格。",
+        "平台核心表 SQL 也要保留 schema 前缀。",
         "若用户只关心最近一段时间，可追加 created_at 时间过滤。"
       ],
       "related_terms": [
@@ -55,9 +58,10 @@
       "engine": "mysql",
       "scenario": "明细查询",
       "question": "最近工作流发布记录",
-      "sql": "SELECT workflow_id, version_id, target_engine, operation, status, operator, created_at\nFROM workflow_publish_record\nORDER BY created_at DESC\nLIMIT 100;",
+      "sql": "SELECT workflow_id, version_id, target_engine, operation, status, operator, created_at\nFROM opendataworks.workflow_publish_record\nORDER BY created_at DESC\nLIMIT 100;",
       "notes": [
         "明细查询必须带 LIMIT。",
+        "平台核心表 SQL 也要保留 schema 前缀。",
         "如果用户只关心失败记录，可追加 status='failed' 过滤。"
       ],
       "related_terms": [
@@ -71,14 +75,51 @@
       "engine": "mysql",
       "scenario": "诊断",
       "question": "查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘",
-      "sql": "SELECT dl.lineage_type,\n       ut.db_name AS upstream_db,\n       ut.table_name AS upstream_table,\n       dt.db_name AS downstream_db,\n       dt.table_name AS downstream_table\nFROM data_lineage dl\nLEFT JOIN data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0\nLEFT JOIN data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0\nWHERE (ut.table_name = 'dwd_tech_dev_inspection_rule_cnt_di' OR dt.table_name = 'dwd_tech_dev_inspection_rule_cnt_di')\nORDER BY dl.id DESC\nLIMIT 100;",
+      "sql": "SELECT dl.lineage_type,\n       ut.db_name AS upstream_db,\n       ut.table_name AS upstream_table,\n       dt.db_name AS downstream_db,\n       dt.table_name AS downstream_table\nFROM opendataworks.data_lineage dl\nLEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0\nLEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0\nWHERE (ut.table_name = 'dwd_tech_dev_inspection_rule_cnt_di' OR dt.table_name = 'dwd_tech_dev_inspection_rule_cnt_di')\nORDER BY dl.id DESC\nLIMIT 100;",
       "notes": [
         "如果用户换成其他表名，按同样模板替换表名即可。",
+        "平台核心表 SQL 也要保留 schema 前缀。",
         "血缘定位默认输出表格，不强制出图。"
       ],
       "related_terms": [
         "血缘关系",
         "上下游血缘"
+      ]
+    },
+    {
+      "scene_key": "detail-latest-snapshot-by-env",
+      "title": "按环境查询最新 ds 快照",
+      "engine": "doris",
+      "scenario": "明细查询",
+      "question": "查询 PROD 环境最新一天的组件接口明细",
+      "sql": "SELECT component_name,\n       interface_name,\n       env_name,\n       ds\nFROM <db_name>.<table_df>\nWHERE ds = (SELECT MAX(ds) FROM <db_name>.<table_df>)\n  AND env_name = 'PROD'\nORDER BY component_name, interface_name\nLIMIT 100;",
+      "notes": [
+        "Doris `df` 表默认按每日全量快照理解，常规问数优先只查最新 `ds`。",
+        "业务环境默认优先使用字段 `env_name`，常见值为大写 `PROD` / `SIM`。",
+        "如果用户说的是数据中心名称或 CFC 环境名称，需要改用对应字段，不能直接套用 `env_name`。"
+      ],
+      "related_terms": [
+        "DF快照表",
+        "环境名称",
+        "接口名称"
+      ]
+    },
+    {
+      "scene_key": "detail-increment-by-range",
+      "title": "按时间范围查询 di 增量明细",
+      "engine": "doris",
+      "scenario": "明细查询",
+      "question": "查询 2026-03-01 到 2026-03-13 的组件接口调用明细",
+      "sql": "SELECT component_name,\n       interface_name,\n       env_name,\n       ds\nFROM <db_name>.<table_di>\nWHERE ds BETWEEN '2026-03-01' AND '2026-03-13'\nORDER BY ds DESC, component_name, interface_name\nLIMIT 100;",
+      "notes": [
+        "Doris `di` 表默认按每日增量表理解，必须带时间范围过滤。",
+        "日期字段通常优先使用 `ds`。",
+        "如果用户没有给时间范围，应先追问，而不是只查最新 `ds`。"
+      ],
+      "related_terms": [
+        "DI增量表",
+        "环境名称",
+        "接口名称"
       ]
     }
   ]

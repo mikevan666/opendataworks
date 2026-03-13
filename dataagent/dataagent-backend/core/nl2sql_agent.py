@@ -245,12 +245,13 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     setting_sources = ["project"]
     allowed_tools = list(SAFE_AUTO_ALLOWED_TOOLS)
     permission_mode = _resolve_sdk_permission_mode()
+    max_turns = _resolve_max_turns(cfg, params.execution_mode)
     options_kwargs = dict(
         system_prompt=system_prompt,
         model=model,
         cwd=str(project_cwd),
         setting_sources=setting_sources,
-        max_turns=max(1, int(cfg.agent_max_turns)),
+        max_turns=max_turns,
         allowed_tools=allowed_tools,
         # 关键：开启 SDK partial stream，才能拿到 content_block_delta 等细粒度增量
         include_partial_messages=True,
@@ -268,7 +269,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     options = ClaudeAgentOptions(**options_kwargs)
     timeout_seconds = max(10, int(params.timeout_seconds or cfg.agent_timeout_seconds))
     logger.info(
-        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s base_url=%s",
+        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s max_turns=%s base_url=%s",
         params.run_id,
         provider_id,
         model,
@@ -277,6 +278,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         ",".join(allowed_tools),
         permission_mode or "(sdk-default)",
         timeout_seconds,
+        max_turns,
         _safe_base_url(env_payload.get("ANTHROPIC_BASE_URL")),
     )
 
@@ -552,6 +554,34 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
 
     except Exception as e:
         reason = _format_exception_reason(e)
+        recovered_content = _recover_partial_content(
+            question=params.question,
+            main_text=main_text,
+            blocks=blocks,
+            reason=reason,
+        )
+        if recovered_content and _is_recoverable_timeout_reason(reason):
+            _finalize_open_blocks(blocks, pending_tool_status="failed")
+            done_payload = _build_done_payload(
+                status="success",
+                content=recovered_content,
+                blocks=_serialize_blocks(),
+                error=None,
+                stop_reason=stop_reason or "timeout_partial",
+                stop_sequence=stop_sequence,
+                usage=usage,
+                provider_id=provider_id,
+                model=model,
+            )
+            yield _emit("done", done_payload)
+            logger.warning(
+                "run.partial_success run_id=%s provider=%s model=%s reason=%s",
+                params.run_id,
+                provider_id,
+                model,
+                reason,
+            )
+            return
         logger.exception(
             "run.error run_id=%s provider=%s model=%s reason=%s",
             params.run_id,
@@ -596,22 +626,33 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
 
     status = "success"
     error_payload = None
+    final_content = _sanitize_user_visible_content(params.question, main_text.strip() or "已完成。")
     if result_subtype.startswith("error"):
-        status = "failed"
         reason = _result_subtype_to_reason(result_subtype, result_error)
-        error_payload = {
-            "code": result_subtype,
-            "message": reason,
-            "detail": result_error,
-        }
-        err_block = _ensure_block("error-subtype", "error")
-        err_block["status"] = "failed"
-        err_block["text"] = reason
-        err_block["payload"] = error_payload
-        yield _emit("error", error_payload)
+        recovered_content = _recover_partial_content(
+            question=params.question,
+            main_text=main_text,
+            blocks=blocks,
+            reason=reason,
+        )
+        if result_subtype == "error_max_turns" and recovered_content:
+            _finalize_open_blocks(blocks, pending_tool_status="failed")
+            stop_reason = stop_reason or "max_turns_partial"
+            final_content = recovered_content
+        else:
+            status = "failed"
+            error_payload = {
+                "code": result_subtype,
+                "message": reason,
+                "detail": result_error,
+            }
+            err_block = _ensure_block("error-subtype", "error")
+            err_block["status"] = "failed"
+            err_block["text"] = reason
+            err_block["payload"] = error_payload
+            yield _emit("error", error_payload)
 
     blocks_payload = _serialize_blocks()
-    final_content = _sanitize_user_visible_content(params.question, main_text.strip() or "已完成。")
 
     yield _emit(
         "block_complete",
@@ -667,13 +708,9 @@ def _build_system_prompt(database_hint: str | None) -> str:
             f"运行时只提供通用入口：`{python_bin}` / `$DATAAGENT_PYTHON_BIN` 和 `$DATAAGENT_SKILL_ROOT`。"
         ),
         "- 不要自己发明部署绝对路径、脚本名或命令格式；路径和参数以 skill 文档为准。",
-        "- 统计/对比/趋势/占比/明细/诊断问题只做最少阅读，然后立即调用脚本或追问；不要复述 SKILL.md，也不要把 assets/*.json 当主路径。",
-        "- 不要猜数据库、表或口径；不明确就追问。只允许只读执行。",
-        "- `resolve_datasource.py` 只在拿到明确 `db_name` 后调用一次；成功后直接进入 `run_sql.py`。",
-        "- 血缘/诊断问题如果用户已经给出具体表名或平台核心表，直接执行 metadata/SQL 脚本；不要在仓库代码、测试或文档里搜索 lineage/血缘实现，也不要用 ls/rg 找答案。",
-        "- 对于给出明确平台核心表名的血缘/诊断问题，只要第一次 `run_sql.py` 已返回非空 `sql_execution`，即使部分 upstream/downstream 列为空，也直接基于现有结果总结并结束，不要再补查第二条 SQL。",
-        "- 拿到 `sql_execution` 或成功的 `chart_spec` 后直接基于结果收口；空结果就明确说无数据，不要继续反复试探，也不要让用户自己去跑示例 SQL。",
-        "- 不要在用户可见正文里输出“我来处理”“先看文档”“接下来执行”等过程播报；这些属于内部执行过程。用户只需要最终结论、关键依据和必要限制。",
+        "- 阅读深度、执行顺序、是否先追问以及何时收口，都以当前 skill 文档和真实工具结果为准；不要把某个 skill 的局部流程提升成全局规则。",
+        "- 遇到关键信息不明确时，优先依据当前 skill 和工具结果确认；仍无法确认再做最小追问。只允许只读执行。",
+        "- 如果真实工具结果已经足够支持结论，就直接基于结果回答；如果仍不足以确定答案，再做最小追问。",
         "- 最终回答用中文，结论优先，避免重复工具原文。",
     ]
     if database_hint:
@@ -898,6 +935,83 @@ def _result_subtype_to_reason(subtype: str, detail: str) -> str:
     if detail:
         return detail
     return "模型会话未正常结束"
+
+
+def _resolve_max_turns(cfg, execution_mode: str | None) -> int:
+    mode = str(execution_mode or "").strip().lower()
+    if mode in {"background", "auto"}:
+        return max(1, int(getattr(cfg, "agent_background_max_turns", 0) or getattr(cfg, "agent_max_turns", 0) or 40))
+    return max(1, int(getattr(cfg, "agent_interactive_max_turns", 0) or getattr(cfg, "agent_max_turns", 0) or 24))
+
+
+def _has_visible_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _block_has_tool_output(block: dict[str, Any]) -> bool:
+    block_type = str(block.get("type") or "").strip()
+    if block_type not in {"tool", "tool_result", "tool_use"}:
+        return False
+    if _has_visible_value(block.get("output")):
+        return True
+    payload = block.get("payload")
+    if isinstance(payload, dict):
+        for key in ("output", "content", "result", "stdout", "partial_json"):
+            if _has_visible_value(payload.get(key)):
+                return True
+    return False
+
+
+def _partial_completion_note(reason: str) -> str:
+    text = str(reason or "").strip()
+    if "最大轮次" in text:
+        return "注：本次推理达到轮次上限，已返回当前可用结果。"
+    if "超时" in text:
+        return "注：本次执行耗时较长，已返回当前可用结果。"
+    return "注：本次执行未完整结束，已返回当前可用结果。"
+
+
+def _recover_partial_content(
+    *,
+    question: str,
+    main_text: str,
+    blocks: dict[str, dict[str, Any]],
+    reason: str,
+) -> str:
+    sanitized = _sanitize_user_visible_content(question, str(main_text or "").strip())
+    if sanitized:
+        note = _partial_completion_note(reason)
+        if note and note not in sanitized:
+            return f"{sanitized}\n\n{note}"
+        return sanitized
+    if any(_block_has_tool_output(block) for block in blocks.values()):
+        return f"{_partial_completion_note(reason)} 请查看上方思考过程中的工具输出。"
+    return ""
+
+
+def _is_recoverable_timeout_reason(reason: str) -> bool:
+    return "超时" in str(reason or "")
+
+
+def _finalize_open_blocks(blocks: dict[str, dict[str, Any]], *, pending_tool_status: str = "success") -> None:
+    for block in blocks.values():
+        status = str(block.get("status") or "").strip().lower()
+        if status not in {"streaming", "pending", "in_progress"}:
+            continue
+        block_type = str(block.get("type") or "").strip()
+        if block_type == "error":
+            block["status"] = "failed"
+            continue
+        if block_type in {"tool", "tool_result", "tool_use"}:
+            block["status"] = "success" if _block_has_tool_output(block) else pending_tool_status
+            continue
+        block["status"] = "success"
 
 
 def _collect_exception_parts(error: Exception) -> list[str]:
