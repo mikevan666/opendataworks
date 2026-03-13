@@ -103,8 +103,70 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('问题类型：趋势分析')
     expect(wrapper.text()).toContain('workflow_publish_record')
     expect(wrapper.text()).toContain('opendataworks MySQL')
+    expect(wrapper.text()).toContain('思考过程')
     expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
-    expect(wrapper.find('.query-loading').exists()).toBe(false)
+    expect(wrapper.find('.query-process-panel').exists()).toBe(true)
+    expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
+  })
+
+  it('collapses the process panel after the final answer is ready', async () => {
+    apiMocks.getSession.mockResolvedValue({
+      session_id: 's1',
+      title: '已完成会话',
+      created_at: '2026-03-10T02:00:00Z',
+      updated_at: '2026-03-10T02:00:00Z',
+      messages: [
+        {
+          message_id: 'a1',
+          role: 'assistant',
+          status: 'success',
+          created_at: '2026-03-10T02:00:00Z',
+          blocks: [
+            {
+              block_id: 'think-1',
+              type: 'thinking',
+              status: 'success',
+              text: '先检查可用数据表，再决定聚合方式。'
+            },
+            {
+              block_id: 'tool-1',
+              type: 'tool',
+              status: 'success',
+              tool_id: 'tool-bash-1',
+              tool_name: 'Bash',
+              input: {
+                command: 'python scripts/run_sql.py --question top10'
+              },
+              output: {
+                kind: 'python_execution',
+                summary: '查询执行完成',
+                stdout: 'done'
+              }
+            },
+            {
+              block_id: 'main-1',
+              type: 'main_text',
+              status: 'success',
+              text: '最终结果：北区的下单量最高。'
+            }
+          ]
+        }
+      ]
+    })
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('最终结果：北区的下单量最高。')
+    expect(wrapper.find('.query-process-panel').exists()).toBe(true)
+    expect(wrapper.find('.query-process-content').attributes('style')).toContain('display: none')
+
+    await wrapper.find('.query-process-summary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
   })
 
   it('allows another session to submit while the current session is still awaiting acceptance', async () => {
