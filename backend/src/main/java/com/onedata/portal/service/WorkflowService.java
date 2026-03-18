@@ -8,7 +8,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-
+import com.onedata.portal.dto.DolphinDatasourceOption;
+import com.onedata.portal.dto.DolphinTaskGroupOption;
 import com.onedata.portal.dto.workflow.WorkflowDefinitionRequest;
 import com.onedata.portal.dto.workflow.WorkflowDetailResponse;
 import com.onedata.portal.dto.workflow.WorkflowInstanceSummary;
@@ -179,7 +180,7 @@ public class WorkflowService {
         }
 
         WorkflowTopologyResult topology = workflowTopologyService.buildTopology(collectTaskIds(bindings));
-        String definitionJson = toJson(buildPlatformDefinitionDocument(workflow, bindings, topology));
+        String definitionJson = resolveDefinitionJson(workflow, null, bindings, topology);
         workflow.setDefinitionJson(definitionJson);
         dataWorkflowMapper.updateById(workflow);
         return definitionJson;
@@ -247,10 +248,11 @@ public class WorkflowService {
         persistTaskRelations(workflow.getId(), taskBindings, null, topology);
         normalizeTaskMetadata(taskIdsInOrder, workflow.getTaskGroupName());
 
-        workflow.setDefinitionJson(resolveDefinitionJson(workflow, request, taskBindings, topology));
+        String resolvedDefinitionJson = resolveDefinitionJson(workflow, request, taskBindings, topology);
+        workflow.setDefinitionJson(resolvedDefinitionJson);
         dataWorkflowMapper.updateById(workflow);
 
-        String versionDefinitionJson = toJson(buildPlatformDefinitionDocument(workflow, taskBindings, topology));
+        String versionDefinitionJson = resolvedDefinitionJson;
         WorkflowVersion version = snapshotWorkflow(workflow, request, versionDefinitionJson);
         workflow.setCurrentVersionId(version.getId());
         dataWorkflowMapper.updateById(workflow);
@@ -384,10 +386,11 @@ public class WorkflowService {
         persistTaskRelations(workflowId, taskBindings, workflow.getCurrentVersionId(), topology);
         normalizeTaskMetadata(taskIdsInOrder, workflow.getTaskGroupName());
 
-        workflow.setDefinitionJson(resolveDefinitionJson(workflow, request, taskBindings, topology));
+        String resolvedDefinitionJson = resolveDefinitionJson(workflow, request, taskBindings, topology);
+        workflow.setDefinitionJson(resolvedDefinitionJson);
         dataWorkflowMapper.updateById(workflow);
 
-        String versionDefinitionJson = toJson(buildPlatformDefinitionDocument(workflow, taskBindings, topology));
+        String versionDefinitionJson = resolvedDefinitionJson;
         if (shouldCreateNewVersion(workflow, versionDefinitionJson)) {
             WorkflowVersion version = snapshotWorkflow(workflow, request, versionDefinitionJson);
             workflow.setCurrentVersionId(version.getId());
@@ -618,9 +621,144 @@ public class WorkflowService {
             }
             applyDefinitionMetadataSeed(generatedNode, persistedDefinitionJson);
             applyDefinitionMetadataSeed(generatedNode, incomingDefinitionJson);
+            enrichDefinitionMetadataFromCatalog(generatedNode);
             return objectMapper.writeValueAsString(generatedNode);
         } catch (Exception ex) {
             return toJson(generatedDefinition);
+        }
+    }
+
+    private void enrichDefinitionMetadataFromCatalog(ObjectNode rootNode) {
+        if (rootNode == null || rootNode.isNull() || rootNode.isMissingNode()) {
+            return;
+        }
+        JsonNode taskListNode = rootNode.get("taskDefinitionList");
+        if (!(taskListNode instanceof ArrayNode)) {
+            return;
+        }
+
+        String workflowTaskGroupName = normalizeText(readText(
+                firstPresent(rootNode, "processDefinition", "workflowDefinition"),
+                "taskGroupName"));
+        boolean needDatasourceResolve = false;
+        boolean needTaskGroupResolve = false;
+        for (JsonNode taskNode : (ArrayNode) taskListNode) {
+            if (!(taskNode instanceof ObjectNode)) {
+                continue;
+            }
+            ObjectNode taskObject = (ObjectNode) taskNode;
+            ObjectNode taskParams = ensureObjectNode(taskObject, "taskParams");
+            Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
+            String datasourceName = normalizeText(readText(taskParams, "datasourceName"));
+            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
+                needDatasourceResolve = true;
+            }
+
+            Integer taskGroupId = readInt(taskObject, "taskGroupId");
+            String taskGroupName = normalizeText(readText(taskObject, "taskGroupName"));
+            if (!StringUtils.hasText(taskGroupName)) {
+                taskGroupName = workflowTaskGroupName;
+                if (StringUtils.hasText(taskGroupName)) {
+                    taskObject.put("taskGroupName", taskGroupName);
+                }
+            }
+            if ((taskGroupId == null || taskGroupId <= 0) && StringUtils.hasText(taskGroupName)) {
+                needTaskGroupResolve = true;
+            }
+        }
+        if (!needDatasourceResolve && !needTaskGroupResolve) {
+            return;
+        }
+
+        Map<String, DolphinDatasourceOption> datasourceByName = needDatasourceResolve
+                ? loadDatasourceCatalogByName()
+                : Collections.emptyMap();
+        Map<String, DolphinTaskGroupOption> taskGroupByName = needTaskGroupResolve
+                ? loadTaskGroupCatalogByName()
+                : Collections.emptyMap();
+
+        for (JsonNode taskNode : (ArrayNode) taskListNode) {
+            if (!(taskNode instanceof ObjectNode)) {
+                continue;
+            }
+            ObjectNode taskObject = (ObjectNode) taskNode;
+            ObjectNode taskParams = ensureObjectNode(taskObject, "taskParams");
+
+            Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
+            String datasourceName = normalizeText(readText(taskParams, "datasourceName"));
+            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
+                DolphinDatasourceOption datasourceOption = datasourceByName.get(datasourceName);
+                if (datasourceOption != null && datasourceOption.getId() != null && datasourceOption.getId() > 0) {
+                    taskParams.put("datasourceId", datasourceOption.getId());
+                    taskParams.put("datasource", datasourceOption.getId());
+                    if (!StringUtils.hasText(readText(taskParams, "datasourceType", "type"))
+                            && StringUtils.hasText(datasourceOption.getType())) {
+                        String datasourceType = datasourceOption.getType().trim();
+                        taskParams.put("datasourceType", datasourceType);
+                        taskParams.put("type", datasourceType);
+                    }
+                }
+            }
+
+            Integer taskGroupId = readInt(taskObject, "taskGroupId");
+            String taskGroupName = normalizeText(readText(taskObject, "taskGroupName"));
+            if (!StringUtils.hasText(taskGroupName)) {
+                taskGroupName = workflowTaskGroupName;
+            }
+            if ((taskGroupId == null || taskGroupId <= 0) && StringUtils.hasText(taskGroupName)) {
+                DolphinTaskGroupOption taskGroupOption = taskGroupByName.get(taskGroupName);
+                if (taskGroupOption != null && taskGroupOption.getId() != null && taskGroupOption.getId() > 0) {
+                    taskObject.put("taskGroupId", taskGroupOption.getId());
+                }
+            }
+        }
+    }
+
+    private Map<String, DolphinDatasourceOption> loadDatasourceCatalogByName() {
+        try {
+            List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(null, null);
+            if (CollectionUtils.isEmpty(options)) {
+                return Collections.emptyMap();
+            }
+            Map<String, DolphinDatasourceOption> result = new LinkedHashMap<>();
+            for (DolphinDatasourceOption option : options) {
+                if (option == null || option.getId() == null || option.getId() <= 0) {
+                    continue;
+                }
+                String name = normalizeText(option.getName());
+                if (StringUtils.hasText(name)) {
+                    result.putIfAbsent(name, option);
+                }
+            }
+            return result;
+        } catch (Exception ex) {
+            log.warn("Failed to load datasource catalog while enriching workflow definition metadata: {}",
+                    ex.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<String, DolphinTaskGroupOption> loadTaskGroupCatalogByName() {
+        try {
+            List<DolphinTaskGroupOption> options = dolphinSchedulerService.listTaskGroups(null);
+            if (CollectionUtils.isEmpty(options)) {
+                return Collections.emptyMap();
+            }
+            Map<String, DolphinTaskGroupOption> result = new LinkedHashMap<>();
+            for (DolphinTaskGroupOption option : options) {
+                if (option == null || option.getId() == null || option.getId() <= 0) {
+                    continue;
+                }
+                String name = normalizeText(option.getName());
+                if (StringUtils.hasText(name)) {
+                    result.putIfAbsent(name, option);
+                }
+            }
+            return result;
+        } catch (Exception ex) {
+            log.warn("Failed to load task group catalog while enriching workflow definition metadata: {}",
+                    ex.getMessage());
+            return Collections.emptyMap();
         }
     }
 
