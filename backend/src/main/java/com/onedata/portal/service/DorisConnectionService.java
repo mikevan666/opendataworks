@@ -932,17 +932,17 @@ public class DorisConnectionService {
 
         boolean hasKeyword = StringUtils.hasText(keyword);
         if (hasKeyword) {
-            sqlBuilder.append(" AND (LOWER(TABLE_NAME) LIKE ? ESCAPE '\\\\' ")
-                    .append("OR LOWER(COALESCE(TABLE_COMMENT, '')) LIKE ? ESCAPE '\\\\')");
+            sqlBuilder.append(" AND (LOCATE(?, LOWER(TABLE_NAME)) > 0 ")
+                    .append("OR LOCATE(?, LOWER(IFNULL(TABLE_COMMENT, ''))) > 0)");
         }
         sqlBuilder.append(" ORDER BY TABLE_SCHEMA, TABLE_NAME");
 
         try (Connection connection = getConnection(cluster, null);
                 PreparedStatement stmt = connection.prepareStatement(sqlBuilder.toString())) {
             if (hasKeyword) {
-                String pattern = toEscapedLikePattern(keyword);
-                stmt.setString(1, pattern);
-                stmt.setString(2, pattern);
+                String normalizedKeyword = normalizeSearchKeyword(keyword);
+                stmt.setString(1, normalizedKeyword);
+                stmt.setString(2, normalizedKeyword);
             }
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -1053,13 +1053,8 @@ public class DorisConnectionService {
         return columns;
     }
 
-    private String toEscapedLikePattern(String keyword) {
-        String normalized = String.valueOf(keyword).trim().toLowerCase(Locale.ROOT);
-        String escaped = normalized
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
-        return "%" + escaped + "%";
+    private String normalizeSearchKeyword(String keyword) {
+        return String.valueOf(keyword).trim().toLowerCase(Locale.ROOT);
     }
 
     private String resolveColumnDataType(ResultSet rs) throws SQLException {
