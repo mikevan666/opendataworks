@@ -632,6 +632,7 @@ public class WorkflowDefinitionLifecycleService {
             node.put("failRetryTimes", task.getRetryTimes());
             node.put("failRetryInterval", task.getRetryInterval());
             node.put("taskPriority", task.getTaskPriority());
+            node.put("taskGroupId", task.getTaskGroupId());
             node.put("taskGroupName", task.getTaskGroupName());
 
             Map<String, Object> taskParams = new LinkedHashMap<>();

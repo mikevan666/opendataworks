@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.onedata.portal.dto.DolphinDatasourceOption;
+import com.onedata.portal.dto.DolphinTaskGroupOption;
 import com.onedata.portal.dto.workflow.WorkflowDefinitionRequest;
+import com.onedata.portal.dto.workflow.WorkflowTaskBinding;
 import com.onedata.portal.dto.workflow.WorkflowTopologyResult;
 import com.onedata.portal.entity.DataTask;
 import com.onedata.portal.entity.DataWorkflow;
@@ -112,12 +115,24 @@ class WorkflowServiceMetadataPersistenceTest {
     }
 
     @Test
-    void normalizeAndPersistMetadataShouldNotEnrichDefinitionIdsFromCatalog() throws Exception {
+    void normalizeAndPersistMetadataShouldResolveMissingIdsFromCatalog() throws Exception {
         DataWorkflow workflow = baseWorkflow("{}");
         DataTask task = baseTask();
         task.setTaskGroupName(null);
 
         mockNormalizeContext(workflow, task);
+        DolphinDatasourceOption datasourceOption = new DolphinDatasourceOption();
+        datasourceOption.setId(999L);
+        datasourceOption.setName("ds_main");
+        datasourceOption.setType("MYSQL");
+        when(dolphinSchedulerService.listDatasources(null, null))
+                .thenReturn(Collections.singletonList(datasourceOption));
+
+        DolphinTaskGroupOption taskGroupOption = new DolphinTaskGroupOption();
+        taskGroupOption.setId(88);
+        taskGroupOption.setName("tg_default");
+        when(dolphinSchedulerService.listTaskGroups(null))
+                .thenReturn(Collections.singletonList(taskGroupOption));
 
         service.normalizeAndPersistMetadata(1L, "tester");
 
@@ -128,12 +143,10 @@ class WorkflowServiceMetadataPersistenceTest {
 
         JsonNode firstTask = firstTaskNode(updated.getDefinitionJson());
         assertEquals("tg_default", firstTask.path("taskGroupName").asText());
-        assertFalse(firstTask.has("taskGroupId"));
+        assertEquals(88, firstTask.path("taskGroupId").asInt());
         JsonNode params = firstTask.path("taskParams");
-        assertFalse(params.has("datasourceId"));
-        assertFalse(params.has("datasource"));
-        verify(dolphinSchedulerService, never()).listDatasources(any(), any());
-        verify(dolphinSchedulerService, never()).listTaskGroups(any());
+        assertEquals(999L, params.path("datasourceId").asLong());
+        assertEquals(999L, params.path("datasource").asLong());
     }
 
     @Test
@@ -163,11 +176,15 @@ class WorkflowServiceMetadataPersistenceTest {
     }
 
     @Test
-    void normalizeAndPersistMetadataShouldKeepMissingIdsWhenSeedHasNoIds() throws Exception {
+    void normalizeAndPersistMetadataShouldKeepMissingIdsWhenCatalogHasNoMatch() throws Exception {
         DataWorkflow workflow = baseWorkflow("{}");
         DataTask task = baseTask();
 
         mockNormalizeContext(workflow, task);
+        when(dolphinSchedulerService.listDatasources(null, null))
+                .thenReturn(Collections.emptyList());
+        when(dolphinSchedulerService.listTaskGroups(null))
+                .thenReturn(Collections.emptyList());
 
         service.normalizeAndPersistMetadata(1L, "tester");
 
@@ -179,8 +196,6 @@ class WorkflowServiceMetadataPersistenceTest {
         assertFalse(firstTask.has("taskGroupId"));
         assertFalse(params.has("datasourceId"));
         assertFalse(params.has("datasource"));
-        verify(dolphinSchedulerService, never()).listDatasources(any(), any());
-        verify(dolphinSchedulerService, never()).listTaskGroups(any());
     }
 
     @Test
@@ -216,6 +231,67 @@ class WorkflowServiceMetadataPersistenceTest {
         assertEquals(11L, created.getId());
         assertEquals(null, created.getProjectCode());
         verify(dolphinSchedulerService, never()).getProjectCode();
+    }
+
+    @Test
+    void createWorkflowShouldPersistResolvedIdsIntoVersionSnapshot() throws Exception {
+        WorkflowDefinitionRequest request = new WorkflowDefinitionRequest();
+        request.setWorkflowName("wf_snapshot_meta");
+        request.setDescription("desc");
+        request.setOperator("tester");
+        request.setProjectCode(77L);
+        request.setTaskGroupName("tg_default");
+
+        WorkflowTaskBinding binding = new WorkflowTaskBinding();
+        binding.setTaskId(10L);
+        request.setTasks(Collections.singletonList(binding));
+
+        WorkflowTopologyResult topology = WorkflowTopologyResult.builder()
+                .entryTaskIds(Collections.singleton(10L))
+                .exitTaskIds(Collections.singleton(10L))
+                .build();
+        when(workflowTopologyService.buildTopology(anyList())).thenReturn(topology);
+
+        when(dataWorkflowMapper.insert(any(DataWorkflow.class))).thenAnswer(invocation -> {
+            DataWorkflow workflow = invocation.getArgument(0);
+            workflow.setId(11L);
+            return 1;
+        });
+        when(dataWorkflowMapper.updateById(any(DataWorkflow.class))).thenReturn(1);
+
+        DataTask task = baseTask();
+        task.setTaskGroupName(null);
+        when(dataTaskMapper.selectById(10L)).thenReturn(task);
+        when(dataTaskMapper.selectBatchIds(anyList())).thenReturn(Collections.singletonList(task));
+        when(tableTaskRelationMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        DolphinDatasourceOption datasourceOption = new DolphinDatasourceOption();
+        datasourceOption.setId(999L);
+        datasourceOption.setName("ds_main");
+        datasourceOption.setType("MYSQL");
+        when(dolphinSchedulerService.listDatasources(null, null))
+                .thenReturn(Collections.singletonList(datasourceOption));
+
+        DolphinTaskGroupOption taskGroupOption = new DolphinTaskGroupOption();
+        taskGroupOption.setId(88);
+        taskGroupOption.setName("tg_default");
+        when(dolphinSchedulerService.listTaskGroups(null))
+                .thenReturn(Collections.singletonList(taskGroupOption));
+
+        WorkflowVersion createdVersion = new WorkflowVersion();
+        createdVersion.setId(901L);
+        when(workflowVersionService.createVersion(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(createdVersion);
+
+        service.createWorkflow(request);
+
+        ArgumentCaptor<String> snapshotCaptor = ArgumentCaptor.forClass(String.class);
+        verify(workflowVersionService).createVersion(any(), snapshotCaptor.capture(), any(), any(), any(), any(), any());
+        JsonNode firstTask = firstTaskNode(snapshotCaptor.getValue());
+        assertEquals(88, firstTask.path("taskGroupId").asInt());
+        JsonNode params = firstTask.path("taskParams");
+        assertEquals(999L, params.path("datasourceId").asLong());
+        assertEquals(999L, params.path("datasource").asLong());
     }
 
     @Test
