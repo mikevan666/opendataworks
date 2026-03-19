@@ -72,7 +72,23 @@
       </el-tab-pane>
       <el-tab-pane label="原始JSON差异" name="raw">
         <div class="raw-diff-wrap">
-          <pre class="raw-diff-text">{{ compareResult.rawDiff || '-' }}</pre>
+          <div v-if="rawDiffRows.length" class="raw-diff-text">
+            <div
+              v-for="row in rawDiffRows"
+              :key="row.key"
+              :class="['raw-diff-row', `is-${row.type}`]"
+            >
+              <span class="raw-diff-prefix">{{ row.prefix || ' ' }}</span>
+              <span class="raw-diff-line">
+                <template v-for="(segment, index) in row.segments" :key="`${row.key}-${index}`">
+                  <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                    {{ segment.text }}
+                  </span>
+                </template>
+              </span>
+            </div>
+          </div>
+          <div v-else class="raw-diff-empty">-</div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -83,6 +99,7 @@
 import { computed, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { buildRawDiffRows } from './workflowRawDiffHelper'
 
 const props = defineProps({
   versions: {
@@ -235,6 +252,8 @@ const areaSections = computed(() => {
   return sections
 })
 
+const rawDiffRows = computed(() => buildRawDiffRows(props.compareResult?.rawDiff))
+
 const formatDateTime = (value) => {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-'
 }
@@ -370,18 +389,107 @@ const formatDateTime = (value) => {
 .raw-diff-wrap {
   border: 1px solid #ebeef5;
   border-radius: 6px;
-  background: #fafafa;
-  padding: 10px;
+  background: #fcfcfd;
+  overflow: hidden;
 }
 
 .raw-diff-text {
-  margin: 0;
-  white-space: pre;
+  font-family: Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   overflow: auto;
   font-size: 12px;
   line-height: 1.45;
   color: #303133;
   max-height: 540px;
+}
+
+.raw-diff-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: stretch;
+  min-width: max-content;
+}
+
+.raw-diff-row + .raw-diff-row {
+  border-top: 1px solid rgba(235, 238, 245, 0.7);
+}
+
+.raw-diff-row.is-added {
+  background: #f0f9eb;
+}
+
+.raw-diff-row.is-removed {
+  background: #fef0f0;
+}
+
+.raw-diff-row.is-context {
+  background: #fcfcfd;
+}
+
+.raw-diff-row.is-hunk {
+  background: #ecf5ff;
+}
+
+.raw-diff-row.is-meta-old,
+.raw-diff-row.is-meta-new {
+  background: #f4f4f5;
+}
+
+.raw-diff-prefix,
+.raw-diff-line {
+  padding: 4px 8px;
+  white-space: pre;
+}
+
+.raw-diff-prefix {
+  text-align: center;
+  user-select: none;
+  color: #909399;
+  border-right: 1px solid rgba(235, 238, 245, 0.8);
+}
+
+.raw-diff-row.is-added .raw-diff-prefix {
+  color: #67c23a;
+  background: rgba(103, 194, 58, 0.12);
+}
+
+.raw-diff-row.is-removed .raw-diff-prefix {
+  color: #f56c6c;
+  background: rgba(245, 108, 108, 0.12);
+}
+
+.raw-diff-row.is-hunk .raw-diff-prefix {
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.12);
+}
+
+.raw-diff-row.is-meta-old .raw-diff-prefix,
+.raw-diff-row.is-meta-new .raw-diff-prefix {
+  color: #606266;
+}
+
+.raw-diff-line {
+  overflow-x: auto;
+}
+
+.raw-diff-segment.is-inline-changed {
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.raw-diff-row.is-added .raw-diff-segment.is-inline-changed {
+  background: rgba(103, 194, 58, 0.24);
+  color: #2f7d32;
+}
+
+.raw-diff-row.is-removed .raw-diff-segment.is-inline-changed {
+  background: rgba(245, 108, 108, 0.22);
+  color: #c45656;
+}
+
+.raw-diff-empty {
+  padding: 12px;
+  color: #909399;
+  font-size: 12px;
 }
 
 @media (max-width: 1200px) {

@@ -145,9 +145,13 @@ public class WorkflowPublishService {
         if (!StringUtils.hasText(request.getOperation())) {
             throw new IllegalArgumentException("operation is required");
         }
+        String operation = request.getOperation().trim().toLowerCase();
         DataWorkflow workflow = dataWorkflowMapper.selectById(workflowId);
         if (workflow == null) {
             throw new IllegalArgumentException("Workflow not found: " + workflowId);
+        }
+        if ("deploy".equals(operation)) {
+            workflow = workflowService.syncCurrentVersion(workflowId, request.getOperator(), "publish_auto_save");
         }
         Long versionId = resolvePublishVersionId(workflow, request);
         WorkflowVersion version = versionId == null ? null : workflowVersionMapper.selectById(versionId);
@@ -158,7 +162,7 @@ public class WorkflowPublishService {
         WorkflowPublishRecord record = new WorkflowPublishRecord();
         record.setWorkflowId(workflowId);
         record.setVersionId(version.getId());
-        record.setOperation(request.getOperation().toLowerCase());
+        record.setOperation(operation);
         record.setTargetEngine("dolphin");
         record.setStatus("pending");
         record.setOperator(request.getOperator());
