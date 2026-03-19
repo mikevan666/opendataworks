@@ -118,6 +118,7 @@ class WorkflowPublishServiceTest {
         mockPreviewInputs(workflow);
 
         when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+        when(workflowService.syncCurrentVersion(1L, "tester", "publish_auto_save")).thenReturn(workflow);
         when(workflowVersionMapper.selectById(101L)).thenReturn(version);
         when(runtimeDiffService.buildDiff(any(), any())).thenReturn(changedDiff());
 
@@ -139,6 +140,7 @@ class WorkflowPublishServiceTest {
         mockPreviewInputs(workflow);
 
         when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+        when(workflowService.syncCurrentVersion(1L, "tester", "publish_auto_save")).thenReturn(workflow);
         when(workflowVersionMapper.selectById(101L)).thenReturn(version);
         when(runtimeDiffService.buildDiff(any(), any())).thenReturn(changedDiff());
 
@@ -155,6 +157,37 @@ class WorkflowPublishServiceTest {
         WorkflowPublishRecord record = service.publish(1L, request);
         assertEquals("success", record.getStatus());
         assertEquals(90001L, record.getEngineWorkflowCode());
+    }
+
+    @Test
+    void publishDeployShouldUseSyncedCurrentVersionAsPublishVersion() {
+        DataWorkflow storedWorkflow = workflow(1L, null, 101L);
+        DataWorkflow syncedWorkflow = workflow(1L, null, 202L);
+        WorkflowVersion version = version(202L, 4);
+        mockPreviewInputs(syncedWorkflow);
+
+        when(dataWorkflowMapper.selectById(1L)).thenReturn(storedWorkflow);
+        when(workflowService.syncCurrentVersion(1L, "tester", "publish_auto_save")).thenReturn(syncedWorkflow);
+        when(workflowVersionMapper.selectById(202L)).thenReturn(version);
+        when(runtimeDiffService.buildDiff(any(), any())).thenReturn(noiseOnlyDiff());
+
+        WorkflowDeployService.DeploymentResult result =
+                new WorkflowDeployService.DeploymentResult(90002L, 11L, 1, false);
+        when(workflowDeployService.deploy(eq(syncedWorkflow))).thenReturn(result);
+
+        WorkflowPublishRequest request = new WorkflowPublishRequest();
+        request.setOperation("deploy");
+        request.setRequireApproval(false);
+        request.setOperator("tester");
+        request.setConfirmDiff(false);
+
+        WorkflowPublishRecord record = service.publish(1L, request);
+        assertEquals("success", record.getStatus());
+        assertEquals(202L, record.getVersionId());
+        verify(workflowService).syncCurrentVersion(1L, "tester", "publish_auto_save");
+        verify(workflowVersionMapper).selectById(202L);
+        verify(workflowVersionMapper, never()).selectById(101L);
+        verify(workflowDeployService).deploy(eq(syncedWorkflow));
     }
 
     @Test
@@ -677,6 +710,7 @@ class WorkflowPublishServiceTest {
         WorkflowVersion version = version(101L, 2);
         mockPreviewInputs(workflow);
         when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+        when(workflowService.syncCurrentVersion(1L, "tester", "publish_auto_save")).thenReturn(workflow);
         when(workflowVersionMapper.selectById(101L)).thenReturn(version);
 
         RuntimeWorkflowDefinition runtimeDefinition = new RuntimeWorkflowDefinition();

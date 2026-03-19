@@ -160,24 +160,7 @@ public class WorkflowService {
                 Wrappers.<WorkflowTaskRelation>lambdaQuery()
                         .eq(WorkflowTaskRelation::getWorkflowId, workflowId)
                         .orderByAsc(WorkflowTaskRelation::getId));
-        List<WorkflowTaskBinding> bindings = new ArrayList<>();
-        for (WorkflowTaskRelation relation : relations) {
-            if (relation == null || relation.getTaskId() == null) {
-                continue;
-            }
-            WorkflowTaskBinding binding = new WorkflowTaskBinding();
-            binding.setTaskId(relation.getTaskId());
-            binding.setEntry(relation.getIsEntry());
-            binding.setExit(relation.getIsExit());
-            if (StringUtils.hasText(relation.getNodeAttrs())) {
-                try {
-                    binding.setNodeAttrs(objectMapper.readValue(relation.getNodeAttrs(), Map.class));
-                } catch (Exception ignored) {
-                    // ignore malformed nodeAttrs for export
-                }
-            }
-            bindings.add(binding);
-        }
+        List<WorkflowTaskBinding> bindings = buildTaskBindingsFromRelations(relations);
 
         WorkflowTopologyResult topology = workflowTopologyService.buildTopology(collectTaskIds(bindings));
         String definitionJson = resolveDefinitionJson(workflow, null, bindings, topology);
@@ -401,6 +384,28 @@ public class WorkflowService {
     }
 
     @Transactional
+    public DataWorkflow syncCurrentVersion(Long workflowId, String operator, String triggerSource) {
+        DataWorkflow workflow = dataWorkflowMapper.selectById(workflowId);
+        if (workflow == null) {
+            throw new IllegalArgumentException("Workflow not found: " + workflowId);
+        }
+        List<WorkflowTaskRelation> relations = workflowTaskRelationMapper.selectList(
+                Wrappers.<WorkflowTaskRelation>lambdaQuery()
+                        .eq(WorkflowTaskRelation::getWorkflowId, workflowId)
+                        .orderByAsc(WorkflowTaskRelation::getId));
+        WorkflowDefinitionRequest request = new WorkflowDefinitionRequest();
+        request.setWorkflowName(workflow.getWorkflowName());
+        request.setDescription(workflow.getDescription());
+        request.setTaskGroupName(workflow.getTaskGroupName());
+        request.setGlobalParams(workflow.getGlobalParams());
+        request.setProjectCode(workflow.getProjectCode());
+        request.setTasks(buildTaskBindingsFromRelations(relations));
+        request.setOperator(resolveWorkflowOperator(workflow, operator));
+        request.setTriggerSource(StringUtils.hasText(triggerSource) ? triggerSource.trim() : "publish_auto_save");
+        return updateWorkflow(workflowId, request);
+    }
+
+    @Transactional
     public DataWorkflow normalizeAndPersistMetadata(Long workflowId, String operator) {
         if (workflowId == null) {
             throw new IllegalArgumentException("workflowId 不能为空");
@@ -413,26 +418,7 @@ public class WorkflowService {
                 Wrappers.<WorkflowTaskRelation>lambdaQuery()
                         .eq(WorkflowTaskRelation::getWorkflowId, workflowId)
                         .orderByAsc(WorkflowTaskRelation::getId));
-        List<WorkflowTaskBinding> taskBindings = new ArrayList<>();
-        if (!CollectionUtils.isEmpty(relations)) {
-            for (WorkflowTaskRelation relation : relations) {
-                if (relation == null || relation.getTaskId() == null) {
-                    continue;
-                }
-                WorkflowTaskBinding binding = new WorkflowTaskBinding();
-                binding.setTaskId(relation.getTaskId());
-                binding.setEntry(relation.getIsEntry());
-                binding.setExit(relation.getIsExit());
-                if (StringUtils.hasText(relation.getNodeAttrs())) {
-                    try {
-                        binding.setNodeAttrs(objectMapper.readValue(relation.getNodeAttrs(), Map.class));
-                    } catch (Exception ignored) {
-                        // ignore malformed node attrs
-                    }
-                }
-                taskBindings.add(binding);
-            }
-        }
+        List<WorkflowTaskBinding> taskBindings = buildTaskBindingsFromRelations(relations);
         List<Long> taskIdsInOrder = collectTaskIds(taskBindings);
         WorkflowTopologyResult topology = workflowTopologyService.buildTopology(taskIdsInOrder);
         workflow.setEntryTaskIds(toJson(orderTaskIds(topology.getEntryTaskIds(), taskIdsInOrder)));
@@ -1429,6 +1415,44 @@ public class WorkflowService {
             return null;
         }
         return sql.replace("\r\n", "\n").trim();
+    }
+
+    private List<WorkflowTaskBinding> buildTaskBindingsFromRelations(List<WorkflowTaskRelation> relations) {
+        if (CollectionUtils.isEmpty(relations)) {
+            return Collections.emptyList();
+        }
+        List<WorkflowTaskBinding> bindings = new ArrayList<>();
+        for (WorkflowTaskRelation relation : relations) {
+            if (relation == null || relation.getTaskId() == null) {
+                continue;
+            }
+            WorkflowTaskBinding binding = new WorkflowTaskBinding();
+            binding.setTaskId(relation.getTaskId());
+            binding.setEntry(relation.getIsEntry());
+            binding.setExit(relation.getIsExit());
+            if (StringUtils.hasText(relation.getNodeAttrs())) {
+                try {
+                    binding.setNodeAttrs(objectMapper.readValue(relation.getNodeAttrs(), Map.class));
+                } catch (Exception ignored) {
+                    // ignore malformed node attrs
+                }
+            }
+            bindings.add(binding);
+        }
+        return bindings;
+    }
+
+    private String resolveWorkflowOperator(DataWorkflow workflow, String operator) {
+        if (StringUtils.hasText(operator)) {
+            return operator.trim();
+        }
+        if (workflow != null && StringUtils.hasText(workflow.getUpdatedBy())) {
+            return workflow.getUpdatedBy().trim();
+        }
+        if (workflow != null && StringUtils.hasText(workflow.getCreatedBy())) {
+            return workflow.getCreatedBy().trim();
+        }
+        return "system";
     }
 
     private String toDateTimeText(LocalDateTime value) {

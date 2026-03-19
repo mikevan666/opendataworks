@@ -70,7 +70,7 @@
               :loading="saving"
               @click="saveWorkflow"
             >
-              保存工作流
+              保存草稿
             </el-button>
           </div>
         </div>
@@ -172,7 +172,7 @@ const addTasksToWorkflow = () => {
   selectedLeftTasks.value = []
   leftTableRef.value?.clearSelection()
   
-  ElMessage.success(`已添加 ${addedIds.size} 个任务，请点击"保存工作流"持久化`)
+  ElMessage.success(`已添加 ${addedIds.size} 个任务，发布时会自动保存，也可手动保存草稿`)
 }
 
 const handleRemoveTask = (taskId) => {
@@ -189,7 +189,14 @@ const handleRemoveTask = (taskId) => {
   }
 }
 
-const saveWorkflow = async () => {
+const hasPendingChanges = () => newlyAddedTasks.value.length > 0
+
+const saveWorkflow = async (options = {}) => {
+  const {
+    successMessage = '工作流草稿保存成功',
+    silentSuccess = false,
+    emitUpdate = true
+  } = options
   saving.value = true
   try {
     // Get current workflow details
@@ -230,15 +237,29 @@ const saveWorkflow = async () => {
     // Refresh right table
     rightTableRef.value?.refresh()
     
-    ElMessage.success('工作流保存成功')
-    emit('update')
+    if (!silentSuccess) {
+      ElMessage.success(successMessage)
+    }
+    if (emitUpdate) {
+      emit('update')
+    }
+    return {
+      saved: true,
+      hasPendingChanges: newTaskIds.length > 0
+    }
   } catch (error) {
     console.error('保存工作流失败', error)
     ElMessage.error(error?.response?.data?.message || '保存失败')
+    throw error
   } finally {
     saving.value = false
   }
 }
+
+defineExpose({
+  hasPendingChanges,
+  saveWorkflow
+})
 
 onMounted(() => {
   loadAvailableTasks()
