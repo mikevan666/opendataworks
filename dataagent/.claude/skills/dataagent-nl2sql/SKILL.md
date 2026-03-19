@@ -1,6 +1,7 @@
 ---
 name: dataagent-nl2sql
-description: Use this skill for Chinese natural-language data analysis tasks including statistics, comparison, trend, share, detail lookup, diagnosis, term explanation, SQL examples, and chart-oriented answer planning across MySQL and Doris datasources.
+description: "Use this skill for Chinese intelligent-query and NL2SQL work: answering business data questions, locating tables, routing between MySQL and Doris, generating or executing read-only SQL, checking lineage or datasource metadata, explaining metrics and business terms, and shaping results into table/bar/line/pie outputs. Use it whenever the user asks for 数据问答、取数、统计、对比、趋势、占比、明细、诊断、血缘排查、指标口径、术语解释 or SQL 示例, even if they do not explicitly mention SQL or charts. Do not use it for general chat, write/update/delete operations, or cross-source federated joins."
+compatibility: "Requires DATAAGENT_PYTHON_BIN, DATAAGENT_SKILL_ROOT, ${DATAAGENT_SKILL_ROOT}/bin/odw-cli, ODW_BACKEND_BASE_URL, ODW_AGENT_SERVICE_TOKEN, and host sh+curl."
 ---
 
 # DataAgent NL2SQL Skill
@@ -38,6 +39,12 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 最终回答用中文，先给结论，再给依据，不要复读大段工具原文。
 - 统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，默认只读 `reference/*` 并尽快执行脚本；不要把 `assets/*.json` 当主路径。
 - 命中 `workflow_publish_record`、`data_table`、`data_lineage` 这类平台核心表且口径已明确时，按固定 reference 快路径一次完成脚本调用；拿到第一份口径正确的 `sql_execution` 或 `chart_spec` 后立即收口，不要继续补读资产或重复执行等价 SQL。
+
+## 运行时约束
+
+- 动态 metadata、lineage、datasource 解析统一经 `inspect_metadata.py`、`resolve_datasource.py`、`query_opendataworks_metadata.py` 间接调用 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，再访问 backend agent API。
+- 在任何 metadata 相关脚本调用前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在且可执行。
+- 如果该路径下没有 CLI，立即停止后续步骤，并明确提示用户：必须先自行把 `odw-cli` 安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，skill 不负责下载、恢复或安装依赖。
 
 ## 固定阅读顺序
 
@@ -108,6 +115,8 @@ description: Use this skill for Chinese natural-language data analysis tasks inc
 - 所有本地执行统一走 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`。
 - 只允许使用 skill 包内真实脚本名：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`、`build_reference_digest.py`。
 - 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
+- 不要直接调用 `odw-cli`；metadata CLI 只作为脚本内部实现细节存在，对模型暴露的稳定入口仍然是这些 Python 脚本。
+- metadata 相关脚本执行前先确认 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 存在；如果不存在，先提示用户安装到这个固定路径，不要尝试自动修复。
 - 固定命令模板：
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database <db> --table <table> --keyword <keyword>`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]`

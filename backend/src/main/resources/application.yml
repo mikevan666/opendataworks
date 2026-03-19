@@ -63,3 +63,9 @@ workflow:
   runtime-sync:
     enabled: true
     ingest-mode: export_only
+
+agent:
+  api:
+    service-token: ${AGENT_API_SERVICE_TOKEN:}
+    token-header-name: ${AGENT_API_TOKEN_HEADER_NAME:X-Agent-Service-Token}
+    require-private-network: ${AGENT_API_REQUIRE_PRIVATE_NETWORK:true}

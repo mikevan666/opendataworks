@@ -224,18 +224,16 @@ if [ "$BUILD_BACKEND" = true ]; then
     echo "镜像: $BACKEND_IMAGE:$VERSION"
     echo "平台: $PLATFORMS"
 
-    cd "$REPO_ROOT/backend"
     if docker buildx build $BUILD_ARGS \
         -t $BACKEND_IMAGE:$VERSION \
         -t $BACKEND_IMAGE:latest \
-        --file Dockerfile \
+        --file backend/Dockerfile \
         . ; then
         echo -e "${GREEN}✅ 后端镜像构建成功${NC}"
         ((SUCCESSFUL_BUILDS++))
     else
         echo -e "${RED}❌ 后端镜像构建失败${NC}"
     fi
-    cd "$REPO_ROOT"
     ((TOTAL_BUILDS++))
     echo ""
 fi
@@ -251,7 +249,7 @@ if [ "$BUILD_DATAAGENT_BACKEND" = true ]; then
         -t $DATAAGENT_BACKEND_IMAGE:$VERSION \
         -t $DATAAGENT_BACKEND_IMAGE:latest \
         --file dataagent/dataagent-backend/Dockerfile \
-        dataagent ; then
+        . ; then
         echo -e "${GREEN}✅ DataAgent 后端镜像构建成功${NC}"
         ((SUCCESSFUL_BUILDS++))
     else

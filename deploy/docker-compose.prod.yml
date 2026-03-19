@@ -34,6 +34,9 @@ services:
     restart: always
     env_file:
       - ./.env
+    environment:
+      AGENT_API_SERVICE_TOKEN: ${AGENT_API_SERVICE_TOKEN:-odw-agent-service-token}
+      AGENT_API_REQUIRE_PRIVATE_NETWORK: ${AGENT_API_REQUIRE_PRIVATE_NETWORK:-true}
     # DolphinScheduler 不包含在本 Compose 中，配置请在系统管理界面进行
     ports:
       - "8080:8080"
@@ -92,6 +95,9 @@ services:
       MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-dataagent123}
       MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
       SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
+      ODW_BACKEND_BASE_URL: ${ODW_BACKEND_BASE_URL:-http://backend:8080/api/v1/ai/metadata}
+      ODW_AGENT_SERVICE_TOKEN: ${AGENT_API_SERVICE_TOKEN:-odw-agent-service-token}
+      ODW_BACKEND_TIMEOUT_SECONDS: ${ODW_BACKEND_TIMEOUT_SECONDS:-30}
     ports:
       - "8900:8900"
     depends_on:
@@ -124,6 +130,9 @@ services:
       MYSQL_PASSWORD: ${DATAAGENT_MYSQL_PASSWORD:-dataagent123}
       MYSQL_DATABASE: ${DATAAGENT_MYSQL_DATABASE:-opendataworks}
       SESSION_MYSQL_DATABASE: ${DATAAGENT_SESSION_MYSQL_DATABASE:-dataagent}
+      ODW_BACKEND_BASE_URL: ${ODW_BACKEND_BASE_URL:-http://backend:8080/api/v1/ai/metadata}
+      ODW_AGENT_SERVICE_TOKEN: ${AGENT_API_SERVICE_TOKEN:-odw-agent-service-token}
+      ODW_BACKEND_TIMEOUT_SECONDS: ${ODW_BACKEND_TIMEOUT_SECONDS:-30}
     command: ["sh", "-c", "alembic upgrade head && python worker_main.py"]
     depends_on:
       mysql:

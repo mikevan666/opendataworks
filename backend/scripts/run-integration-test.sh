@@ -4,19 +4,22 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 echo "========================================="
 echo "  DolphinScheduler 集成测试"
 echo "========================================="
 echo ""
 
 # 进入项目目录
-cd "$(dirname "$0")/.."
+cd "$REPO_ROOT"
 
 echo "当前目录: $(pwd)"
 echo ""
 
 echo "1. 检查配置文件..."
-if [ ! -f "src/test/resources/application-test.yml" ]; then
+if [ ! -f "backend/src/test/resources/application-test.yml" ]; then
     echo "✗ 测试配置文件不存在"
     exit 1
 fi
@@ -24,13 +27,13 @@ echo "✓ 测试配置文件存在"
 echo ""
 
 echo "2. 编译项目..."
-mvn clean compile test-compile -DskipTests
+mvn -f pom.xml -pl backend -am clean compile test-compile -DskipTests
 echo "✓ 编译完成"
 echo ""
 
 echo "3. 运行集成测试..."
 echo "========================================="
-mvn test \
+mvn -f pom.xml -pl backend -am test \
     -Dtest=DolphinSchedulerClientIntegrationTest \
     -Dspring.profiles.active=test \
     -Dlogging.level.com.onedata.portal=DEBUG \

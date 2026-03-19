@@ -1,0 +1,223 @@
+#!/bin/sh
+set -eu
+
+BASE_URL="${ODW_BACKEND_BASE_URL:-}"
+SERVICE_TOKEN="${ODW_AGENT_SERVICE_TOKEN:-}"
+TIMEOUT_SECONDS="${ODW_BACKEND_TIMEOUT_SECONDS:-30}"
+TOKEN_HEADER_NAME="${ODW_AGENT_SERVICE_TOKEN_HEADER_NAME:-X-Agent-Service-Token}"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  odw-cli inspect [--database DB] [--table TABLE] [--keyword KEYWORD] [--table-limit N]
+  odw-cli lineage [--table TABLE] [--db-name DB] [--table-id ID] [--depth N]
+  odw-cli resolve-datasource --database DB [--preferred-engine mysql|doris]
+  odw-cli export --kind tables|lineage|datasource [--database DB]
+EOF
+  exit 2
+}
+
+require_env() {
+  name="$1"
+  value="$2"
+  if [ -z "$value" ]; then
+    echo "$name is required" >&2
+    exit 1
+  fi
+}
+
+run_request() {
+  endpoint="$1"
+  shift
+
+  body_file="$(mktemp)"
+  trap 'rm -f "$body_file"' EXIT INT TERM
+
+  http_code="$(curl -sS -o "$body_file" -w '%{http_code}' \
+    -H "Accept: application/json" \
+    -H "${TOKEN_HEADER_NAME}: ${SERVICE_TOKEN}" \
+    --max-time "$TIMEOUT_SECONDS" \
+    -G "${BASE_URL%/}/${endpoint}" \
+    "$@")"
+
+  if [ "${http_code#2}" != "$http_code" ]; then
+    cat "$body_file"
+    rm -f "$body_file"
+    trap - EXIT INT TERM
+    exit 0
+  fi
+
+  if [ -s "$body_file" ]; then
+    cat "$body_file" >&2
+  else
+    echo "backend agent api request failed: HTTP $http_code" >&2
+  fi
+  rm -f "$body_file"
+  trap - EXIT INT TERM
+  exit 1
+}
+
+parse_inspect() {
+  database=""
+  table_name=""
+  keyword=""
+  table_limit=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --database)
+        database="${2:-}"
+        shift 2
+        ;;
+      --table)
+        table_name="${2:-}"
+        shift 2
+        ;;
+      --keyword)
+        keyword="${2:-}"
+        shift 2
+        ;;
+      --table-limit)
+        table_limit="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown inspect arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  set --
+  [ -n "$database" ] && set -- "$@" --data-urlencode "database=$database"
+  [ -n "$table_name" ] && set -- "$@" --data-urlencode "table=$table_name"
+  [ -n "$keyword" ] && set -- "$@" --data-urlencode "keyword=$keyword"
+  [ -n "$table_limit" ] && set -- "$@" --data-urlencode "tableLimit=$table_limit"
+  run_request "inspect" "$@"
+}
+
+parse_lineage() {
+  table_name=""
+  db_name=""
+  table_id=""
+  depth=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --table)
+        table_name="${2:-}"
+        shift 2
+        ;;
+      --db-name)
+        db_name="${2:-}"
+        shift 2
+        ;;
+      --table-id)
+        table_id="${2:-}"
+        shift 2
+        ;;
+      --depth)
+        depth="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown lineage arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  set --
+  [ -n "$table_name" ] && set -- "$@" --data-urlencode "table=$table_name"
+  [ -n "$db_name" ] && set -- "$@" --data-urlencode "dbName=$db_name"
+  [ -n "$table_id" ] && set -- "$@" --data-urlencode "tableId=$table_id"
+  [ -n "$depth" ] && set -- "$@" --data-urlencode "depth=$depth"
+  run_request "lineage" "$@"
+}
+
+parse_resolve_datasource() {
+  database=""
+  preferred_engine=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --database)
+        database="${2:-}"
+        shift 2
+        ;;
+      --preferred-engine|--engine)
+        preferred_engine="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown resolve-datasource arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  if [ -z "$database" ]; then
+    echo "--database is required" >&2
+    usage
+  fi
+
+  set -- --data-urlencode "database=$database"
+  [ -n "$preferred_engine" ] && set -- "$@" --data-urlencode "preferredEngine=$preferred_engine"
+  run_request "datasource/resolve" "$@"
+}
+
+parse_export() {
+  kind=""
+  database=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kind)
+        kind="${2:-}"
+        shift 2
+        ;;
+      --database)
+        database="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown export arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  if [ -z "$kind" ]; then
+    echo "--kind is required" >&2
+    usage
+  fi
+
+  set -- --data-urlencode "kind=$kind"
+  [ -n "$database" ] && set -- "$@" --data-urlencode "database=$database"
+  run_request "export" "$@"
+}
+
+require_env ODW_BACKEND_BASE_URL "$BASE_URL"
+require_env ODW_AGENT_SERVICE_TOKEN "$SERVICE_TOKEN"
+
+subcommand="${1:-}"
+[ -n "$subcommand" ] || usage
+shift || true
+
+case "$subcommand" in
+  inspect)
+    parse_inspect "$@"
+    ;;
+  lineage)
+    parse_lineage "$@"
+    ;;
+  resolve-datasource)
+    parse_resolve_datasource "$@"
+    ;;
+  export)
+    parse_export "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "unknown subcommand: $subcommand" >&2
+    usage
+    ;;
+esac

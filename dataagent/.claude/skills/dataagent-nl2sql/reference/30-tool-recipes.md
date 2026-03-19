@@ -7,6 +7,9 @@
 - 所有命令都直接执行 skill 包内脚本：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 - 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
+- 动态 metadata 的固定实现是：Python 脚本内部优先调用 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，再由 CLI 请求 backend `/api/v1/ai/metadata/*`。
+- 执行任何 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在且可执行。
+- 如果该固定路径缺少 CLI，立即提示用户先自行安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，不要尝试自动下载、恢复或安装。
 - 不要执行 `pip install`、`uv add`、`which python`、`python --version` 这类环境探测或依赖安装命令。
 - 如果脚本报错，优先收敛输入参数或向用户追问，不要切换解释器反复试探。
 - 没有真实 Bash 报错时，不要自行下结论说“缺少依赖”或“环境异常”。

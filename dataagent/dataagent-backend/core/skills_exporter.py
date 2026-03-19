@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""
+Legacy exporter helpers for static skills assets.
+
+当前智能问数主链路的 metadata / lineage / datasource 解析已切到 backend CLI。
+本模块保留给离线导出和历史资产生成，不再是运行时主路径。
+"""
+
 import json
 import re
 from collections import defaultdict

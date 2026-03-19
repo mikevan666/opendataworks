@@ -19,6 +19,9 @@
 
 - 数据源账号密码只在脚本内部使用，不要回写到最终回答。
 - 实际执行时只使用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`，不要自己拼 `/app/scripts/...` 或 `scripts/<name>.py`。
+- 默认运行时下，`inspect_metadata.py`、`resolve_datasource.py`、`query_opendataworks_metadata.py` 会优先通过 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 调 backend agent API 获取动态 metadata。
+- 执行 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在且可执行。
+- 如果该固定路径缺少 CLI，必须先由用户自行安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，然后再执行 metadata 相关脚本。
 - `inspect_metadata.py` 只返回托管业务表命中的客观候选，不负责判断“哪张表最好”。
 - 平台核心表结构已在本页给出，字段明确时可直接写 SQL。
 - `resolve_datasource.py` 只负责确认引擎与数据源元信息。
@@ -60,6 +63,12 @@
   - `cluster_name`, `fe_host`, `fe_port`, `username`, `is_default`, `status`
 - `doris_database_users`
   - `cluster_id`, `database_name`, `readonly_username`, `readwrite_username`, `created_at`
+
+## Backend CLI 环境变量
+
+- `ODW_BACKEND_BASE_URL=http://backend:8080/api/v1/ai/metadata`
+- `ODW_AGENT_SERVICE_TOKEN=<shared-token>`
+- `ODW_BACKEND_TIMEOUT_SECONDS=30`
 
 ## 原始查询示例
 

@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
-
-import pymysql
 
 READ_ONLY_PREFIXES = ("SELECT", "WITH", "SHOW", "DESC", "DESCRIBE", "EXPLAIN")
 
@@ -20,27 +20,15 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
-def odw_schema() -> str:
-    return str(os.getenv("ODW_MYSQL_DATABASE", "opendataworks")).strip() or "opendataworks"
+def skill_root_dir() -> Path:
+    configured = str(os.getenv("DATAAGENT_SKILL_ROOT", "")).strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[1]
 
 
-def connect_odw():
-    return pymysql.connect(
-        host=str(os.getenv("ODW_MYSQL_HOST", "localhost")).strip(),
-        port=env_int("ODW_MYSQL_PORT", 3306),
-        user=str(os.getenv("ODW_MYSQL_USER", "root")).strip(),
-        password=str(os.getenv("ODW_MYSQL_PASSWORD", "")),
-        database=odw_schema(),
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-    )
-
-
-def query_rows(conn, sql: str, params: tuple[Any, ...] | list[Any] | None = None) -> list[dict[str, Any]]:
-    with conn.cursor() as cur:
-        cur.execute(sql, params or [])
-        return list(cur.fetchall() or [])
-
+def metadata_cli_bin() -> str:
+    return str(skill_root_dir() / "bin" / "odw-cli")
 
 def serializable_value(value: Any) -> Any:
     if value is None or isinstance(value, (int, float, str, bool)):
@@ -80,146 +68,67 @@ def ensure_read_only(sql: str):
         raise ValueError("检测到非只读关键字")
 
 
+def call_metadata_cli(subcommand: str, **options: Any) -> Any:
+    command = [metadata_cli_bin(), str(subcommand).strip()]
+    for key, value in options.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        command.extend([f"--{str(key).replace('_', '-')}", text])
+
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"metadata cli 不存在: {metadata_cli_bin()}。请先由用户自行安装到该路径后再重试。"
+        ) from exc
+    except PermissionError as exc:
+        raise RuntimeError(
+            f"metadata cli 不可执行: {metadata_cli_bin()}。请先由用户修正该路径下文件权限后再重试。"
+        ) from exc
+
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(detail or f"metadata cli 执行失败: {' '.join(command[:2])}")
+
+    raw_output = str(completed.stdout or "").strip()
+    if not raw_output:
+        raise RuntimeError("metadata cli 未返回 JSON")
+    try:
+        return json.loads(raw_output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("metadata cli 返回的不是合法 JSON") from exc
+
+
 def resolve_datasource(database: str, preferred_engine: str | None = None) -> dict[str, Any]:
     target_database = str(database or "").strip()
     if not target_database:
         raise ValueError("database 不能为空")
 
-    schema = odw_schema()
-    if target_database == schema:
-        engine = "mysql"
-        if preferred_engine and preferred_engine != engine:
-            raise ValueError(f"database `{target_database}` 与 {preferred_engine} 引擎不匹配")
-        return {
-            "engine": engine,
-            "database": target_database,
-            "host": str(os.getenv("ODW_MYSQL_HOST", "localhost")).strip(),
-            "port": env_int("ODW_MYSQL_PORT", 3306),
-            "user": str(os.getenv("ODW_MYSQL_USER", "root")).strip(),
-            "password": str(os.getenv("ODW_MYSQL_PASSWORD", "")),
-            "source_type": "MYSQL",
-            "cluster_id": None,
-            "cluster_name": "platform-mysql",
-            "resolved_by": "platform_runtime",
-        }
-
-    conn = connect_odw()
-    try:
-        rows = query_rows(
-            conn,
-            """
-            SELECT
-                dt.cluster_id,
-                COALESCE(dc.cluster_name, CONCAT('cluster-', dt.cluster_id)) AS cluster_name,
-                COALESCE(NULLIF(dc.source_type, ''), 'DORIS') AS source_type,
-                dc.fe_host,
-                dc.fe_port,
-                dc.username,
-                dc.password
-            FROM data_table dt
-            INNER JOIN doris_cluster dc ON dc.id = dt.cluster_id
-            WHERE dt.deleted = 0
-              AND dc.deleted = 0
-              AND dt.db_name = %s
-              AND (dt.status IS NULL OR dt.status <> 'deprecated')
-            GROUP BY
-              dt.cluster_id,
-              dc.cluster_name,
-              dc.source_type,
-              dc.fe_host,
-              dc.fe_port,
-              dc.username,
-              dc.password
-            ORDER BY dt.cluster_id ASC
-            LIMIT 2
-            """,
-            (target_database,),
-        )
-        if len(rows) > 1:
-            raise ValueError(f"database `{target_database}` 命中了多个 cluster_id")
-
-        row = dict(rows[0]) if rows else None
-        resolved_by = "data_table"
-
-        if row is None:
-            rows = query_rows(
-                conn,
-                """
-                SELECT
-                    du.cluster_id,
-                    COALESCE(dc.cluster_name, CONCAT('cluster-', du.cluster_id)) AS cluster_name,
-                    COALESCE(NULLIF(dc.source_type, ''), 'DORIS') AS source_type,
-                    dc.fe_host,
-                    dc.fe_port,
-                    dc.username,
-                    dc.password
-                FROM doris_database_users du
-                INNER JOIN doris_cluster dc ON dc.id = du.cluster_id
-                WHERE dc.deleted = 0
-                  AND du.database_name = %s
-                GROUP BY
-                  du.cluster_id,
-                  dc.cluster_name,
-                  dc.source_type,
-                  dc.fe_host,
-                  dc.fe_port,
-                  dc.username,
-                  dc.password
-                ORDER BY du.cluster_id ASC
-                LIMIT 2
-                """,
-                (target_database,),
-            )
-            if len(rows) > 1:
-                raise ValueError(f"database `{target_database}` 在 doris_database_users 中命中了多个 cluster_id")
-            row = dict(rows[0]) if rows else None
-            resolved_by = "doris_database_users"
-
-        if row is None:
-            raise ValueError(f"未在 opendataworks 中找到 database `{target_database}` 的数据源")
-
-        engine = "mysql" if str(row.get("source_type") or "").upper() == "MYSQL" else "doris"
-        if preferred_engine and preferred_engine != engine:
-            raise ValueError(f"database `{target_database}` 与 {preferred_engine} 引擎不匹配")
-
-        user = str(row.get("username") or "").strip()
-        password = str(row.get("password") or "")
-
-        if engine == "doris":
-            readonly_rows = query_rows(
-                conn,
-                """
-                SELECT readonly_username, readonly_password
-                FROM doris_database_users
-                WHERE cluster_id = %s
-                  AND database_name = %s
-                LIMIT 2
-                """,
-                (row.get("cluster_id"), target_database),
-            )
-            if len(readonly_rows) > 1:
-                raise ValueError(f"database `{target_database}` 命中了多个只读账号")
-            if readonly_rows:
-                readonly_user = str(readonly_rows[0].get("readonly_username") or "").strip()
-                if readonly_user:
-                    user = readonly_user
-                    password = str(readonly_rows[0].get("readonly_password") or "")
-                    resolved_by = "readonly_user"
-
-        return {
-            "engine": engine,
-            "database": target_database,
-            "host": str(row.get("fe_host") or "").strip(),
-            "port": int(row.get("fe_port") or (3306 if engine == "mysql" else 9030)),
-            "user": user,
-            "password": password,
-            "source_type": str(row.get("source_type") or ""),
-            "cluster_id": row.get("cluster_id"),
-            "cluster_name": str(row.get("cluster_name") or ""),
-            "resolved_by": resolved_by,
-        }
-    finally:
-        conn.close()
+    payload = call_metadata_cli(
+        "resolve-datasource",
+        database=target_database,
+        preferred_engine=preferred_engine,
+    )
+    return {
+        "engine": payload.get("engine"),
+        "database": payload.get("database"),
+        "host": payload.get("host"),
+        "port": payload.get("port"),
+        "user": payload.get("user"),
+        "password": payload.get("password"),
+        "source_type": payload.get("source_type"),
+        "cluster_id": payload.get("cluster_id"),
+        "cluster_name": payload.get("cluster_name"),
+        "resolved_by": payload.get("resolved_by"),
+    }
 
 
 def load_json_input(raw: str | None = None, file_path: str | None = None) -> Any:

@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+"""
+Legacy static metadata exporter.
+
+当前智能问数运行时默认通过 backend CLI 获取动态 metadata，本脚本仅保留给静态技能资产导出。
+"""
+
 import argparse
 import json
 import os
