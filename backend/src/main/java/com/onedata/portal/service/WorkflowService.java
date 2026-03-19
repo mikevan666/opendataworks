@@ -153,7 +153,7 @@ public class WorkflowService {
             throw new IllegalArgumentException("Workflow not found: " + workflowId);
         }
         if (StringUtils.hasText(workflow.getDefinitionJson())) {
-            return workflow.getDefinitionJson();
+            return sanitizeDefinitionJsonForExport(workflow.getDefinitionJson());
         }
 
         List<WorkflowTaskRelation> relations = workflowTaskRelationMapper.selectList(
@@ -166,7 +166,7 @@ public class WorkflowService {
         String definitionJson = resolveDefinitionJson(workflow, null, bindings, topology);
         workflow.setDefinitionJson(definitionJson);
         dataWorkflowMapper.updateById(workflow);
-        return definitionJson;
+        return sanitizeDefinitionJsonForExport(definitionJson);
     }
 
     private List<WorkflowInstanceCache> resolveRecentInstances(DataWorkflow workflow, int limit) {
@@ -597,6 +597,19 @@ public class WorkflowService {
         }
     }
 
+    private String sanitizeDefinitionJsonForExport(String definitionJson) {
+        if (!StringUtils.hasText(definitionJson)) {
+            return definitionJson;
+        }
+        try {
+            JsonNode rootNode = objectMapper.readTree(definitionJson);
+            removeWorkflowStatusFields(firstPresent(rootNode, "processDefinition", "workflowDefinition", "workflow"));
+            return objectMapper.writeValueAsString(rootNode);
+        } catch (Exception ex) {
+            return definitionJson;
+        }
+    }
+
     private String mergeAndNormalizeDefinitionJson(Map<String, Object> generatedDefinition,
             String persistedDefinitionJson,
             String incomingDefinitionJson) {
@@ -858,6 +871,15 @@ public class WorkflowService {
         return null;
     }
 
+    private void removeWorkflowStatusFields(JsonNode node) {
+        if (!(node instanceof ObjectNode)) {
+            return;
+        }
+        ObjectNode workflowNode = (ObjectNode) node;
+        workflowNode.remove("releaseState");
+        workflowNode.remove("status");
+    }
+
     private String taskCodeKey(JsonNode taskNode) {
         if (taskNode == null || taskNode.isNull() || taskNode.isMissingNode()) {
             return null;
@@ -1021,7 +1043,6 @@ public class WorkflowService {
         node.put("description", workflow.getDescription());
         node.put("globalParams", workflow.getGlobalParams());
         node.put("taskGroupName", workflow.getTaskGroupName());
-        node.put("releaseState", workflow.getStatus());
         node.put("publishStatus", workflow.getPublishStatus());
         return node;
     }

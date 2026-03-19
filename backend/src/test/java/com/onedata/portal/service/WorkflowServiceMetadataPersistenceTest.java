@@ -141,6 +141,8 @@ class WorkflowServiceMetadataPersistenceTest {
         DataWorkflow updated = workflowCaptor.getValue();
         assertNotNull(updated);
 
+        JsonNode root = objectMapper.readTree(updated.getDefinitionJson());
+        assertFalse(root.path("processDefinition").has("releaseState"));
         JsonNode firstTask = firstTaskNode(updated.getDefinitionJson());
         assertEquals("tg_default", firstTask.path("taskGroupName").asText());
         assertEquals(88, firstTask.path("taskGroupId").asInt());
@@ -287,11 +289,30 @@ class WorkflowServiceMetadataPersistenceTest {
 
         ArgumentCaptor<String> snapshotCaptor = ArgumentCaptor.forClass(String.class);
         verify(workflowVersionService).createVersion(any(), snapshotCaptor.capture(), any(), any(), any(), any(), any());
+        JsonNode root = objectMapper.readTree(snapshotCaptor.getValue());
+        assertFalse(root.path("processDefinition").has("releaseState"));
         JsonNode firstTask = firstTaskNode(snapshotCaptor.getValue());
         assertEquals(88, firstTask.path("taskGroupId").asInt());
         JsonNode params = firstTask.path("taskParams");
         assertEquals(999L, params.path("datasourceId").asLong());
         assertEquals(999L, params.path("datasource").asLong());
+    }
+
+    @Test
+    void buildDefinitionJsonForExportShouldStripWorkflowReleaseStateButKeepScheduleState() throws Exception {
+        String persistedDefinitionJson = "{"
+                + "\"processDefinition\":{\"workflowCode\":1001,\"name\":\"wf_meta\",\"releaseState\":\"ONLINE\"},"
+                + "\"schedule\":{\"releaseState\":\"OFFLINE\"},"
+                + "\"taskDefinitionList\":[]"
+                + "}";
+        DataWorkflow workflow = baseWorkflow(persistedDefinitionJson);
+        when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+
+        String exported = service.buildDefinitionJsonForExport(1L);
+
+        JsonNode root = objectMapper.readTree(exported);
+        assertFalse(root.path("processDefinition").has("releaseState"));
+        assertEquals("OFFLINE", root.path("schedule").path("releaseState").asText());
     }
 
     @Test
