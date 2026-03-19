@@ -160,6 +160,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: create-latest-release
+      cancel-in-progress: true
     env:
       RELEASE_TAG: latest
       IMAGE_TAG: latest
