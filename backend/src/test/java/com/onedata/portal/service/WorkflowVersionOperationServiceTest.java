@@ -661,6 +661,67 @@ class WorkflowVersionOperationServiceTest {
     }
 
     @Test
+    void compareShouldIgnoreTaskAndEdgeOrderInRawDiff() {
+        final long workflowId = 34L;
+
+        List<Map<String, Object>> leftTasks = Arrays.asList(
+                taskNode(2L, "load_user", "insert into dwd.user select * from tmp.user", "dwd_ds",
+                        Collections.singletonList(20L), Collections.singletonList(30L)),
+                taskNode(1L, "extract_user", "select id,name from ods.user", "ods_ds",
+                        Collections.singletonList(10L), Collections.singletonList(20L)),
+                taskNode(3L, "agg_user", "insert into ads.user_cnt select count(*) from dwd.user", "ads_ds",
+                        Collections.singletonList(30L), Collections.singletonList(40L))
+        );
+        List<Map<String, Object>> rightTasks = Arrays.asList(
+                taskNode(1L, "extract_user", "select id,name from ods.user", "ods_ds",
+                        Collections.singletonList(10L), Collections.singletonList(20L)),
+                taskNode(3L, "agg_user", "insert into ads.user_cnt select count(*) from dwd.user", "ads_ds",
+                        Collections.singletonList(30L), Collections.singletonList(40L)),
+                taskNode(2L, "load_user", "insert into dwd.user select * from tmp.user", "dwd_ds",
+                        Collections.singletonList(20L), Collections.singletonList(30L))
+        );
+        List<Map<String, Object>> leftEdges = Arrays.asList(edgeNode(2L, 3L), edgeNode(1L, 2L));
+        List<Map<String, Object>> rightEdges = Arrays.asList(edgeNode(1L, 2L), edgeNode(2L, 3L));
+
+        WorkflowVersion v1 = version(351L, workflowId, 1, canonicalSnapshot("wf_order", leftTasks, leftEdges));
+        WorkflowVersion v2 = version(352L, workflowId, 2, canonicalSnapshot("wf_order", rightTasks, rightEdges));
+
+        when(workflowVersionMapper.selectById(351L)).thenReturn(v1);
+        when(workflowVersionMapper.selectById(352L)).thenReturn(v2);
+
+        WorkflowVersionCompareResponse response = compare(workflowId, 351L, 352L);
+        assertFalse(Boolean.TRUE.equals(response.getChanged()), "仅任务/边顺序变化时不应判定为内容变更");
+        assertEquals(0, countRawDiffBodyChanges(response.getRawDiff()),
+                "仅任务/边顺序变化时原始 JSON diff 不应出现增删行");
+    }
+
+    @Test
+    void compareShouldIgnoreWorkflowStatusDiff() {
+        final long workflowId = 35L;
+        Map<String, Object> leftWorkflow = workflowNode("wf_status", "desc", "[]", "tg_alpha");
+        leftWorkflow.put("status", "draft");
+        Map<String, Object> rightWorkflow = workflowNode("wf_status", "desc", "[]", "tg_alpha");
+        rightWorkflow.put("status", "online");
+        List<Map<String, Object>> tasks = Collections.singletonList(
+                taskNode(1L, "extract_user", "select 1", "default_ds",
+                        Collections.singletonList(1L), Collections.singletonList(2L))
+        );
+
+        WorkflowVersion v1 = version(361L, workflowId, 1, canonicalSnapshot(leftWorkflow, tasks, Collections.emptyList(), new LinkedHashMap<>()));
+        WorkflowVersion v2 = version(362L, workflowId, 2, canonicalSnapshot(rightWorkflow, tasks, Collections.emptyList(), new LinkedHashMap<>()));
+
+        when(workflowVersionMapper.selectById(361L)).thenReturn(v1);
+        when(workflowVersionMapper.selectById(362L)).thenReturn(v2);
+
+        WorkflowVersionCompareResponse response = compare(workflowId, 361L, 362L);
+        assertFalse(Boolean.TRUE.equals(response.getChanged()), "仅 workflow.status 变化时不应判定为内容变更");
+        assertFalse(response.getModified().getWorkflowFields().stream().anyMatch(item -> item.contains("workflow.status")),
+                "workflow.status 不应出现在结构化 diff 中");
+        assertEquals(0, countRawDiffBodyChanges(response.getRawDiff()),
+                "仅 workflow.status 变化时原始 JSON diff 不应出现增删行");
+    }
+
+    @Test
     void compareShouldDetectTaskRuntimeMetadataDiffs() {
         final long workflowId = 44L;
         String definitionV1 = metadataDefinitionJson(
@@ -768,6 +829,20 @@ class WorkflowVersionOperationServiceTest {
     private void assertListContains(List<String> values, String expectedPart, String message) {
         assertTrue(values.stream().anyMatch(item -> item.contains(expectedPart)),
                 message + "，实际内容: " + values);
+    }
+
+    private int countRawDiffBodyChanges(String rawDiff) {
+        if (rawDiff == null) {
+            return 0;
+        }
+        int count = 0;
+        for (String line : rawDiff.split("\\R")) {
+            if ((line.startsWith("+") && !line.startsWith("+++"))
+                    || (line.startsWith("-") && !line.startsWith("---"))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private Map<String, Object> taskNode(Long taskId,

@@ -302,7 +302,6 @@ public class WorkflowVersionOperationService {
                 null,
                 Wrappers.<DataWorkflow>lambdaUpdate()
                         .eq(DataWorkflow::getId, workflowId)
-                        .set(DataWorkflow::getStatus, readText(workflowNode, "status", null))
                         .set(DataWorkflow::getPublishStatus, readText(workflowNode, "publishStatus", null))
                         .set(DataWorkflow::getDolphinScheduleId, readLong(scheduleNode, "dolphinScheduleId", null))
                         .set(DataWorkflow::getScheduleState, readText(scheduleNode, "scheduleState", null))
@@ -537,17 +536,19 @@ public class WorkflowVersionOperationService {
         if (version == null) {
             return SnapshotNormalized.empty();
         }
-        return normalizeSnapshotFromDefinitionJson(version, false);
+        return normalizeSnapshotFromDefinitionJson(version, false, false);
     }
 
     private SnapshotNormalized normalizeSnapshotForRollback(WorkflowVersion version) {
         if (version == null) {
             return SnapshotNormalized.empty();
         }
-        return normalizeSnapshotFromDefinitionJson(version, true);
+        return normalizeSnapshotFromDefinitionJson(version, true, false);
     }
 
-    private SnapshotNormalized normalizeSnapshotFromDefinitionJson(WorkflowVersion version, boolean requireTaskId) {
+    private SnapshotNormalized normalizeSnapshotFromDefinitionJson(WorkflowVersion version,
+                                                                  boolean requireTaskId,
+                                                                  boolean includeWorkflowStatus) {
         if (version == null || !StringUtils.hasText(version.getStructureSnapshot())) {
             throw badRequest(WorkflowVersionErrorCodes.VERSION_SNAPSHOT_UNSUPPORTED,
                     "版本定义为空: versionId=" + (version != null ? version.getId() : null));
@@ -574,7 +575,9 @@ public class WorkflowVersionOperationService {
         workflowNode.put("description", firstText(processNode, "description", "desc"));
         workflowNode.put("globalParams", normalizeJsonTextValue(processNode.get("globalParams")));
         workflowNode.put("taskGroupName", firstText(processNode, "taskGroupName"));
-        workflowNode.put("status", firstText(processNode, "releaseState", "status"));
+        if (includeWorkflowStatus) {
+            workflowNode.put("status", firstText(processNode, "releaseState", "status"));
+        }
         workflowNode.put("publishStatus", firstNonBlank(
                 firstText(platformWorkflowMeta, "publishStatus"),
                 firstText(processNode, "publishStatus")));
@@ -689,6 +692,8 @@ public class WorkflowVersionOperationService {
                 edgeNodes.add(edge);
             }
         }
+        sortTaskNodes(taskNodes);
+        sortEdgeNodes(edgeNodes);
 
         Map<String, Object> compareRoot = new LinkedHashMap<>();
         compareRoot.put("workflow", workflowNode);
@@ -707,6 +712,30 @@ public class WorkflowVersionOperationService {
         normalized.setEdges(toEdgeSet(compareRootNode.path("edges")));
         normalized.setRollbackSupported(requireTaskId);
         return normalized;
+    }
+
+    private void sortTaskNodes(List<Map<String, Object>> taskNodes) {
+        if (CollectionUtils.isEmpty(taskNodes)) {
+            return;
+        }
+        taskNodes.sort(Comparator
+                .comparing((Map<String, Object> taskNode) -> asLongObject(taskNode.get("taskId")),
+                        Comparator.nullsLast(Long::compareTo))
+                .thenComparing(taskNode -> asLongObject(taskNode.get("taskCode")),
+                        Comparator.nullsLast(Long::compareTo))
+                .thenComparing(taskNode -> asTextObject(taskNode.get("taskName")),
+                        Comparator.nullsLast(String::compareTo)));
+    }
+
+    private void sortEdgeNodes(List<Map<String, Object>> edgeNodes) {
+        if (CollectionUtils.isEmpty(edgeNodes)) {
+            return;
+        }
+        edgeNodes.sort(Comparator
+                .comparing((Map<String, Object> edgeNode) -> asLongObject(edgeNode.get("upstreamTaskCode")),
+                        Comparator.nullsLast(Long::compareTo))
+                .thenComparing(edgeNode -> asLongObject(edgeNode.get("downstreamTaskCode")),
+                        Comparator.nullsLast(Long::compareTo)));
     }
 
     private void requireV3Version(WorkflowVersion version, String errorCode, String operationName) {
@@ -1151,6 +1180,28 @@ public class WorkflowVersionOperationService {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private Long asLongObject(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String asTextObject(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value);
+        return StringUtils.hasText(text) ? text : null;
     }
 
     private List<Long> toLongList(JsonNode arrayNode) {
