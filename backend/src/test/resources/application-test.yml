@@ -13,3 +13,9 @@ spring:
 logging:
   level:
     com.onedata.portal: DEBUG
+
+agent:
+  api:
+    service-token: test-token
+    token-header-name: X-Agent-Service-Token
+    require-private-network: false

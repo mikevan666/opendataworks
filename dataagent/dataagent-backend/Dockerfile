@@ -6,12 +6,16 @@ ENV HOME=/tmp/dataagent-home
 
 WORKDIR /app/dataagent-backend
 
-COPY dataagent-backend/requirements.txt /tmp/requirements.txt
+COPY dataagent/dataagent-backend/requirements.txt /tmp/requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 RUN mkdir -p /tmp/dataagent-home && chmod 1777 /tmp/dataagent-home
 
-COPY dataagent-backend /app/dataagent-backend
-COPY .claude /app/.claude
+COPY dataagent/dataagent-backend /app/dataagent-backend
+COPY dataagent/.claude /app/.claude
+RUN chmod +x /app/.claude/skills/dataagent-nl2sql/bin/odw-cli
 
 EXPOSE 8900
 

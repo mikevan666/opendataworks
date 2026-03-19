@@ -69,3 +69,6 @@ artifacts/
 
 # Test outputs
 integration-test-results/
+
+# Additional Maven module
+backend-agent-api/target/

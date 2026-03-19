@@ -876,7 +876,10 @@ def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput 
     skills_root = resolve_skills_root_dir()
     existing_path = str(os.getenv("PATH") or "").strip()
     runtime_path = python_dir if not existing_path else f"{python_dir}:{existing_path}"
-    runtime_env = dict(provider_env)
+    # Preserve the current process environment so skill-private env vars can be
+    # wired entirely at deploy/skill layer without being re-modeled here.
+    runtime_env = dict(os.environ)
+    runtime_env.update(provider_env)
     sql_read_timeout = int(getattr(params, "sql_read_timeout_seconds", 0) or 0)
     sql_write_timeout = int(getattr(params, "sql_write_timeout_seconds", 0) or 0)
     runtime_env.update(

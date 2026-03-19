@@ -1,0 +1,23 @@
+package com.onedata.portal.agentapi.service;
+
+import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
+import com.onedata.portal.agentapi.dto.AgentInspectResponse;
+import com.onedata.portal.agentapi.dto.AgentLineageResponse;
+
+import java.util.List;
+import java.util.Map;
+
+public interface AgentMetadataService {
+
+    AgentInspectResponse inspect(String database, String table, String keyword, int tableLimit);
+
+    AgentLineageResponse lineage(String table, String dbName, Long tableId, Integer depth);
+
+    AgentDatasourceResolution resolveDatasource(String database, String preferredEngine);
+
+    List<Map<String, Object>> exportTables(String database);
+
+    List<Map<String, Object>> exportLineage(String database);
+
+    List<Map<String, Object>> exportDatasource(String database);
+}

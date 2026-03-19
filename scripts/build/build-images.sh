@@ -45,9 +45,9 @@ echo "✅ 前端镜像构建完成"
 echo ""
 
 echo "📦 步骤 2/3: 构建后端镜像 (AMD64 架构)..."
-cd "$REPO_ROOT/backend"
-$CONTAINER_CMD build --platform linux/amd64 -t $BACKEND_IMAGE .
-cd "$REPO_ROOT"
+$CONTAINER_CMD build --platform linux/amd64 -t $BACKEND_IMAGE \
+  -f backend/Dockerfile \
+  .
 echo "✅ 后端镜像构建完成"
 echo ""
 
@@ -55,7 +55,7 @@ echo "📦 步骤 3/3: 构建 DataAgent 后端镜像 (AMD64 架构)..."
 cd "$REPO_ROOT"
 $CONTAINER_CMD build --platform linux/amd64 -t $DATAAGENT_BACKEND_IMAGE \
   -f dataagent/dataagent-backend/Dockerfile \
-  dataagent
+  .
 echo "✅ DataAgent 后端镜像构建完成"
 echo ""
 

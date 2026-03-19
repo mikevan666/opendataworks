@@ -33,11 +33,11 @@ jobs:
             dockerfile: ./frontend/Dockerfile
             build_args: ""
           - name: backend
-            context: ./backend
+            context: .
             dockerfile: ./backend/Dockerfile
             build_args: ""
           - name: dataagent-backend
-            context: ./dataagent
+            context: .
             dockerfile: ./dataagent/dataagent-backend/Dockerfile
             build_args: ""
 

@@ -260,7 +260,7 @@ def test_root_runtime_does_not_use_bypass_permissions(monkeypatch, tmp_path: Pat
     assert option_kwargs["allowed_tools"] == ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
 
 
-def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
+def test_runtime_env_keeps_virtualenv_python_path_and_preserves_existing_env(monkeypatch):
     fake_cfg = SimpleNamespace(
         mysql_host="127.0.0.1",
         mysql_port=3306,
@@ -271,12 +271,14 @@ def test_runtime_env_keeps_virtualenv_python_path(monkeypatch):
     )
     monkeypatch.setattr(agent.sys, "executable", "/tmp/project/.venv/bin/python")
     monkeypatch.setattr(agent, "resolve_skills_root_dir", lambda: Path("/tmp/project/.claude/skills/dataagent-nl2sql"))
+    monkeypatch.setenv("CUSTOM_SKILL_PRIVATE_ENV", "skill-private-value")
 
     runtime_env = agent._build_runtime_env(fake_cfg, {})
 
     assert runtime_env["DATAAGENT_PYTHON_BIN"] == "/tmp/project/.venv/bin/python"
     assert runtime_env["VIRTUAL_ENV"] == "/tmp/project/.venv"
     assert runtime_env["DATAAGENT_SKILL_ROOT"] == "/tmp/project/.claude/skills/dataagent-nl2sql"
+    assert runtime_env["CUSTOM_SKILL_PRIVATE_ENV"] == "skill-private-value"
     assert "DATAAGENT_SKILL_BIN" not in runtime_env
 
 

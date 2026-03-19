@@ -3,6 +3,10 @@ from __future__ import annotations
 """
 元数据加载器 — 从 MySQL 读取 data_table / data_field / data_lineage / domain 等
 构建 DDL 文档索引供 Prompt 注入
+
+Legacy note:
+- 当前智能问数主链路已经改为 skill 脚本通过 backend CLI 获取动态 metadata。
+- 本模块保留给旧的静态索引/导出路径，不再是问数运行时主路径。
 """
 
 import logging

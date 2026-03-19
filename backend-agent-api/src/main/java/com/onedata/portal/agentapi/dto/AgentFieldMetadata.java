@@ -1,0 +1,17 @@
+package com.onedata.portal.agentapi.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+@Data
+public class AgentFieldMetadata {
+
+    @JsonProperty("field_name")
+    private String fieldName;
+
+    @JsonProperty("field_type")
+    private String fieldType;
+
+    @JsonProperty("field_comment")
+    private String fieldComment;
+}
