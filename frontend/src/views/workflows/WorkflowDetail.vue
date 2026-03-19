@@ -629,22 +629,29 @@
                     </el-button>
                 </div>
                 <el-table :data="globalParamsList" border size="small" style="width: 100%; margin-top: 10px">
-                    <el-table-column label="变量名 (Prop)" prop="prop" width="200">
+                    <el-table-column label="变量名 (Prop)" prop="prop" width="200" show-overflow-tooltip>
                         <template #default="{ row }">
-                            <el-input v-model="row.prop" placeholder="prop" size="small" />
+                            <el-input v-if="row.__editing" v-model="row.prop" placeholder="prop" size="small" />
+                            <span
+                              v-else
+                              :class="['global-param-display', { 'is-empty': isGlobalParamEmpty(row.prop) }]"
+                            >
+                              {{ formatGlobalParamDisplay(row.prop) }}
+                            </span>
                         </template>
                     </el-table-column>
                     <el-table-column label="方向 (Direct)" prop="direct" width="120">
                         <template #default="{ row }">
-                            <el-select v-model="row.direct" size="small">
+                            <el-select v-if="row.__editing" v-model="row.direct" size="small">
                                 <el-option label="IN" value="IN" />
                                 <el-option label="OUT" value="OUT" />
                             </el-select>
+                            <span v-else class="global-param-display">{{ row.direct || 'IN' }}</span>
                         </template>
                     </el-table-column>
                     <el-table-column label="类型 (Type)" prop="type" width="120">
                         <template #default="{ row }">
-                            <el-select v-model="row.type" size="small">
+                            <el-select v-if="row.__editing" v-model="row.type" size="small">
                                 <el-option label="VARCHAR" value="VARCHAR" />
                                 <el-option label="INTEGER" value="INTEGER" />
                                 <el-option label="LONG" value="LONG" />
@@ -655,18 +662,48 @@
                                 <el-option label="TIMESTAMP" value="TIMESTAMP" />
                                 <el-option label="BOOLEAN" value="BOOLEAN" />
                             </el-select>
+                            <span v-else class="global-param-display">{{ row.type || 'VARCHAR' }}</span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="变量值 (Value)" prop="value">
+                    <el-table-column label="变量值 (Value)" prop="value" show-overflow-tooltip>
                         <template #default="{ row }">
-                            <el-input v-model="row.value" placeholder="value" size="small" />
+                            <el-input v-if="row.__editing" v-model="row.value" placeholder="value" size="small" />
+                            <span
+                              v-else
+                              :class="['global-param-display', { 'is-empty': isGlobalParamEmpty(row.value) }]"
+                            >
+                              {{ formatGlobalParamDisplay(row.value) }}
+                            </span>
                         </template>
                     </el-table-column>
-                    <el-table-column label="操作" width="80" align="center">
-                        <template #default="{ $index }">
-                            <el-button type="danger" link @click="removeGlobalParam($index)">
-                                <el-icon><Delete /></el-icon>
-                            </el-button>
+                    <el-table-column label="操作" width="120" align="center">
+                        <template #default="{ row, $index }">
+                            <div class="global-param-actions">
+                                <template v-if="row.__editing">
+                                    <el-tooltip content="取消编辑" placement="top">
+                                        <el-button link @click="cancelEditGlobalParam(row, $index)">
+                                            <el-icon><Close /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除变量" placement="top">
+                                        <el-button type="danger" link @click="removeGlobalParam($index)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                                <template v-else>
+                                    <el-tooltip content="编辑变量" placement="top">
+                                        <el-button type="primary" link @click="startEditGlobalParam(row)">
+                                            <el-icon><Edit /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除变量" placement="top">
+                                        <el-button type="danger" link @click="removeGlobalParam($index)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                            </div>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -731,7 +768,7 @@
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Link, Delete, Edit, Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, Link, Delete, Edit, Plus, Close } from '@element-plus/icons-vue'
 import { workflowApi } from '@/api/workflow'
 import { taskApi } from '@/api/task'
 import dayjs from 'dayjs'
@@ -1010,6 +1047,43 @@ const taskGroupOptions = ref([])
 const globalParamsList = ref([])
 const savingParams = ref(false)
 
+const cloneGlobalParamCore = (param = {}) => {
+  return {
+    prop: String(param?.prop ?? '').trim(),
+    direct: param?.direct || 'IN',
+    type: param?.type || 'VARCHAR',
+    value: param?.value ?? ''
+  }
+}
+
+const createGlobalParamRow = (param = {}, options = {}) => {
+  return {
+    ...cloneGlobalParamCore(param),
+    __editing: Boolean(options.editing),
+    __isNew: Boolean(options.isNew),
+    __backup: options.backup || null
+  }
+}
+
+const normalizeGlobalParams = (params) => {
+  if (!Array.isArray(params)) {
+    return []
+  }
+  return params.map(item => createGlobalParamRow(item))
+}
+
+const serializeGlobalParams = () => {
+  return globalParamsList.value.map(item => cloneGlobalParamCore(item))
+}
+
+const isGlobalParamEmpty = (value) => {
+  return value === null || value === undefined || value === ''
+}
+
+const formatGlobalParamDisplay = (value) => {
+  return isGlobalParamEmpty(value) ? '-' : String(value)
+}
+
 // Computed workflow task IDs
 const workflowTaskIds = computed(() => {
   const relations = workflow.value?.taskRelations || []
@@ -1249,16 +1323,31 @@ const saveDescriptionField = async () => {
 }
 
 const addGlobalParam = () => {
-    globalParamsList.value.push({
-        prop: '',
-        direct: 'IN',
-        type: 'VARCHAR',
-        value: ''
-    })
+    globalParamsList.value.push(createGlobalParamRow({}, { editing: true, isNew: true }))
 }
 
 const removeGlobalParam = (index) => {
     globalParamsList.value.splice(index, 1)
+}
+
+const startEditGlobalParam = (row) => {
+    if (row.__editing) {
+        return
+    }
+    row.__backup = cloneGlobalParamCore(row)
+    row.__editing = true
+}
+
+const cancelEditGlobalParam = (row, index) => {
+    if (row.__isNew) {
+        removeGlobalParam(index)
+        return
+    }
+    Object.assign(row, createGlobalParamRow(row.__backup || row), {
+        __editing: false,
+        __isNew: false,
+        __backup: null
+    })
 }
 
 const saveGlobalParams = async () => {
@@ -1270,7 +1359,7 @@ const saveGlobalParams = async () => {
             description: wf.description,
             taskGroupName: wf.taskGroupName || null,
             tasks: workflowTaskIds.value.map(taskId => ({ taskId })),
-            globalParams: JSON.stringify(globalParamsList.value),
+            globalParams: JSON.stringify(serializeGlobalParams()),
             operator: 'portal-ui'
         })
         ElMessage.success('全局变量保存成功')
@@ -1309,7 +1398,7 @@ const loadWorkflowDetail = async () => {
     // Parse global params
     if (workflow.value?.workflow?.globalParams) {
         try {
-            globalParamsList.value = JSON.parse(workflow.value.workflow.globalParams)
+            globalParamsList.value = normalizeGlobalParams(JSON.parse(workflow.value.workflow.globalParams))
         } catch (e) {
             console.error('Failed to parse global params', e)
             globalParamsList.value = []
@@ -2349,10 +2438,35 @@ onMounted(() => {
   opacity: 1;
 }
 
+.params-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .edit-field {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+
+.global-param-display {
+  display: inline-block;
+  width: 100%;
+  min-height: 24px;
+  line-height: 24px;
+  color: #303133;
+  word-break: break-all;
+}
+
+.global-param-display.is-empty {
+  color: #909399;
+}
+
+.global-param-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .form-tip {
