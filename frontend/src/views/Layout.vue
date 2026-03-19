@@ -119,9 +119,9 @@ onMounted(() => {
 }
 
 .el-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--odw-nav-bg);
   padding: 0;
-  box-shadow: 0 2px 12px rgba(102, 126, 234, 0.15);
+  box-shadow: var(--odw-shadow-nav);
   position: relative;
   z-index: 100;
 }
@@ -133,12 +133,12 @@ onMounted(() => {
 }
 
 .logo {
-  height: 60px;
+  height: var(--odw-nav-height);
   min-width: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--odw-nav-logo-bg);
   backdrop-filter: blur(10px);
 }
 
@@ -155,7 +155,7 @@ onMounted(() => {
 }
 
 .logo h2 {
-  color: #fff;
+  color: var(--odw-text-on-dark);
   font-size: 20px;
   font-weight: 600;
   margin: 0;
@@ -166,7 +166,7 @@ onMounted(() => {
   margin-left: 12px;
   border: none;
   background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  color: var(--odw-text-on-dark);
 }
 
 .menu {
@@ -180,28 +180,27 @@ onMounted(() => {
 }
 
 .el-menu-item {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--odw-text-on-dark-secondary);
   border-bottom: none;
-  transition: all 0.3s ease;
+  transition: all var(--odw-transition);
   font-weight: 500;
 }
 
 .el-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-  color: #fff !important;
+  background-color: var(--odw-nav-item-hover) !important;
+  color: var(--odw-text-on-dark) !important;
   border-bottom: none;
-  transform: translateY(-2px);
 }
 
 .el-menu-item.is-active {
-  background-color: rgba(255, 255, 255, 0.15) !important;
-  color: #fff !important;
-  border-bottom: 3px solid rgba(255, 255, 255, 0.9);
+  background-color: var(--odw-nav-item-active) !important;
+  color: var(--odw-text-on-dark) !important;
+  border-bottom: 2px solid var(--odw-nav-active-border);
   font-weight: 600;
 }
 
 .el-main {
-  background-color: #f8fafc;
+  background-color: var(--odw-bg-page);
   padding: 4px;
   flex: 1;
   overflow-y: auto;
