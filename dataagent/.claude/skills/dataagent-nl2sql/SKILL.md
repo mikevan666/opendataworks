@@ -1,194 +1,179 @@
 ---
 name: dataagent-nl2sql
 description: "Use this skill for Chinese intelligent-query and NL2SQL work: answering business data questions, locating tables, routing between MySQL and Doris, generating or executing read-only SQL, checking lineage or datasource metadata, explaining metrics and business terms, and shaping results into table/bar/line/pie outputs. Use it whenever the user asks for 数据问答、取数、统计、对比、趋势、占比、明细、诊断、血缘排查、指标口径、术语解释 or SQL 示例, even if they do not explicitly mention SQL or charts. Do not use it for general chat, write/update/delete operations, or cross-source federated joins."
-compatibility: "Requires DATAAGENT_PYTHON_BIN, DATAAGENT_SKILL_ROOT, ${DATAAGENT_SKILL_ROOT}/bin/odw-cli, ODW_BACKEND_BASE_URL, ODW_AGENT_SERVICE_TOKEN, and host sh+curl."
+compatibility: "Requires DATAAGENT_PYTHON_BIN, DATAAGENT_SKILL_ROOT, ${DATAAGENT_SKILL_ROOT}/bin/odw-cli, ODW_BACKEND_BASE_URL, ODW_AGENT_SERVICE_TOKEN, and host sh+curl+pymysql."
+tools: [Bash, Read]
 ---
 
 # DataAgent NL2SQL Skill
 
-## 适用范围
+Convert Chinese natural-language data questions into read-only SQL, execute against MySQL or Doris, and return structured results with optional chart specs.
 
-使用本技能处理以下问题：
+## Scope
 
-- 数据问答、取数、核对
-- 统计分析、对比分析、趋势分析、占比分析
-- 明细查询、排查诊断
-- 术语解释、指标口径解释
-- SQL 示例参考
-- 结果表达为表格、条形图、折线图、饼图
+**Covered scenarios:** 数据问答、取数、统计、对比、趋势、占比、明细、诊断、血缘排查、指标口径、术语解释、SQL 示例
 
-不要把本技能用于以下场景：
+**Out of scope:** general chat, write/update/delete SQL, cross-source federated joins, scenarios where the target table cannot be determined and the user refuses to clarify.
 
-- 非数据类常识问答
-- 需要跨多个数据源联邦 Join 的问题
-- 写入、更新、删除类 SQL
-- 无法确定库表且用户拒绝补充信息的场景
+## Iron Laws
 
-## 工作原则
+1. **ALWAYS** read [`reference/00-skill-map.md`](reference/00-skill-map.md) first, then progressively load references as needed — never bulk-read all assets upfront.
+2. **NEVER** execute `run_sql.py` without first confirming the target database, engine, metrics, and time range.
+3. **ALWAYS** write table names as `<schema>.<table>` in SQL — never omit the schema, and never use engine names (`mysql`/`doris`) as schema.
+4. **NEVER** execute INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, or CREATE statements.
+5. **ALWAYS** include a LIMIT clause on SELECT queries (default 100).
+6. **ALWAYS** ask the user to clarify before guessing when terminology, target table, time range, or comparison dimension is ambiguous.
+7. **NEVER** run `pip install`, `uv add`, `which python`, `python --version`, or any environment probing commands.
+8. **ALWAYS** verify `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` exists before calling any metadata script — if missing, stop and tell the user to install it.
+9. **ALWAYS** respond in Chinese: conclusion first, then evidence. Never echo back raw tool output verbatim.
+10. **ALWAYS** stop after the first correct `sql_execution` or `chart_spec` — do not re-execute equivalent SQL or continue reading assets.
 
-- 先看地图，再看场景，再决定是否下钻资产或执行脚本。
-- 每次问题最终只落到一个数据源执行，不做跨源联查。
-- 无法唯一确定术语、指标、数据库、表或时间口径时，先追问。
-- 数据库一旦明确，SQL 中表名必须写成 `<schema>.<table>`；不要省略 schema，也不要把 `mysql` / `doris` 这类引擎名当成 schema。
-- `resolve_datasource.py` 返回的 `engine` 只表示执行引擎；真正写 SQL 时使用 metadata 返回的 `db_name` / schema 作为库名前缀。
-- Doris 数仓表若命名体现 `df` 快照含义，默认按每日全量快照理解；除非用户明确要求历史区间或归因分析，否则优先只查最新 `ds` 分区。
-- Doris 数仓表若命名体现 `di` 增量含义，默认按每日增量表理解；这类表必须带时间范围过滤，不能只查最新 `ds`，也不能无条件扫全表。
-- 图表不是必选项；不适合图表时只输出表格。
-- SQL 必须只读，且保留行数保护。
-- 工具层只做检索、执行和客观过滤，不做候选表推荐、打分或排序；选表逻辑留给模型根据 reference 和脚本返回自己判断。
-- 最终回答用中文，先给结论，再给依据，不要复读大段工具原文。
-- 统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，默认只读 `reference/*` 并尽快执行脚本；不要把 `assets/*.json` 当主路径。
-- 命中 `workflow_publish_record`、`data_table`、`data_lineage` 这类平台核心表且口径已明确时，按固定 reference 快路径一次完成脚本调用；拿到第一份口径正确的 `sql_execution` 或 `chart_spec` 后立即收口，不要继续补读资产或重复执行等价 SQL。
+## Anti-Patterns
 
-## 运行时约束
+| Anti-Pattern | Why It Fails | Correct Approach |
+|---|---|---|
+| Bulk-reading `assets/*.json` at the start | Wastes tokens, ignores progressive disclosure | Follow the fixed reading order; only drill into assets when references are insufficient |
+| Using `mysql` or `doris` as SQL schema | Engine type is not a database name | Use metadata-returned `db_name` as the schema prefix |
+| Running `run_sql.py` without database confirmation | Generates blind-guess SQL | Route through `inspect_metadata.py` → `resolve_datasource.py` first for managed tables |
+| Querying Doris `di` table without time range | Full-table scan on incremental data | Always require explicit `ds BETWEEN ... AND ...` for `di` tables |
+| Querying Doris `df` table across full history | Unnecessary data scan on snapshot tables | Default to latest `ds` partition unless user explicitly requests historical range |
+| Retrying with different interpreters on script error | Probes the environment instead of fixing the input | Diagnose from the actual error message; adjust parameters or ask the user |
+| Generating chart when data is unsuitable | Forces visual output on 1-row or text results | Only produce `chart_spec` when the data structure genuinely fits a chart |
+| Re-executing equivalent SQL after getting results | Wastes resources and confuses the answer | Stop after the first correct result |
 
-- 动态 metadata、lineage、datasource 解析统一经 `inspect_metadata.py`、`resolve_datasource.py`、`query_opendataworks_metadata.py` 间接调用 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，再访问 backend agent API。
-- 在任何 metadata 相关脚本调用前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在且可执行。
-- 如果该路径下没有 CLI，立即停止后续步骤，并明确提示用户：必须先自行把 `odw-cli` 安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，skill 不负责下载、恢复或安装依赖。
+## Fixed Reading Order
 
-## 固定阅读顺序
+Process any question in this order; stop as soon as sufficient context is gathered:
 
-处理任何问题时，按下面顺序决定是否继续阅读：
+1. Read [`reference/00-skill-map.md`](reference/00-skill-map.md) — classify the question type and execution path
+2. Read [`reference/10-query-playbooks.md`](reference/10-query-playbooks.md) — match the concrete playbook
+3. If datasource routing is unclear → [`reference/11-datasource-routing.md`](reference/11-datasource-routing.md)
+4. If business semantics are unclear → [`reference/20-term-index.md`](reference/20-term-index.md), [`reference/21-metric-index.md`](reference/21-metric-index.md), [`reference/22-sql-example-index.md`](reference/22-sql-example-index.md)
+5. If script usage details are unclear → [`reference/30-tool-recipes.md`](reference/30-tool-recipes.md), [`reference/40-runtime-metadata.md`](reference/40-runtime-metadata.md), [`reference/50-tool-output-contract.md`](reference/50-tool-output-contract.md)
+6. Only when all references above are insufficient → drill into `assets/*` or execute `scripts/*`
 
-1. 阅读 [`reference/00-skill-map.md`](reference/00-skill-map.md)
-2. 阅读 [`reference/10-query-playbooks.md`](reference/10-query-playbooks.md)
-3. 若缺少数据源判断，再读 [`reference/11-datasource-routing.md`](reference/11-datasource-routing.md)
-4. 若缺少业务语义，再按需读：
-   - [`reference/20-term-index.md`](reference/20-term-index.md)
-   - [`reference/21-metric-index.md`](reference/21-metric-index.md)
-   - [`reference/22-sql-example-index.md`](reference/22-sql-example-index.md)
-5. 若缺少脚本和动态查询细节，再按需读：
-   - [`reference/30-tool-recipes.md`](reference/30-tool-recipes.md)
-   - [`reference/40-runtime-metadata.md`](reference/40-runtime-metadata.md)
-   - [`reference/50-tool-output-contract.md`](reference/50-tool-output-contract.md)
-6. 只有上述文档仍不足以消除具体疑问时，才下钻 `assets/*` 或执行 `scripts/*`
+## Fixed Execution Order
 
-禁止一开始就通读大段 JSON 资产。
+### Step A: Classify the Question
 
-## 固定执行顺序
+Assign one primary type: 统计 | 对比 | 趋势 | 占比 | 明细 | 诊断 | 术语解释 | SQL 示例
 
-### A. 先判问题类型
+If a question spans multiple types, identify the primary goal first, then supplement.
 
-优先把问题归到以下一种主类型：
+### Step B: Determine Whether to Ask for Clarification
 
-- 统计
-- 对比
-- 趋势
-- 占比
-- 明细
-- 诊断
-- 术语解释
-- SQL 示例
+Ask before guessing when any of these apply:
 
-如果一个问题同时包含多个目标，先识别主目标，再补次目标。
+- Terminology ambiguity (数据层级, 发布状态, 任务依赖, Doris 只读账号)
+- Target database or table is not unique
+- Time range or granularity is unspecified
+- User says "对比" without specifying the comparison dimension
+- User says "趋势" without specifying the metric
+- User says "环境" without clarifying `env_name` vs. data-center name vs. CFC environment name
+- Doris `df` table but unclear whether to query latest snapshot or historical range
+- Doris `di` table but no time range provided
 
-### B. 再判是否需要追问
+### Step C: Execute Scripts
 
-出现以下任一情况时，先追问，不要猜：
+Follow this script pipeline:
 
-- 数据层级、发布状态、任务依赖、Doris 只读账号等术语口径不清
-- 目标数据库或目标表不唯一
-- 时间范围或时间粒度不清
-- 用户要“对比”，但未说明对比维度
-- 用户要“趋势”，但未说明指标
-- 用户说“环境名称”或“环境”，但未明确是业务 `env_name`、数据中心名称还是 CFC 环境名称
-- Doris 业务表可能是 `df` 快照表，但用户没有说明要最新快照还是历史区间
-- Doris 业务表可能是 `di` 增量表，但用户没有说明时间范围
+1. **Terminology unclear** → consult `reference/20-*`, `21-*`, `22-*`
+2. **Platform core table with known fields** → directly execute `run_sql.py` against `opendataworks` MySQL
+3. **Managed business table, fields unclear** → `inspect_metadata.py` first
+4. **Engine unclear** → `resolve_datasource.py`
+5. **SQL confirmed** → `run_sql.py`
+6. **Result suits a chart** → `build_chart_spec.py` with explicit `--chart-type bar|line|pie`
+7. **User explicitly wants standalone table** → `build_chart_spec.py --chart-type table`
+8. **Need summary** → `format_answer.py`
 
-### C. 再决定是否执行脚本
+Do not execute `run_sql.py` without confirmed database, metrics, and dimensions.
 
-脚本顺序遵循以下原则：
+### Step D: Script Execution Rules
 
-1. 术语不清：先看 `20/21/22`
-2. 问题明确指向 `opendataworks` 平台核心表且字段已知：可直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"`
-3. 表字段不清或目标表是托管业务表：先用 `inspect_metadata.py`
-4. 数据源不清：再用 `resolve_datasource.py`
-5. SQL 明确后：再用 `run_sql.py`
-6. 结果适合图表：再用 `build_chart_spec.py`，并显式传入 `--chart-type bar|line|pie`
-7. 用户明确要独立表格而不是图表时，才用 `build_chart_spec.py --chart-type table`
-7. 需要压缩总结：再用 `format_answer.py`
+All scripts execute via: `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 
-不要在没明确数据库、指标、维度前直接执行 `run_sql.py`。
+Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
 
-### D. 脚本执行规范
+Command templates:
 
-- 所有本地执行统一走 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`。
-- 只允许使用 skill 包内真实脚本名：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`、`build_reference_digest.py`。
-- 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
-- 不要直接调用 `odw-cli`；metadata CLI 只作为脚本内部实现细节存在，对模型暴露的稳定入口仍然是这些 Python 脚本。
-- metadata 相关脚本执行前先确认 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 存在；如果不存在，先提示用户安装到这个固定路径，不要尝试自动修复。
-- 固定命令模板：
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database <db> --table <table> --keyword <keyword>`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/format_answer.py" --input '<sql_execution_json>'`
-- `--database` / `db_name` / schema 是真实数据库名；`--engine` 只允许 `mysql|doris`，两者不能混用。
-- SQL 编写规则：平台核心表写 `opendataworks.<table>`；托管业务表写 `<db_name>.<table>`。
-- Doris `df` 表默认优先过滤最新 `ds`；Doris `di` 表默认必须显式写时间范围，优先使用 `ds BETWEEN ... AND ...`。
-- 业务环境默认优先理解为字段 `env_name`，常见值 `PROD` / `SIM`；不要与数据中心名称（如 `tz`、`simcx`）或 CFC 环境名称（如 `prod`、`sim`、`oasj`）混用。
-- 不要执行 `pip install`、`uv add`、`which python`、`python --version` 等环境探测或依赖安装命令。
-- 若脚本返回错误，直接根据错误内容追问或收敛，不要反复试探解释器和依赖。
-- 只有 Bash 的真实返回明确报错时，才能说“缺少依赖”或“环境异常”；没有实际脚本输出就不要自行判断运行环境有问题。
-- 执行脚本前先阅读对应 `reference/*`，不要一边试脚本一边回头补读大量文档。
-- 对统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，第一条实际动作应是明确的脚本调用或追问，而不是继续读取 `assets/*.json`。
-- 对统计 / 对比 / 趋势 / 占比 / 明细 / 诊断问题，只要脚本参数已清楚，就必须真实执行脚本；不要只依据 reference 文档直接给最终 SQL 或结论。
+```bash
+# Metadata inspection
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database <db> --table <table> --keyword <keyword>
 
-## 多数据源约束
+# Datasource resolution
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]
 
-- `data_table`、`data_field`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这些平台核心表属于 MySQL 路径。
-- 业务分析表可能落到 MySQL 或 Doris，必须先做单源路由。
-- 同一轮回答内，如果候选表分属不同引擎或不同数据库，先追问用户缩小范围。
+# SQL execution
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"
 
-## 图表约束
+# Chart generation
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'
 
-- 表格：默认保底输出
-- 条形图：分类对比、TopN、排序展示
-- 折线图：时间趋势
-- 饼图：类别数较少的占比分析
-- 独立表格：只有用户明确要表格卡面时才输出 `chart_type=table`
-- 生成图表时不要把类型判断完全交给脚本猜；对比明确传 `--chart-type bar`，趋势传 `--chart-type line`，占比传 `--chart-type pie`
+# Answer formatting
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/format_answer.py" --input '<sql_execution_json>'
+```
 
-图表是否生成，由场景和结果结构共同决定；不要为了“看起来丰富”而强行出图。
+Prohibitions:
+- Never fabricate script paths or names (no `/app/scripts/...`, no bare `scripts/<name>.py`)
+- Never call `odw-cli` directly — it is an internal implementation detail of the Python scripts
+- Never run environment probing commands (`pip install`, `which python`, etc.)
+- If a script returns an error, diagnose from the error output — do not blindly retry with different interpreters
+- Read the corresponding `reference/*` before executing a script — do not interleave reading and executing
+- For 统计/对比/趋势/占比/明细/诊断 questions, the first real action must be a concrete script call or a clarifying question — not reading `assets/*.json`
+- Once script parameters are clear, always execute the script — do not skip execution and give SQL conclusions based solely on references
 
-## 资产与脚本入口
+## Multi-Datasource Constraints
 
-### 主要文档
+- Platform core tables (`data_table`, `data_field`, `data_lineage`, `data_task`, `data_workflow`, `workflow_*`, `doris_*`) → always MySQL via `opendataworks`
+- Managed business tables may be on MySQL or Doris — always do single-source routing first
+- If candidate tables span different engines or databases within the same answer, ask the user to narrow scope
 
-- [`reference/00-skill-map.md`](reference/00-skill-map.md)
-- [`reference/10-query-playbooks.md`](reference/10-query-playbooks.md)
-- [`reference/11-datasource-routing.md`](reference/11-datasource-routing.md)
-- [`reference/20-term-index.md`](reference/20-term-index.md)
-- [`reference/21-metric-index.md`](reference/21-metric-index.md)
-- [`reference/22-sql-example-index.md`](reference/22-sql-example-index.md)
-- [`reference/30-tool-recipes.md`](reference/30-tool-recipes.md)
-- [`reference/40-runtime-metadata.md`](reference/40-runtime-metadata.md)
-- [`reference/50-tool-output-contract.md`](reference/50-tool-output-contract.md)
+## Chart Constraints
 
-### 脚本
+| Chart Type | When to Use | Explicit Flag |
+|---|---|---|
+| Table | Default fallback; always safe | `--chart-type table` (only when user explicitly requests standalone table) |
+| Bar | Category comparison, TopN, ranking | `--chart-type bar` |
+| Line | Time-series trends | `--chart-type line` |
+| Pie | Proportional analysis with 2–8 categories | `--chart-type pie` |
 
-- [`scripts/inspect_metadata.py`](scripts/inspect_metadata.py)
-- [`scripts/resolve_datasource.py`](scripts/resolve_datasource.py)
-- [`scripts/run_sql.py`](scripts/run_sql.py)
-- [`scripts/build_chart_spec.py`](scripts/build_chart_spec.py)
-- [`scripts/format_answer.py`](scripts/format_answer.py)
-- [`scripts/build_reference_digest.py`](scripts/build_reference_digest.py)
+Do not generate `chart_spec` when data is unsuitable for visualization — retain `sql_execution` only. Always pass explicit `--chart-type` — never let the script auto-guess.
 
-### 结构化资产
+## Assets & Scripts Reference
 
-- `assets/term_explanations.json`
-- `assets/sql_examples.json`
-- `assets/metrics.json`
-- `assets/business_concepts.json`
-- `assets/semantic_mappings.json`
-- `assets/business_rules.json`
-- `assets/few_shots.json`
+### Reference Documents
+
+- [`reference/00-skill-map.md`](reference/00-skill-map.md) — question type → execution path mapping
+- [`reference/10-query-playbooks.md`](reference/10-query-playbooks.md) — concrete playbooks per question type
+- [`reference/11-datasource-routing.md`](reference/11-datasource-routing.md) — MySQL vs. Doris routing rules
+- [`reference/20-term-index.md`](reference/20-term-index.md) — business term glossary
+- [`reference/21-metric-index.md`](reference/21-metric-index.md) — metric formulas and constraints
+- [`reference/22-sql-example-index.md`](reference/22-sql-example-index.md) — SQL templates by scenario
+- [`reference/30-tool-recipes.md`](reference/30-tool-recipes.md) — detailed script usage recipes
+- [`reference/40-runtime-metadata.md`](reference/40-runtime-metadata.md) — core table schema and runtime details
+- [`reference/50-tool-output-contract.md`](reference/50-tool-output-contract.md) — output format contracts
+
+### Scripts
+
+- [`scripts/inspect_metadata.py`](scripts/inspect_metadata.py) — locate managed business tables
+- [`scripts/resolve_datasource.py`](scripts/resolve_datasource.py) — resolve engine and datasource
+- [`scripts/run_sql.py`](scripts/run_sql.py) — execute read-only SQL
+- [`scripts/build_chart_spec.py`](scripts/build_chart_spec.py) — generate chart spec from SQL results
+- [`scripts/format_answer.py`](scripts/format_answer.py) — summarize results for final answer
+- [`scripts/query_opendataworks_metadata.py`](scripts/query_opendataworks_metadata.py) — export platform metadata
+- [`scripts/build_reference_digest.py`](scripts/build_reference_digest.py) — regenerate reference index files from assets
+
+### Structured Assets
+
+- `assets/term_explanations.json`, `assets/business_concepts.json`, `assets/semantic_mappings.json`
+- `assets/metrics.json`, `assets/business_rules.json`, `assets/constraints.json`
+- `assets/sql_examples.json`, `assets/few_shots.json`
 - `assets/chart-template/*.json`
 
-## 最终回答要求
+## Final Answer Requirements
 
-- 先回答用户问题，再补充方法和限制
-- 若已经执行查询，优先引用结构化结果，不重复堆原文
-- 若只是术语解释或 SQL 示例问题，可不执行 SQL
-- 若没有足够信息完成问数，明确说明缺什么，并提出最小追问
-- 不要把读文档、找脚本、准备执行等内部步骤写进最终回答
+- Lead with the conclusion, then provide supporting evidence
+- If a query was executed, cite the structured result — do not repeat raw tool output
+- For pure terminology or SQL example questions, SQL execution is not required
+- If information is insufficient, state what is missing and ask a minimal clarifying question
+- Never expose internal steps (reading docs, locating scripts, preparing execution) in the final answer
