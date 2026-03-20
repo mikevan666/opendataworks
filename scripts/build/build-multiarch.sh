@@ -32,6 +32,7 @@ PUSH=false
 BUILD_FRONTEND=true
 BUILD_BACKEND=true
 BUILD_DATAAGENT_BACKEND=true
+BUILD_PORTAL_MCP=true
 
 usage() {
     echo "用法: $0 [选项]"
@@ -45,6 +46,7 @@ usage() {
     echo "  --no-frontend           跳过前端镜像构建"
     echo "  --no-backend            跳过后端镜像构建"
     echo "  --no-dataagent-backend  跳过 DataAgent 后端镜像构建"
+    echo "  --no-portal-mcp         跳过 Portal MCP 镜像构建"
     echo "  --platform PLATFORMS    目标平台 (默认: linux/amd64,linux/arm64)"
     echo "  -h, --help              显示此帮助信息"
     echo ""
@@ -89,6 +91,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-dataagent-backend)
             BUILD_DATAAGENT_BACKEND=false
+            shift
+            ;;
+        --no-portal-mcp)
+            BUILD_PORTAL_MCP=false
             shift
             ;;
         --platform)
@@ -164,6 +170,7 @@ fi
 FRONTEND_IMAGE="$DEFAULT_NAMESPACE/opendataworks-frontend"
 BACKEND_IMAGE="$DEFAULT_NAMESPACE/opendataworks-backend"
 DATAAGENT_BACKEND_IMAGE="$DEFAULT_NAMESPACE/opendataworks-dataagent-backend"
+PORTAL_MCP_IMAGE="$DEFAULT_NAMESPACE/opendataworks-portal-mcp"
 
 # 构建参数
 BUILD_ARGS="--platform=$PLATFORMS"
@@ -189,6 +196,7 @@ echo "推送镜像:   $PUSH"
 echo "构建前端:   $BUILD_FRONTEND"
 echo "构建后端:   $BUILD_BACKEND"
 echo "构建 DataAgent 后端: $BUILD_DATAAGENT_BACKEND"
+echo "构建 Portal MCP: $BUILD_PORTAL_MCP"
 echo "========================================="
 echo ""
 
@@ -259,6 +267,26 @@ if [ "$BUILD_DATAAGENT_BACKEND" = true ]; then
     echo ""
 fi
 
+if [ "$BUILD_PORTAL_MCP" = true ]; then
+    echo -e "${YELLOW}📦 构建 Portal MCP 镜像...${NC}"
+    echo "镜像: $PORTAL_MCP_IMAGE:$VERSION"
+    echo "平台: $PLATFORMS"
+
+    cd "$REPO_ROOT"
+    if docker buildx build $BUILD_ARGS \
+        -t $PORTAL_MCP_IMAGE:$VERSION \
+        -t $PORTAL_MCP_IMAGE:latest \
+        --file dataagent/portal-mcp/Dockerfile \
+        . ; then
+        echo -e "${GREEN}✅ Portal MCP 镜像构建成功${NC}"
+        ((SUCCESSFUL_BUILDS++))
+    else
+        echo -e "${RED}❌ Portal MCP 镜像构建失败${NC}"
+    fi
+    ((TOTAL_BUILDS++))
+    echo ""
+fi
+
 # 总结
 echo "========================================="
 echo "  构建完成"
@@ -275,11 +303,13 @@ if [ $SUCCESSFUL_BUILDS -eq $TOTAL_BUILDS ]; then
         [ "$BUILD_FRONTEND" = true ] && echo "  - $FRONTEND_IMAGE:$VERSION"
         [ "$BUILD_BACKEND" = true ] && echo "  - $BACKEND_IMAGE:$VERSION"
         [ "$BUILD_DATAAGENT_BACKEND" = true ] && echo "  - $DATAAGENT_BACKEND_IMAGE:$VERSION"
+        [ "$BUILD_PORTAL_MCP" = true ] && echo "  - $PORTAL_MCP_IMAGE:$VERSION"
         echo ""
         echo "📝 拉取镜像命令:"
         [ "$BUILD_FRONTEND" = true ] && echo "  docker pull $FRONTEND_IMAGE:$VERSION"
         [ "$BUILD_BACKEND" = true ] && echo "  docker pull $BACKEND_IMAGE:$VERSION"
         [ "$BUILD_DATAAGENT_BACKEND" = true ] && echo "  docker pull $DATAAGENT_BACKEND_IMAGE:$VERSION"
+        [ "$BUILD_PORTAL_MCP" = true ] && echo "  docker pull $PORTAL_MCP_IMAGE:$VERSION"
     else
         echo "ℹ️  镜像已构建到本地 Docker 镜像仓库"
         echo ""

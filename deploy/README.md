@@ -43,12 +43,15 @@ Use this method if you have internet access and are deploying directly from the 
    DataAgent 默认地址：
    - 主前端智能问数入口: `http://localhost:8081/intelligent-query`
    - DataAgent Backend: `http://localhost:8900`
+   - Portal MCP Health: `http://localhost:8801/health`
+   - Portal MCP Streamable HTTP: `http://localhost:8801/mcp`
    - 大模型供应商、Token 与候选模型请在主前端配置页中维护，后端保存到 DataAgent 配置存储
    - 可直接编辑挂载文件后生效：
      - `dataagent/.claude/skills/`（Skills 目录）
      - 动态元数据查询示例在 skill 的 `references/` / `scripts/` 中，不再由后端同步生成 metadata 快照
    - DataAgent 默认通过 skill 自带的 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/metadata/*` 只读接口获取 metadata / lineage / datasource 解析；需保证 `AGENT_API_SERVICE_TOKEN` 在 backend 与 DataAgent 容器中一致
    - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
+   - `portal-mcp` 是新增复用入口，默认通过 `X-Portal-MCP-Token` 访问；它调用 backend `/api/v1/ai/metadata/*` 与 `/api/v1/ai/query/read`，但不会替代现有 NL2SQL skill 主链路
    - 主前端默认通过同源 `/api` 代理访问 DataAgent 后端，无需额外配置前端地址
 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
@@ -95,11 +98,14 @@ Use this method for isolated environments without internet access. You will use 
    DataAgent 默认地址：
    - 主前端智能问数入口: `http://localhost:8081/intelligent-query`
    - DataAgent Backend: `http://localhost:8900`
+   - Portal MCP Health: `http://localhost:8801/health`
+   - Portal MCP Streamable HTTP: `http://localhost:8801/mcp`
    - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑
    - 大模型供应商、Token 与候选模型仍通过主前端配置页管理
    - 动态元数据查询示例保留在 skill 的 `references/` / `scripts/` 中
    - DataAgent 默认通过 skill 自带的 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/metadata/*` 只读接口获取 metadata / lineage / datasource 解析；需保证 `AGENT_API_SERVICE_TOKEN` 在 backend 与 DataAgent 容器中一致
    - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
+   - `portal-mcp` 作为独立远程 MCP 服务一并部署，客户端需带 `X-Portal-MCP-Token`
 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
    >

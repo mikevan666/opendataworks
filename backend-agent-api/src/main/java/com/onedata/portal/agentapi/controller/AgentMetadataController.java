@@ -3,6 +3,7 @@ package com.onedata.portal.agentapi.controller;
 import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
 import com.onedata.portal.agentapi.dto.AgentLineageResponse;
+import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 import com.onedata.portal.agentapi.service.AgentMetadataService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +45,14 @@ public class AgentMetadataController {
             @RequestParam String database,
             @RequestParam(required = false) String preferredEngine) {
         return agentMetadataService.resolveDatasource(database, preferredEngine);
+    }
+
+    @GetMapping("/ddl")
+    public AgentTableDdlResponse ddl(
+            @RequestParam(required = false) String database,
+            @RequestParam(required = false) String table,
+            @RequestParam(required = false) Long tableId) {
+        return agentMetadataService.ddl(database, table, tableId);
     }
 
     @GetMapping("/export")

@@ -3,6 +3,7 @@ package com.onedata.portal.agentapi.service;
 import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
 import com.onedata.portal.agentapi.dto.AgentLineageResponse;
+import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,8 @@ public interface AgentMetadataService {
     AgentLineageResponse lineage(String table, String dbName, Long tableId, Integer depth);
 
     AgentDatasourceResolution resolveDatasource(String database, String preferredEngine);
+
+    AgentTableDdlResponse ddl(String database, String table, Long tableId);
 
     List<Map<String, Object>> exportTables(String database);
 

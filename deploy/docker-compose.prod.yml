@@ -144,6 +144,35 @@ services:
     volumes:
       - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
 
+  portal-mcp:
+    image: ${OPENDATAWORKS_PORTAL_MCP_IMAGE:-mikefan2019/opendataworks-portal-mcp:0.9.0}
+    container_name: opendataworks-portal-mcp
+    restart: always
+    env_file:
+      - ./.env
+    environment:
+      PORTAL_MCP_HOST: 0.0.0.0
+      PORTAL_MCP_PORT: 8801
+      PORTAL_MCP_MOUNT_PATH: ${PORTAL_MCP_MOUNT_PATH:-/mcp}
+      PORTAL_MCP_BACKEND_BASE_URL: ${PORTAL_MCP_BACKEND_BASE_URL:-http://backend:8080/api}
+      PORTAL_MCP_BACKEND_SERVICE_TOKEN: ${AGENT_API_SERVICE_TOKEN:-odw-agent-service-token}
+      PORTAL_MCP_BACKEND_TIMEOUT_SECONDS: ${PORTAL_MCP_BACKEND_TIMEOUT_SECONDS:-30}
+      PORTAL_MCP_FRONTDOOR_TOKEN: ${PORTAL_MCP_FRONTDOOR_TOKEN:-odw-portal-mcp-token}
+      PORTAL_MCP_FRONTDOOR_TOKEN_HEADER_NAME: ${PORTAL_MCP_FRONTDOOR_TOKEN_HEADER_NAME:-X-Portal-MCP-Token}
+    ports:
+      - "8801:8801"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - opendataworks-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8801/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 networks:
   opendataworks-network:
     driver: bridge

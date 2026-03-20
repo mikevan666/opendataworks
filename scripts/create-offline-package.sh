@@ -201,6 +201,8 @@ rewrite_offline_env_file() {
         -e "s|^OPENDATAWORKS_FRONTEND_IMAGE=.*|OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}|" \
         -e "s|^# *OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=.*|OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}|" \
         -e "s|^OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=.*|OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}|" \
+        -e "s|^# *OPENDATAWORKS_PORTAL_MCP_IMAGE=.*|OPENDATAWORKS_PORTAL_MCP_IMAGE=opendataworks-portal-mcp:${PARSER_TAG}|" \
+        -e "s|^OPENDATAWORKS_PORTAL_MCP_IMAGE=.*|OPENDATAWORKS_PORTAL_MCP_IMAGE=opendataworks-portal-mcp:${PARSER_TAG}|" \
         -e "s|^DATAAGENT_LLM_JSON_FILE=.*|DATAAGENT_LLM_JSON_FILE=./dataagent-runtime/settings.json|" \
         -e "s|^DATAAGENT_SKILLS_DIR=.*|DATAAGENT_SKILLS_DIR=./dataagent-runtime/skills|" \
         "$env_file" > "${env_file}.tmp" && mv "${env_file}.tmp" "$env_file"
@@ -211,6 +213,8 @@ rewrite_offline_env_file() {
         echo "OPENDATAWORKS_FRONTEND_IMAGE=opendataworks-frontend:${PARSER_TAG}" >> "$env_file"
     grep -q '^OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=' "$env_file" 2>/dev/null || \
         echo "OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE=opendataworks-dataagent-backend:${PARSER_TAG}" >> "$env_file"
+    grep -q '^OPENDATAWORKS_PORTAL_MCP_IMAGE=' "$env_file" 2>/dev/null || \
+        echo "OPENDATAWORKS_PORTAL_MCP_IMAGE=opendataworks-portal-mcp:${PARSER_TAG}" >> "$env_file"
     grep -q '^DATAAGENT_LLM_JSON_FILE=' "$env_file" 2>/dev/null || \
         echo "DATAAGENT_LLM_JSON_FILE=./dataagent-runtime/settings.json" >> "$env_file"
     grep -q '^DATAAGENT_SKILLS_DIR=' "$env_file" 2>/dev/null || \
@@ -266,6 +270,7 @@ MAIN_IMAGES=(
     "opendataworks-frontend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-frontend:${OP_TAG}|opendataworks-frontend:${OP_TAG}"
     "opendataworks-backend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-backend:${OP_TAG}|opendataworks-backend:${OP_TAG}"
     "opendataworks-dataagent-backend.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-dataagent-backend:${OP_TAG}|opendataworks-dataagent-backend:${OP_TAG}"
+    "opendataworks-portal-mcp.tar|${PARSER_REGISTRY}/${PARSER_NAMESPACE}/opendataworks-portal-mcp:${OP_TAG}|opendataworks-portal-mcp:${OP_TAG}"
 )
 
 EXTRA_IMAGES=(

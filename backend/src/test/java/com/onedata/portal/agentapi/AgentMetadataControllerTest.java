@@ -5,6 +5,7 @@ import com.onedata.portal.agentapi.config.AgentApiAuthInterceptor;
 import com.onedata.portal.agentapi.config.AgentApiProperties;
 import com.onedata.portal.agentapi.controller.AgentMetadataController;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
+import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 import com.onedata.portal.agentapi.service.AgentMetadataService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,5 +80,26 @@ class AgentMetadataControllerTest {
                 .andExpect(jsonPath("$[0].db_name").value("opendataworks"));
 
         verify(agentMetadataService).exportTables(null);
+    }
+
+    @Test
+    void ddlDelegatesToService() throws Exception {
+        AgentTableDdlResponse response = new AgentTableDdlResponse();
+        response.setDatabase("doris_ods");
+        response.setTableName("ads_sales_di");
+        response.setDdl("CREATE TABLE ...");
+        when(agentMetadataService.ddl("doris_ods", "ads_sales_di", null)).thenReturn(response);
+
+        mockMvc.perform(get("/v1/ai/metadata/ddl")
+                        .header("X-Agent-Service-Token", "test-token")
+                        .queryParam("database", "doris_ods")
+                        .queryParam("table", "ads_sales_di"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kind").value("table_ddl"))
+                .andExpect(jsonPath("$.database").value("doris_ods"))
+                .andExpect(jsonPath("$.table_name").value("ads_sales_di"))
+                .andExpect(jsonPath("$.ddl").value("CREATE TABLE ..."));
+
+        verify(agentMetadataService).ddl("doris_ods", "ads_sales_di", null);
     }
 }

@@ -32,31 +32,40 @@ echo ""
 FRONTEND_IMAGE="opendataworks-frontend:latest"
 BACKEND_IMAGE="opendataworks-backend:latest"
 DATAAGENT_BACKEND_IMAGE="opendataworks-dataagent-backend:latest"
+PORTAL_MCP_IMAGE="opendataworks-portal-mcp:latest"
 
 # 创建输出目录
 OUTPUT_DIR="$REPO_ROOT/deploy/docker-images"
 mkdir -p "$OUTPUT_DIR"
 
-echo "📦 步骤 1/3: 构建前端镜像 (AMD64 架构)..."
+echo "📦 步骤 1/4: 构建前端镜像 (AMD64 架构)..."
 cd "$REPO_ROOT/frontend"
 $CONTAINER_CMD build --platform linux/amd64 -t $FRONTEND_IMAGE .
 cd "$REPO_ROOT"
 echo "✅ 前端镜像构建完成"
 echo ""
 
-echo "📦 步骤 2/3: 构建后端镜像 (AMD64 架构)..."
+echo "📦 步骤 2/4: 构建后端镜像 (AMD64 架构)..."
 $CONTAINER_CMD build --platform linux/amd64 -t $BACKEND_IMAGE \
   -f backend/Dockerfile \
   .
 echo "✅ 后端镜像构建完成"
 echo ""
 
-echo "📦 步骤 3/3: 构建 DataAgent 后端镜像 (AMD64 架构)..."
+echo "📦 步骤 3/4: 构建 DataAgent 后端镜像 (AMD64 架构)..."
 cd "$REPO_ROOT"
 $CONTAINER_CMD build --platform linux/amd64 -t $DATAAGENT_BACKEND_IMAGE \
   -f dataagent/dataagent-backend/Dockerfile \
   .
 echo "✅ DataAgent 后端镜像构建完成"
+echo ""
+
+echo "📦 步骤 4/4: 构建 Portal MCP 镜像 (AMD64 架构)..."
+cd "$REPO_ROOT"
+$CONTAINER_CMD build --platform linux/amd64 -t $PORTAL_MCP_IMAGE \
+  -f dataagent/portal-mcp/Dockerfile \
+  .
+echo "✅ Portal MCP 镜像构建完成"
 echo ""
 
 echo "📦 导出镜像为 tar 包..."
@@ -66,6 +75,8 @@ echo "  - 导出后端镜像..."
 $CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-backend.tar" $BACKEND_IMAGE
 echo "  - 导出 DataAgent 后端镜像..."
 $CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-dataagent-backend.tar" $DATAAGENT_BACKEND_IMAGE
+echo "  - 导出 Portal MCP 镜像..."
+$CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-portal-mcp.tar" $PORTAL_MCP_IMAGE
 
 echo "✅ 所有镜像导出完成"
 echo ""
@@ -81,6 +92,7 @@ echo "镜像清单："
 echo "  ✓ $FRONTEND_IMAGE"
 echo "  ✓ $BACKEND_IMAGE"
 echo "  ✓ $DATAAGENT_BACKEND_IMAGE"
+echo "  ✓ $PORTAL_MCP_IMAGE"
 echo ""
 echo "📝 下一步："
 echo "  1. 将 $OUTPUT_DIR/ 目录下的所有 tar 文件传输到内网服务器"

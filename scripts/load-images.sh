@@ -43,6 +43,7 @@ REQUIRED_IMAGES=(
     "opendataworks-frontend.tar"
     "opendataworks-backend.tar"
     "opendataworks-dataagent-backend.tar"
+    "opendataworks-portal-mcp.tar"
     "mysql-8.0.tar"
 )
 
@@ -60,25 +61,31 @@ echo "📦 开始加载镜像..."
 echo ""
 
 # 加载前端镜像
-echo "📦 [1/4] 加载前端镜像..."
+echo "📦 [1/5] 加载前端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-frontend.tar"
 echo "✅ 前端镜像加载完成"
 echo ""
 
 # 加载后端镜像
-echo "📦 [2/4] 加载后端镜像..."
+echo "📦 [2/5] 加载后端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-backend.tar"
 echo "✅ 后端镜像加载完成"
 echo ""
 
 # 加载 DataAgent 后端镜像
-echo "📦 [3/4] 加载 DataAgent 后端镜像..."
+echo "📦 [3/5] 加载 DataAgent 后端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-dataagent-backend.tar"
 echo "✅ DataAgent 后端镜像加载完成"
 echo ""
 
+# 加载 Portal MCP 镜像
+echo "📦 [4/5] 加载 Portal MCP 镜像..."
+$CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-portal-mcp.tar"
+echo "✅ Portal MCP 镜像加载完成"
+echo ""
+
 # 加载 MySQL 镜像
-echo "📦 [4/4] 加载 MySQL 镜像..."
+echo "📦 [5/5] 加载 MySQL 镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/mysql-8.0.tar"
 echo "✅ MySQL 镜像加载完成"
 echo ""
@@ -103,9 +110,11 @@ IMAGES=(
     "opendataworks-frontend:${IMAGE_TAG}"
     "opendataworks-backend:${IMAGE_TAG}"
     "opendataworks-dataagent-backend:${IMAGE_TAG}"
+    "opendataworks-portal-mcp:${IMAGE_TAG}"
     "opendataworks-frontend:latest"
     "opendataworks-backend:latest"
     "opendataworks-dataagent-backend:latest"
+    "opendataworks-portal-mcp:latest"
     "mysql:8.0"
 )
 

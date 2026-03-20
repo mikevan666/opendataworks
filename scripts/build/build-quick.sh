@@ -41,6 +41,7 @@ ARGS="-u $DOCKER_USERNAME -p $DOCKER_PASSWORD"
 [ "$BUILD_FRONTEND" = "false" ] && ARGS="$ARGS --no-frontend"
 [ "$BUILD_BACKEND" = "false" ] && ARGS="$ARGS --no-backend"
 [ "$BUILD_DATAAGENT_BACKEND" = "false" ] && ARGS="$ARGS --no-dataagent-backend"
+[ "${BUILD_PORTAL_MCP:-true}" = "false" ] && ARGS="$ARGS --no-portal-mcp"
 
 # 执行构建
 echo "执行构建命令:"

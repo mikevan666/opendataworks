@@ -7,6 +7,7 @@ import com.onedata.portal.agentapi.dto.AgentInspectResponse;
 import com.onedata.portal.agentapi.dto.AgentLineageRecord;
 import com.onedata.portal.agentapi.dto.AgentLineageResponse;
 import com.onedata.portal.agentapi.dto.AgentTableMetadata;
+import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 import com.onedata.portal.entity.DataField;
 import com.onedata.portal.entity.DataLineage;
 import com.onedata.portal.entity.DataTable;
@@ -43,6 +44,7 @@ public class BackendAgentMetadataService implements AgentMetadataService {
     private static final int INSPECT_FETCH_LIMIT = 800;
     private static final int INSPECT_LINEAGE_LIMIT = 120;
     private static final int LINEAGE_FETCH_LIMIT = 400;
+    private static final int DDL_TIMEOUT_SECONDS = 20;
 
     private final DataTableMapper dataTableMapper;
     private final DataFieldMapper dataFieldMapper;
@@ -51,6 +53,7 @@ public class BackendAgentMetadataService implements AgentMetadataService {
     private final DorisDbUserMapper dorisDbUserMapper;
     private final LineageService lineageService;
     private final DataSourceProperties dataSourceProperties;
+    private final AgentJdbcExecutor agentJdbcExecutor;
 
     @Override
     public AgentInspectResponse inspect(String database, String table, String keyword, int tableLimit) {
@@ -213,6 +216,59 @@ public class BackendAgentMetadataService implements AgentMetadataService {
         response.setClusterId(cluster.getId());
         response.setClusterName(trimToEmpty(cluster.getClusterName()));
         response.setResolvedBy(resolvedBy);
+        return response;
+    }
+
+    @Override
+    public AgentTableDdlResponse ddl(String database, String table, Long tableId) {
+        String normalizedDatabase = trimToNull(database);
+        String normalizedTable = trimToNull(table);
+        if (tableId == null && (!StringUtils.hasText(normalizedDatabase) || !StringUtils.hasText(normalizedTable))) {
+            throw new IllegalArgumentException("tableId 或 database + table 至少提供一组");
+        }
+
+        DataTable matchedTable = resolveDdlTable(normalizedDatabase, normalizedTable, tableId);
+        String targetDatabase = normalizedDatabase;
+        String rawTableName = normalizedTable;
+        if (matchedTable != null) {
+            if (StringUtils.hasText(matchedTable.getDbName())) {
+                targetDatabase = matchedTable.getDbName();
+            }
+            rawTableName = matchedTable.getTableName();
+        }
+        String actualTableName = extractActualTableName(targetDatabase, rawTableName);
+        if (!StringUtils.hasText(targetDatabase) || !StringUtils.hasText(actualTableName)) {
+            throw new IllegalArgumentException("database 或 table 无法确定");
+        }
+
+        AgentDatasourceResolution datasource = resolveDatasource(targetDatabase, null);
+        String ddl = agentJdbcExecutor.fetchTableDdl(datasource, targetDatabase, actualTableName, DDL_TIMEOUT_SECONDS);
+
+        AgentTableDdlResponse response = new AgentTableDdlResponse();
+        response.setDatabase(targetDatabase);
+        response.setTableName(actualTableName);
+        response.setEngine(datasource.getEngine());
+        response.setClusterId(datasource.getClusterId());
+        response.setClusterName(datasource.getClusterName());
+        response.setSourceType(datasource.getSourceType());
+        response.setResolvedBy(datasource.getResolvedBy());
+        response.setDdl(ddl);
+
+        if (matchedTable != null) {
+            response.setTableId(matchedTable.getId());
+            response.setTableComment(matchedTable.getTableComment());
+            response.setFields(loadFields(Collections.singletonList(matchedTable.getId()))
+                    .getOrDefault(matchedTable.getId(), Collections.emptyList())
+                    .stream()
+                    .map(field -> {
+                        AgentFieldMetadata item = new AgentFieldMetadata();
+                        item.setFieldName(field.getFieldName());
+                        item.setFieldType(field.getFieldType());
+                        item.setFieldComment(field.getFieldComment());
+                        return item;
+                    })
+                    .collect(Collectors.toList()));
+        }
         return response;
     }
 
@@ -495,6 +551,42 @@ public class BackendAgentMetadataService implements AgentMetadataService {
         return clusterIds.stream().findFirst().orElse(null);
     }
 
+    private DataTable resolveDdlTable(String database, String table, Long tableId) {
+        if (tableId != null) {
+            DataTable item = dataTableMapper.selectById(tableId);
+            if (item == null) {
+                throw new IllegalArgumentException("tableId `" + tableId + "` 不存在");
+            }
+            if (StringUtils.hasText(database) && !database.equals(item.getDbName())) {
+                throw new IllegalArgumentException("tableId 与 database 不匹配");
+            }
+            if (StringUtils.hasText(table)) {
+                String actualTableName = extractActualTableName(item.getDbName(), item.getTableName());
+                String requestedTableName = extractActualTableName(database, table);
+                if (!table.equals(item.getTableName()) && !requestedTableName.equals(actualTableName)) {
+                    throw new IllegalArgumentException("tableId 与 table 不匹配");
+                }
+            }
+            return item;
+        }
+
+        String actualTableName = extractActualTableName(database, table);
+        List<DataTable> matched = dataTableMapper.selectList(
+                new LambdaQueryWrapper<DataTable>()
+                        .eq(DataTable::getDbName, database)
+                        .and(wrapper -> wrapper.eq(DataTable::getTableName, table)
+                                .or().eq(DataTable::getTableName, actualTableName)
+                                .or().eq(DataTable::getTableName, database + "." + actualTableName))
+                        .ne(DataTable::getStatus, "deprecated")
+                        .orderByAsc(DataTable::getId)
+                        .last("LIMIT 4")
+        );
+        if (matched.size() > 1) {
+            throw new IllegalArgumentException("database `" + database + "` 与 table `" + table + "` 命中了多张表，请改用 tableId");
+        }
+        return matched.isEmpty() ? null : matched.get(0);
+    }
+
     private Long resolveClusterIdFromDbUsers(String database) {
         List<DorisDbUser> dbUsers = dorisDbUserMapper.selectList(
                 new LambdaQueryWrapper<DorisDbUser>()
@@ -568,6 +660,20 @@ public class BackendAgentMetadataService implements AgentMetadataService {
 
     private String datasourceKey(Long clusterId, String database) {
         return String.valueOf(clusterId) + "::" + trimToEmpty(database);
+    }
+
+    private String extractActualTableName(String database, String tableName) {
+        if (!StringUtils.hasText(tableName)) {
+            return null;
+        }
+        String normalized = tableName.trim();
+        if (normalized.contains(".")) {
+            String[] parts = normalized.split("\\.", 2);
+            if (parts.length == 2 && StringUtils.hasText(parts[1])) {
+                return parts[1].trim();
+            }
+        }
+        return normalized;
     }
 
     private String normalizeSourceType(String sourceType) {

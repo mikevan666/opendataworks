@@ -2,11 +2,13 @@ package com.onedata.portal.agentapi;
 
 import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
+import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 import com.onedata.portal.entity.DataField;
 import com.onedata.portal.entity.DataLineage;
 import com.onedata.portal.entity.DataTable;
 import com.onedata.portal.entity.DorisCluster;
 import com.onedata.portal.entity.DorisDbUser;
+import com.onedata.portal.agentapi.service.AgentJdbcExecutor;
 import com.onedata.portal.agentapi.service.BackendAgentMetadataService;
 import com.onedata.portal.mapper.DataFieldMapper;
 import com.onedata.portal.mapper.DataLineageMapper;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,6 +56,9 @@ class BackendAgentMetadataServiceTest {
 
     @Mock
     private DataSourceProperties dataSourceProperties;
+
+    @Mock
+    private AgentJdbcExecutor agentJdbcExecutor;
 
     @InjectMocks
     private BackendAgentMetadataService backendAgentMetadataService;
@@ -171,5 +177,56 @@ class BackendAgentMetadataServiceTest {
         assertEquals("ads_sales_di", response.getTable());
         assertEquals("stat_day", response.getTables().get(0).getFields().get(0).getFieldName());
         assertEquals("doris_ads", response.getLineage().get(0).getDownstreamDb());
+    }
+
+    @Test
+    void ddlReturnsMetadataAndLiveDdlForMatchedTable() {
+        DataTable table = new DataTable();
+        table.setId(8L);
+        table.setClusterId(12L);
+        table.setDbName("doris_ods");
+        table.setTableName("ads_sales_di");
+        table.setTableComment("销售日报");
+        table.setStatus("active");
+
+        DataField field = new DataField();
+        field.setTableId(8L);
+        field.setFieldName("stat_day");
+        field.setFieldType("date");
+        field.setFieldComment("统计日期");
+
+        DorisCluster cluster = new DorisCluster();
+        cluster.setId(12L);
+        cluster.setClusterName("cluster-a");
+        cluster.setSourceType("DORIS");
+        cluster.setFeHost("doris-fe");
+        cluster.setFePort(9030);
+        cluster.setUsername("cluster_user");
+        cluster.setPassword("cluster_pass");
+
+        DorisDbUser readonlyUser = new DorisDbUser();
+        readonlyUser.setClusterId(12L);
+        readonlyUser.setDatabaseName("doris_ods");
+        readonlyUser.setReadonlyUsername("readonly_user");
+        readonlyUser.setReadonlyPassword("readonly_pass");
+
+        when(dataSourceProperties.getUrl()).thenReturn("jdbc:mysql://mysql:3306/opendataworks");
+        when(dataTableMapper.selectList(any())).thenReturn(Collections.singletonList(table));
+        when(dataFieldMapper.selectList(any())).thenReturn(Collections.singletonList(field));
+        when(dorisClusterMapper.selectById(12L)).thenReturn(cluster);
+        when(dorisDbUserMapper.selectList(any())).thenReturn(Collections.singletonList(readonlyUser));
+        when(agentJdbcExecutor.fetchTableDdl(any(), any(), any(), anyInt())).thenReturn("CREATE TABLE ads_sales_di (...)");
+
+        AgentTableDdlResponse response = backendAgentMetadataService.ddl("doris_ods", "ads_sales_di", null);
+
+        assertEquals("table_ddl", response.getKind());
+        assertEquals("doris_ods", response.getDatabase());
+        assertEquals("ads_sales_di", response.getTableName());
+        assertEquals(Long.valueOf(8L), response.getTableId());
+        assertEquals(Long.valueOf(12L), response.getClusterId());
+        assertEquals("doris", response.getEngine());
+        assertEquals("销售日报", response.getTableComment());
+        assertEquals("CREATE TABLE ads_sales_di (...)", response.getDdl());
+        assertEquals("stat_day", response.getFields().get(0).getFieldName());
     }
 }
