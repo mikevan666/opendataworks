@@ -2,6 +2,16 @@ const isPlainObject = (value) => value && typeof value === 'object' && !Array.is
 
 const textOrEmpty = (value) => (value == null ? '' : String(value))
 
+const toUiStatus = (value) => {
+  const status = textOrEmpty(value).trim()
+  if (!status) return 'streaming'
+  if (status === 'waiting') return 'queued'
+  if (status === 'finished') return 'success'
+  if (status === 'error') return 'failed'
+  if (status === 'suspended') return 'cancelled'
+  return status
+}
+
 export const appendStr = (base, delta) => {
   const next = String(delta || '')
   if (!next) return String(base || '')
@@ -218,15 +228,31 @@ const createErrorBlock = (msg, text) => {
   return block
 }
 
+const syncMainText = (msg) => {
+  const text = msg.renderBlocks
+    .filter((block) => block.kind === 'main_text')
+    .map((block) => textOrEmpty(block.text))
+    .join('')
+  msg.mainText = text
+  msg.content = text
+}
+
+const syncThinkingText = (msg) => {
+  msg.thinkingText = msg.renderBlocks
+    .filter((block) => block.kind === 'thinking')
+    .map((block) => textOrEmpty(block.text))
+    .join('')
+}
+
 const hasRenderableMainText = (msg) => msg.renderBlocks.some((block) => block.kind === 'main_text' && textOrEmpty(block.text).trim())
 
 export const createAssistantMessageState = (seed = {}) => ({
   id: textOrEmpty(seed.id).trim() || '',
   message_id: textOrEmpty(seed.message_id || seed.id).trim() || '',
-  run_id: textOrEmpty(seed.run_id).trim() || '',
+  task_id: textOrEmpty(seed.task_id).trim() || '',
   role: 'assistant',
   content: textOrEmpty(seed.content),
-  status: textOrEmpty(seed.status).trim() || 'streaming',
+  status: toUiStatus(seed.status) || 'streaming',
   mainText: textOrEmpty(seed.mainText || seed.content),
   thinkingText: textOrEmpty(seed.thinkingText),
   citations: Array.isArray(seed.citations) ? [...seed.citations] : [],
@@ -250,9 +276,9 @@ export const hydrateAssistantMessageState = (message) => {
   const msg = createAssistantMessageState({
     id: textOrEmpty(message?.message_id).trim(),
     message_id: textOrEmpty(message?.message_id).trim(),
-    run_id: textOrEmpty(message?.run_id).trim(),
+    task_id: textOrEmpty(message?.task_id).trim(),
     content: textOrEmpty(message?.content),
-    status: textOrEmpty(message?.status).trim() || 'success',
+    status: toUiStatus(message?.status) || 'success',
     stop_reason: textOrEmpty(message?.stop_reason),
     stop_sequence: textOrEmpty(message?.stop_sequence),
     created_at: message?.created_at,
@@ -268,7 +294,7 @@ export const hydrateAssistantMessageState = (message) => {
     usage: isPlainObject(message?.usage) ? message.usage : null,
     stop_reason: textOrEmpty(message?.stop_reason),
     stop_sequence: textOrEmpty(message?.stop_sequence),
-    status: textOrEmpty(message?.status).trim() || 'success'
+    status: toUiStatus(message?.status) || 'success'
   })
   for (const rawBlock of rawBlocks) {
     if (!isPlainObject(rawBlock)) continue
@@ -327,14 +353,135 @@ export const hydrateAssistantMessageState = (message) => {
   return msg
 }
 
+const processMagicTaskEvent = (msg, event) => {
+  const recordType = textOrEmpty(event?.record_type).trim()
+  if (!recordType) return false
+
+  if (event.task_id) {
+    msg.task_id = textOrEmpty(event.task_id)
+  }
+
+  if (recordType === 'chunk') {
+    const delta = isPlainObject(event.delta) ? event.delta : {}
+    const metadata = isPlainObject(event.metadata) ? event.metadata : {}
+    const contentType = textOrEmpty(metadata.content_type).trim()
+    const correlationId = textOrEmpty(metadata.correlation_id).trim() || `phase-${msg.renderBlocks.length + 1}`
+    const blockId = `${contentType || 'chunk'}:${correlationId}`
+    const chunkText = textOrEmpty(event.content)
+    const status = textOrEmpty(delta.status).trim()
+
+    if (contentType === 'reasoning') {
+      const block = ensureTextBlock(msg, blockId, 'thinking')
+      block.status = status === 'END' ? 'success' : 'streaming'
+      block.text = status === 'END' ? chunkText : appendStr(block.text, chunkText)
+      syncThinkingText(msg)
+      return true
+    }
+
+    if (contentType === 'content') {
+      const block = ensureTextBlock(msg, blockId, 'main_text')
+      block.status = status === 'END' ? 'success' : 'streaming'
+      block.text = status === 'END' ? chunkText : appendStr(block.text, chunkText)
+      syncMainText(msg)
+      return true
+    }
+
+    return true
+  }
+
+  if (recordType !== 'event') return false
+
+  const eventType = textOrEmpty(event.event_type).trim()
+  const data = isPlainObject(event.data) ? event.data : {}
+  const eventStatus = toUiStatus(data.status)
+  const correlationId = textOrEmpty(event.correlation_id).trim() || `evt-${msg.renderBlocks.length + 1}`
+
+  if (eventStatus && eventStatus !== 'streaming') {
+    msg.status = eventStatus
+  }
+
+  if (eventType === 'BEFORE_AGENT_REPLY') {
+    const contentType = textOrEmpty(event.content_type).trim()
+    if (contentType === 'reasoning') {
+      ensureTextBlock(msg, `reasoning:${correlationId}`, 'thinking').status = 'streaming'
+    } else if (contentType === 'content') {
+      ensureTextBlock(msg, `content:${correlationId}`, 'main_text').status = 'streaming'
+    }
+    return true
+  }
+
+  if (eventType === 'AFTER_AGENT_REPLY') {
+    const contentType = textOrEmpty(event.content_type).trim()
+    const block = msg._renderBlockMap[`${contentType}:${correlationId}`]
+    if (block && block.status !== 'failed') {
+      block.status = 'success'
+    }
+    if (isPlainObject(data.token_usage)) {
+      msg.usage = { ...(msg.usage || {}), ...data.token_usage }
+    }
+    if (eventStatus) {
+      msg.status = eventStatus
+    }
+    return true
+  }
+
+  if (eventType === 'PENDING_TOOL_CALL' || eventType === 'BEFORE_TOOL_CALL' || eventType === 'AFTER_TOOL_CALL') {
+    const tool = isPlainObject(data.tool) ? data.tool : {}
+    const toolStatus = eventType === 'PENDING_TOOL_CALL'
+      ? 'pending'
+      : eventType === 'BEFORE_TOOL_CALL'
+        ? 'streaming'
+        : textOrEmpty(tool.status).trim() || 'success'
+    ensureToolRenderBlock(msg, {
+      toolId: tool.id || correlationId,
+      blockKey: `tool:${tool.id || correlationId}`,
+      name: tool.name || 'Tool',
+      input: Object.prototype.hasOwnProperty.call(tool, 'input') ? tool.input : undefined,
+      output: Object.prototype.hasOwnProperty.call(tool, 'output') ? tool.output : undefined,
+      status: toolStatus,
+      callComplete: eventType !== 'PENDING_TOOL_CALL',
+      runtimeStarted: eventType !== 'PENDING_TOOL_CALL',
+      resultStarted: eventType === 'AFTER_TOOL_CALL'
+    })
+    return true
+  }
+
+  if (eventType === 'AGENT_SUSPENDED') {
+    msg.status = 'cancelled'
+    const errorPayload = isPlainObject(data.error) ? data.error : { message: '任务已取消' }
+    msg.error = { message: textOrEmpty(errorPayload.message || '任务已取消') }
+    createErrorBlock(msg, msg.error.message)
+    markAllStreamingBlocksComplete(msg)
+    return true
+  }
+
+  if (eventType === 'ERROR') {
+    msg.status = 'failed'
+    const errorPayload = isPlainObject(data.error) ? data.error : { message: data.message || '请求失败' }
+    msg.error = { message: textOrEmpty(errorPayload.message || '请求失败') }
+    createErrorBlock(msg, msg.error.message)
+    markAllStreamingBlocksComplete(msg)
+    return true
+  }
+
+  if (eventType === 'BEFORE_AGENT_THINK' || eventType === 'AFTER_AGENT_THINK' || eventType === 'DEBUG') {
+    return true
+  }
+
+  return false
+}
+
 export const processAssistantStreamEvent = (msg, event) => {
   if (!isPlainObject(msg) || !isPlainObject(event)) return
+
+  if (processMagicTaskEvent(msg, event)) {
+    return
+  }
 
   const type = textOrEmpty(event.type).trim()
   const payload = isPlainObject(event.payload) ? event.payload : {}
 
   if (event.message_id) msg.message_id = textOrEmpty(event.message_id)
-  if (event.run_id) msg.run_id = textOrEmpty(event.run_id)
   if (payload.provider_id) msg.provider_id = textOrEmpty(payload.provider_id)
   if (payload.model) msg.model = textOrEmpty(payload.model)
 

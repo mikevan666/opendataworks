@@ -1,0 +1,413 @@
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from core import task_executor
+
+
+class ClaudeAgentOptions:
+    last_kwargs = None
+
+    def __init__(self, **kwargs):
+        ClaudeAgentOptions.last_kwargs = kwargs
+        self.kwargs = kwargs
+
+
+class StreamEvent:
+    def __init__(self, event):
+        self.event = event
+
+
+class UserMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class AssistantMessage:
+    def __init__(self, content, *, error=""):
+        self.content = content
+        self.error = error
+
+
+class ResultMessage:
+    def __init__(self, subtype="success", result=None, *, is_error=False):
+        self.subtype = subtype
+        self.result = result
+        self.is_error = is_error
+
+
+class ThinkingBlock:
+    type = "thinking"
+
+    def __init__(self, thinking):
+        self.thinking = thinking
+
+
+class TextBlock:
+    type = "text"
+
+    def __init__(self, text):
+        self.text = text
+
+
+class ToolUseBlock:
+    type = "tool_use"
+
+    def __init__(self, *, id, name, input):
+        self.id = id
+        self.name = name
+        self.input = input
+
+
+class ToolResultBlock:
+    type = "tool_result"
+
+    def __init__(self, *, tool_use_id, name, content):
+        self.tool_use_id = tool_use_id
+        self.name = name
+        self.content = content
+
+
+def _install_fake_sdk(monkeypatch, messages, *, final_exception=None):
+    async def fake_query(*, prompt, options):
+        for message in messages:
+            yield message
+        if final_exception is not None:
+            raise final_exception
+
+    monkeypatch.setitem(
+        sys.modules,
+        "claude_agent_sdk",
+        SimpleNamespace(ClaudeAgentOptions=ClaudeAgentOptions, query=fake_query),
+    )
+
+
+def _build_input():
+    return task_executor.TaskExecutionInput(
+        task_id="task-1",
+        topic_id="topic-1",
+        question="最近 30 天工作流发布次数趋势",
+        history=[],
+        provider_id="openrouter",
+        model="anthropic/claude-sonnet-4.5",
+        database_hint=None,
+        debug=False,
+        timeout_seconds=60,
+        sql_read_timeout_seconds=30,
+        sql_write_timeout_seconds=30,
+    )
+
+
+def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            StreamEvent({"type": "message_start", "message": {"id": "req-1", "usage": {"input_tokens": 10}}}),
+            StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}}),
+            StreamEvent({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "先定位指标"}}),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent(
+                {
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": {"type": "tool_use", "id": "tool-read-1", "name": "Read", "input": {"path": "reference.md"}},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 1}),
+            UserMessage(
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-read-1",
+                        "name": "Read",
+                        "content": "{\"kind\":\"python_execution\",\"summary\":\"ok\"}",
+                    }
+                ]
+            ),
+            StreamEvent({"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent({"type": "content_block_delta", "index": 2, "delta": {"type": "text_delta", "text": "最终回答"}}),
+            StreamEvent(
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn", "usage": {"output_tokens": 5}},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 2}),
+            StreamEvent({"type": "message_stop"}),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+            "supports_partial_messages": True,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "最终回答"
+    assert result.usage == {"input_tokens": 10, "output_tokens": 5}
+    assert ClaudeAgentOptions.last_kwargs["include_partial_messages"] is True
+    assert ClaudeAgentOptions.last_kwargs["env"]["DISABLE_PROMPT_CACHING"] == ""
+
+    lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
+    assert lifecycle == [
+        "BEFORE_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+        "PENDING_TOOL_CALL",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "AFTER_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+    ]
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[-1]["content"] == "最终回答"
+
+
+def test_execute_task_stream_uses_message_level_magic_events_when_partial_disabled(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage([ThinkingBlock("先定位指标"), TextBlock("最终回答")]),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "anthropic_compatible",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://relay.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "最终回答"
+    assert ClaudeAgentOptions.last_kwargs["include_partial_messages"] is False
+    assert ClaudeAgentOptions.last_kwargs["env"]["DISABLE_PROMPT_CACHING"] == "1"
+
+    lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
+    assert lifecycle == [
+        "BEFORE_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+        "AFTER_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+    ]
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[-1]["content"] == "最终回答"
+
+
+def test_execute_task_stream_keeps_tool_loop_in_compatibility_mode(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage([ToolUseBlock(id="tool-bash-1", name="Bash", input={"command": "printf smoke-ok"})]),
+            UserMessage([ToolResultBlock(tool_use_id="tool-bash-1", name="Bash", content="smoke-ok")]),
+            AssistantMessage([TextBlock("smoke-ok")]),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "anthropic_compatible",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://relay.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "smoke-ok"
+
+    lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
+    assert lifecycle == [
+        "PENDING_TOOL_CALL",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+    ]
+
+    tool_events = [record for record in emitted if record.get("event_type") == "AFTER_TOOL_CALL"]
+    assert tool_events[0]["data"]["tool"]["output"] == "smoke-ok"
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[-1]["content"] == "smoke-ok"
+
+
+def test_execute_task_stream_treats_pre_tool_text_as_reasoning_in_compatibility_mode(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage(
+                [
+                    TextBlock("我来帮你查询最近 30 天工作流发布次数的趋势。"),
+                    ToolUseBlock(id="tool-bash-1", name="Bash", input={"command": "python scripts/run_sql.py --question trend"}),
+                ]
+            ),
+            UserMessage([ToolResultBlock(tool_use_id="tool-bash-1", name="Bash", content="2026-03-10,3\n2026-03-11,1")]),
+            AssistantMessage([TextBlock("最近 30 天累计发布 4 次。")]),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "anthropic_compatible",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://relay.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "最近 30 天累计发布 4 次。"
+
+    lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
+    assert lifecycle == [
+        "BEFORE_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "PENDING_TOOL_CALL",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "AFTER_AGENT_REPLY",
+        "AFTER_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+    ]
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[0]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势。"
+    assert chunks[1]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势。"
+    assert chunks[-1]["content"] == "最近 30 天累计发布 4 次。"
+
+
+def test_execute_task_stream_surfaces_provider_error_instead_of_exit_code(monkeypatch, tmp_path: Path):
+    provider_error = "API Error: 400 {'detail': 'invalid beta flag'}"
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage([TextBlock(provider_error)], error=provider_error),
+            ResultMessage("error_api", provider_error, is_error=True),
+        ],
+        final_exception=RuntimeError("Command failed with exit code 1"),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "anthropic_compatible",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://relay.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "error"
+    assert result.content == provider_error
+    assert result.error == {
+        "code": "error_api",
+        "message": provider_error,
+        "exception_type": "RuntimeError",
+    }
+
+    error_events = [
+        record for record in emitted
+        if record.get("record_type") == "event" and record.get("event_type") == "ERROR"
+    ]
+    assert error_events[-1]["data"]["error"]["message"] == provider_error
+    assert error_events[-1]["data"]["error"]["code"] == "error_api"

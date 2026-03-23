@@ -1,7 +1,8 @@
 import axios from 'axios'
 
 const DEFAULT_TIMEOUT = 120000
-const API_PREFIX = '/api/v1/nl2sql'
+const RUNTIME_PREFIX = '/api/v1/nl2sql'
+const ADMIN_PREFIX = '/api/v1/nl2sql-admin'
 
 function getDefaultBaseUrl() {
   if (typeof window === 'undefined') {
@@ -44,7 +45,6 @@ async function extractHttpError(response) {
 }
 
 function parseSseChunk(buffer, onEvent) {
-  const events = []
   let rest = buffer
 
   while (true) {
@@ -75,22 +75,18 @@ function parseSseChunk(buffer, onEvent) {
       const payload = JSON.parse(dataLines.join('\n'))
       if (eventName && !payload.type) payload.type = eventName
       if (eventName) payload.sse_event = eventName
-      events.push(payload)
       onEvent?.(payload)
     } catch (_error) {
       // ignore malformed chunks
     }
   }
 
-  return { events, rest }
+  return rest
 }
 
-export function createNl2SqlApiClient(options = {}) {
-  const baseURL = normalizeBaseUrl(options.baseURL)
-  const timeout = options.timeout || DEFAULT_TIMEOUT
-
+function createAxiosClient(baseURL, prefix, timeout) {
   const request = axios.create({
-    baseURL: buildUrl(baseURL, API_PREFIX),
+    baseURL: buildUrl(baseURL, prefix),
     timeout
   })
 
@@ -103,149 +99,143 @@ export function createNl2SqlApiClient(options = {}) {
     }
   )
 
-  const isDoneEvent = (event) => String(event?.type || '') === 'done'
-  const isMessageStopEvent = (event) => String(event?.type || '') === 'message_stop'
+  return request
+}
+
+export function createNl2SqlApiClient(options = {}) {
+  const baseURL = normalizeBaseUrl(options.baseURL)
+  const timeout = options.timeout || DEFAULT_TIMEOUT
+  const runtimeRequest = createAxiosClient(baseURL, RUNTIME_PREFIX, timeout)
+  const adminRequest = createAxiosClient(baseURL, ADMIN_PREFIX, timeout)
+
+  const topicApi = {
+    createTopic(title = '新话题') {
+      return runtimeRequest.post('/topics', { title })
+    },
+    listTopics() {
+      return runtimeRequest.get('/topics')
+    },
+    getTopic(topicId) {
+      return runtimeRequest.get(`/topics/${topicId}`)
+    },
+    updateTopic(topicId, data) {
+      return runtimeRequest.put(`/topics/${topicId}`, data)
+    },
+    deleteTopic(topicId) {
+      return runtimeRequest.delete(`/topics/${topicId}`)
+    },
+    getTopicMessages(topicId, params = {}) {
+      return runtimeRequest.get(`/topics/${topicId}/messages`, { params })
+    }
+  }
+
+  const taskApi = {
+    deliverMessage(data) {
+      return runtimeRequest.post('/tasks/deliver-message', data)
+    },
+    createTask(data) {
+      return runtimeRequest.post('/tasks', data)
+    },
+    getTask(taskId) {
+      return runtimeRequest.get(`/tasks/${taskId}`)
+    },
+    getTaskEvents(taskId, params = {}) {
+      return runtimeRequest.get(`/tasks/${taskId}/events`, { params })
+    },
+    cancelTask(taskId) {
+      return runtimeRequest.post(`/tasks/${taskId}/cancel`)
+    },
+    async streamTaskEvents(taskId, options = {}) {
+      const { onEvent, signal, afterSeq = 0 } = options
+      const response = await fetch(
+        buildUrl(baseURL, `${RUNTIME_PREFIX}/tasks/${taskId}/events/stream?after_seq=${encodeURIComponent(afterSeq)}`),
+        {
+          method: 'GET',
+          headers: { Accept: 'text/event-stream' },
+          signal
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(await extractHttpError(response))
+      }
+      if (!response.body) {
+        throw new Error('SSE stream body is empty')
+      }
+
+      const decoder = new TextDecoder('utf-8')
+      const reader = response.body.getReader()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        buffer = parseSseChunk(buffer, onEvent)
+      }
+
+      if (buffer.trim()) {
+        parseSseChunk(`${buffer}\n\n`, onEvent)
+      }
+    }
+  }
+
+  const messageQueueApi = {
+    query(data) {
+      return runtimeRequest.post('/message-queue/queries', data)
+    },
+    create(data) {
+      return runtimeRequest.post('/message-queue', data)
+    },
+    update(queueId, data) {
+      return runtimeRequest.put(`/message-queue/${queueId}`, data)
+    },
+    remove(queueId) {
+      return runtimeRequest.delete(`/message-queue/${queueId}`)
+    },
+    consume(queueId) {
+      return runtimeRequest.post(`/message-queue/${queueId}/consume`)
+    }
+  }
+
+  const scheduleApi = {
+    query(data) {
+      return runtimeRequest.post('/message-schedule/queries', data)
+    },
+    create(data) {
+      return runtimeRequest.post('/message-schedule', data)
+    },
+    update(scheduleId, data) {
+      return runtimeRequest.put(`/message-schedule/${scheduleId}`, data)
+    },
+    remove(scheduleId) {
+      return runtimeRequest.delete(`/message-schedule/${scheduleId}`)
+    },
+    get(scheduleId) {
+      return runtimeRequest.get(`/message-schedule/${scheduleId}`)
+    },
+    logs(scheduleId, data) {
+      return runtimeRequest.post(`/message-schedule/${scheduleId}/logs`, data)
+    }
+  }
+
+  const adminApi = {
+    getSettings() {
+      return adminRequest.get('/settings')
+    },
+    updateSettings(data) {
+      return adminRequest.put('/settings', data)
+    }
+  }
 
   return {
-    createSession(title = '新会话') {
-      return request.post('/sessions', null, { params: { title } })
-    },
-
-    listSessions() {
-      return request.get('/sessions')
-    },
-
-    getSession(sessionId) {
-      return request.get(`/sessions/${sessionId}`)
-    },
-
-    deleteSession(sessionId) {
-      return request.delete(`/sessions/${sessionId}`)
-    },
-
-    sendMessage(sessionId, data) {
-      return request.post(`/sessions/${sessionId}/messages`, {
-        ...data,
-        stream: false
-      })
-    },
-
-    getRun(runId) {
-      return request.get(`/runs/${runId}`)
-    },
-
-    getRunEvents(runId, params = {}) {
-      return request.get(`/runs/${runId}/events`, { params })
-    },
-
-    cancelRun(runId) {
-      return request.post(`/runs/${runId}/cancel`)
-    },
-
-    async streamMessage(sessionId, data, options = {}) {
-      const { onEvent, signal } = options
-      const response = await fetch(buildUrl(baseURL, `${API_PREFIX}/sessions/${sessionId}/messages`), {
-        method: 'POST',
-        headers: {
-          Accept: 'text/event-stream',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          ...data,
-          stream: true
-        }),
-        signal
-      })
-
-      if (!response.ok) {
-        throw new Error(await extractHttpError(response))
-      }
-      if (!response.body) {
-        throw new Error('SSE stream body is empty')
-      }
-
-      const decoder = new TextDecoder('utf-8')
-      const reader = response.body.getReader()
-      let buffer = ''
-      let doneEvent = null
-      let messageStopEvent = null
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const parsed = parseSseChunk(buffer, onEvent)
-        buffer = parsed.rest
-
-        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
-        messageStopEvent = parsed.events.find(isMessageStopEvent) || messageStopEvent
-
-        if (doneEvent) break
-      }
-
-      if (!doneEvent && buffer.trim()) {
-        const parsed = parseSseChunk(`${buffer}\n\n`, onEvent)
-        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
-        messageStopEvent = parsed.events.find(isMessageStopEvent) || messageStopEvent
-      }
-
-      if (doneEvent) return doneEvent
-      if (messageStopEvent) return messageStopEvent
-
-      throw new Error('SSE stream ended without done event')
-    },
-
-    async streamRunEvents(runId, options = {}) {
-      const { onEvent, signal, afterSeq = 0 } = options
-      const response = await fetch(buildUrl(baseURL, `${API_PREFIX}/runs/${runId}/events/stream?after_seq=${encodeURIComponent(afterSeq)}`), {
-        method: 'GET',
-        headers: {
-          Accept: 'text/event-stream'
-        },
-        signal
-      })
-
-      if (!response.ok) {
-        throw new Error(await extractHttpError(response))
-      }
-      if (!response.body) {
-        throw new Error('SSE stream body is empty')
-      }
-
-      const decoder = new TextDecoder('utf-8')
-      const reader = response.body.getReader()
-      let buffer = ''
-      let doneEvent = null
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const parsed = parseSseChunk(buffer, onEvent)
-        buffer = parsed.rest
-        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
-        if (doneEvent) break
-      }
-
-      if (!doneEvent && buffer.trim()) {
-        const parsed = parseSseChunk(`${buffer}\n\n`, onEvent)
-        doneEvent = parsed.events.find(isDoneEvent) || doneEvent
-      }
-
-      return doneEvent
-    },
-    getSettings() {
-      return request.get('/settings')
-    },
-
-    updateSettings(data) {
-      return request.put('/settings', data)
-    },
-
+    topicApi,
+    taskApi,
+    messageQueueApi,
+    scheduleApi,
+    adminApi,
     health() {
-      return request.get('/health')
+      return runtimeRequest.get('/health')
     }
   }
 }

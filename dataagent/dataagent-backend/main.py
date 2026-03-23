@@ -12,6 +12,8 @@ from api.routes import router
 from config import get_settings
 from core.skill_admin_service import bootstrap_admin_settings, sync_documents_from_disk
 from core.skill_admin_store import get_skill_admin_store
+from core.task_coordinator import get_task_coordinator
+from core.topic_task_store import get_topic_task_store
 from core.skills_loader import resolve_agent_project_cwd, resolve_skills_root_dir, validate_skills_bundle
 from core.skills_sync import ensure_static_skills_bundle
 
@@ -54,7 +56,7 @@ async def root():
 
 @app.on_event("startup")
 async def startup():
-    """启动检查：skills 路径、语义加载、会话 schema"""
+    """启动检查：skills 路径、语义加载、topic/task schema 与 Redis coordinator"""
     try:
         get_skill_admin_store().init_schema()
         bootstrap_admin_settings()
@@ -90,12 +92,31 @@ async def startup():
         logger.exception("Skills bootstrap failed: %s", e)
 
     try:
-        from core.session_store import get_session_store
-
-        get_session_store().init_schema()
-        logger.info("Session store ready for schema `%s`", cfg.session_mysql_database)
+        get_topic_task_store().init_schema()
+        logger.info("Topic/task store ready for schema `%s`", cfg.session_mysql_database)
     except Exception as e:
-        logger.exception("Session store bootstrap failed: %s", e)
+        logger.exception("Topic/task store bootstrap failed: %s", e)
+        raise
+
+    try:
+        await get_task_coordinator().start()
+        logger.info(
+            "Task coordinator ready redis=%s:%s concurrency=%s",
+            cfg.redis_host,
+            cfg.redis_port,
+            cfg.task_max_concurrency,
+        )
+    except Exception as e:
+        logger.exception("Task coordinator bootstrap failed: %s", e)
+        raise
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    try:
+        await get_task_coordinator().stop()
+    except Exception as e:
+        logger.exception("Task coordinator shutdown failed: %s", e)
 
 
 if __name__ == "__main__":

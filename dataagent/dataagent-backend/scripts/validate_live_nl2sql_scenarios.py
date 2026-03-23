@@ -145,19 +145,24 @@ def _iter_outputs(value: Any):
             yield from _iter_outputs(item)
 
 
-def _analyze_response(data: dict[str, Any]) -> dict[str, Any]:
-    blocks = data.get("blocks") or []
+def _analyze_response(*, content: str, status: str, error: Any, tool_outputs: list[Any]) -> dict[str, Any]:
+    normalized_status = str(status or "").strip()
+    if normalized_status == "finished":
+        normalized_status = "success"
+    elif normalized_status == "error":
+        normalized_status = "failed"
+    elif normalized_status == "suspended":
+        normalized_status = "cancelled"
+    elif normalized_status == "waiting":
+        normalized_status = "queued"
+
     kinds: list[str] = []
     chart_types: list[str] = []
     sql_count = 0
     tool_names: list[str] = []
-    block_types = [str(block.get("type") or "") for block in blocks]
+    block_types: list[str] = []
 
-    for block in blocks:
-        tool_name = str(block.get("tool_name") or "").strip()
-        if tool_name:
-            tool_names.append(tool_name)
-        output = block.get("output")
+    for output in tool_outputs:
         for item in _iter_outputs(output):
             if not isinstance(item, dict):
                 continue
@@ -171,15 +176,15 @@ def _analyze_response(data: dict[str, Any]) -> dict[str, Any]:
                 chart_types.append(chart_type)
 
     return {
-        "status": str(data.get("status") or ""),
-        "content": str(data.get("content") or ""),
-        "error": data.get("error"),
+        "status": normalized_status,
+        "content": str(content or ""),
+        "error": error,
         "block_types": block_types,
         "tool_names": tool_names,
         "kinds": kinds,
         "chart_types": chart_types,
         "sql_count": sql_count,
-        "block_count": len(blocks),
+        "block_count": 0,
     }
 
 
@@ -211,61 +216,98 @@ def _validate_scenario(scenario: Scenario, analysis: dict[str, Any]) -> tuple[bo
     return (not reasons, reasons)
 
 
-def _run_non_stream(base_url: str, scenario: Scenario, provider_id: str, model: str, timeout_seconds: int) -> dict[str, Any]:
-    session_id = f"live-{scenario.scenario_id}-{uuid.uuid4().hex[:8]}"
-    url = f"{base_url}/api/v1/nl2sql/sessions/{session_id}/messages"
-    start = time.perf_counter()
-    payload = {
-        "content": scenario.question,
-        "stream": False,
-        "provider_id": provider_id,
-        "model": model,
-    }
-    data = _http_json("POST", url, payload=payload, timeout_seconds=timeout_seconds)
-    elapsed = round(time.perf_counter() - start, 2)
-    analysis = _analyze_response(data)
-    passed, reasons = _validate_scenario(scenario, analysis)
-    return {
-        "mode": "non_stream",
-        "session_id": session_id,
-        "elapsed_seconds": elapsed,
-        "passed": passed,
-        "reasons": reasons,
-        "response": analysis,
-    }
+def _wait_task(base_url: str, task_id: str, timeout_seconds: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    deadline = time.time() + timeout_seconds
+    after_seq = 0
+    events: list[dict[str, Any]] = []
+    while time.time() < deadline:
+        page = _http_json(
+            "GET",
+            f"{base_url}/api/v1/nl2sql/tasks/{task_id}/events?after_seq={after_seq}",
+            payload=None,
+            timeout_seconds=timeout_seconds,
+        )
+        batch = page.get("events") or []
+        if batch:
+            events.extend(batch)
+            after_seq = max(int(item.get("seq_id") or 0) for item in batch)
+        task = _http_json("GET", f"{base_url}/api/v1/nl2sql/tasks/{task_id}", payload=None, timeout_seconds=timeout_seconds)
+        if str(task.get("task_status") or "") in {"finished", "error", "suspended"}:
+            return task, events
+        time.sleep(2)
+    raise TimeoutError(f"task {task_id} did not reach terminal status within {timeout_seconds}s")
 
 
-def _run_stream(base_url: str, scenario: Scenario, provider_id: str, model: str, timeout_seconds: int) -> dict[str, Any]:
-    session_id = f"live-{scenario.scenario_id}-{uuid.uuid4().hex[:8]}"
-    url = f"{base_url}/api/v1/nl2sql/sessions/{session_id}/messages"
+def _run_via_topic_task(base_url: str, scenario: Scenario, provider_id: str, model: str, timeout_seconds: int, mode: str) -> dict[str, Any]:
+    topic = _http_json(
+        "POST",
+        f"{base_url}/api/v1/nl2sql/topics",
+        payload={"title": f"live-{scenario.scenario_id}-{uuid.uuid4().hex[:8]}"},
+        timeout_seconds=timeout_seconds,
+    )
+    topic_id = str(topic.get("topic_id") or "")
     start = time.perf_counter()
-    payload = {
-        "content": scenario.question,
-        "stream": True,
-        "provider_id": provider_id,
-        "model": model,
-    }
-    events = _http_sse(url, payload=payload, timeout_seconds=timeout_seconds)
+    accepted = _http_json(
+        "POST",
+        f"{base_url}/api/v1/nl2sql/tasks/deliver-message",
+        payload={
+            "topic_id": topic_id,
+            "content": scenario.question,
+            "provider_id": provider_id,
+            "model": model,
+            "execution_mode": "auto",
+        },
+        timeout_seconds=timeout_seconds,
+    )
+    task_id = str(accepted.get("task_id") or "")
+    task, events = _wait_task(base_url, task_id, timeout_seconds)
+    topic_messages = _http_json(
+        "GET",
+        f"{base_url}/api/v1/nl2sql/topics/{topic_id}/messages?page=1&page_size=500&order=asc",
+        payload=None,
+        timeout_seconds=timeout_seconds,
+    )
     elapsed = round(time.perf_counter() - start, 2)
-    done = next((event for event in reversed(events) if str(event.get("type") or "") == "done"), {})
-    analysis = _analyze_response(done.get("payload") or {})
+
+    messages = topic_messages.get("items") or []
+    assistant = next(
+        (
+            item for item in reversed(messages)
+            if str(item.get("sender_type") or "") == "assistant" and str(item.get("task_id") or "") == task_id
+        ),
+        {},
+    )
+    tool_outputs = [
+        ((event.get("data") or {}).get("tool") or {}).get("output")
+        for event in events
+        if str(event.get("record_type") or "") == "event" and str(event.get("event_type") or "") == "AFTER_TOOL_CALL"
+    ]
+    analysis = _analyze_response(
+        content=str(assistant.get("content") or ""),
+        status=str(task.get("task_status") or ""),
+        error=task.get("error"),
+        tool_outputs=tool_outputs,
+    )
     passed, reasons = _validate_scenario(scenario, analysis)
-    if not events:
-        reasons.append("no_stream_events")
-        passed = False
-    elif str(events[-1].get("type") or "") != "done":
-        reasons.append("stream_missing_done")
-        passed = False
     return {
-        "mode": "stream",
-        "session_id": session_id,
+        "mode": mode,
+        "topic_id": topic_id,
+        "task_id": task_id,
         "elapsed_seconds": elapsed,
         "passed": passed,
         "reasons": reasons,
         "event_count": len(events),
-        "event_types": [str(event.get("type") or "") for event in events],
+        "event_types": [str(event.get("event_type") or event.get("record_type") or "") for event in events],
         "response": analysis,
     }
+
+
+def _run_non_stream(base_url: str, scenario: Scenario, provider_id: str, model: str, timeout_seconds: int) -> dict[str, Any]:
+    return _run_via_topic_task(base_url, scenario, provider_id, model, timeout_seconds, "non_stream")
+
+
+def _run_stream(base_url: str, scenario: Scenario, provider_id: str, model: str, timeout_seconds: int) -> dict[str, Any]:
+    return _run_via_topic_task(base_url, scenario, provider_id, model, timeout_seconds, "stream")
 
 
 def _report_line(result: dict[str, Any]) -> str:
@@ -295,9 +337,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--scenario", action="append", default=[], help="Only run the specified scenario_id. Repeatable.")
     args = parser.parse_args(argv)
 
-    settings = _http_json("GET", f"{args.base_url}/api/v1/nl2sql/settings", payload=None, timeout_seconds=args.timeout_seconds)
-    provider_id = args.provider_id or str(settings.get("default_provider_id") or "")
-    model = args.model or str(settings.get("default_model") or "")
+    settings = _http_json("GET", f"{args.base_url}/api/v1/nl2sql-admin/settings", payload=None, timeout_seconds=args.timeout_seconds)
+    provider_id = args.provider_id or str(settings.get("provider_id") or "")
+    model = args.model or str(settings.get("model") or "")
     if not provider_id or not model:
         print("missing default provider/model", file=sys.stderr)
         return 2

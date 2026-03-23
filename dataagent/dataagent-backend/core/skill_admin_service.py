@@ -153,6 +153,7 @@ def _default_provider_settings(provider_id: str) -> dict[str, Any]:
         "api_key": "",
         "auth_token": "",
         "base_url": str(definition.get("default_base_url") or ""),
+        "supports_partial_messages": provider_id != "anthropic_compatible",
         "enabled_models": [],
         "custom_models": [],
         "validation_status": "unverified",
@@ -216,6 +217,7 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
     base_url = str(base.get("base_url") or definition.get("default_base_url") or "").strip()
     api_key = str(base.get("api_key") or "").strip()
     auth_token = str(base.get("auth_token") or "").strip()
+    supports_partial_messages = bool(base.get("supports_partial_messages", provider_id != "anthropic_compatible"))
 
     status, message = _compute_provider_validation(
         provider_id,
@@ -236,6 +238,7 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
         "api_key": api_key,
         "auth_token": auth_token,
         "base_url": base_url,
+        "supports_partial_messages": supports_partial_messages,
         "enabled_models": enabled_models,
         "custom_models": custom_models,
         "supported_models": supported_models,
@@ -291,6 +294,8 @@ def _merge_provider_settings(
                 current_entry["auth_token"] = auth_token
         if "base_url" in update:
             current_entry["base_url"] = str(update.get("base_url") or "").strip()
+        if "supports_partial_messages" in update:
+            current_entry["supports_partial_messages"] = bool(update.get("supports_partial_messages"))
         if "enabled_models" in update:
             current_entry["enabled_models"] = _string_list(update.get("enabled_models"))
         if "custom_models" in update:
@@ -464,6 +469,7 @@ def list_provider_configs(*, payload: dict[str, Any] | None = None, enabled_only
                     or str(definition.get("default_model") or "")
                 ),
                 "enabled": bool(item.get("enabled")),
+                "supports_partial_messages": bool(item.get("supports_partial_messages", provider_id != "anthropic_compatible")),
                 "validation_status": str(item.get("validation_status") or "unverified"),
                 "validation_message": str(item.get("validation_message") or ""),
             }
@@ -524,6 +530,9 @@ def resolve_runtime_provider_selection(provider_id: str | None, model: str | Non
         "api_key": str(provider.get("api_key") or ""),
         "auth_token": str(provider.get("auth_token") or ""),
         "base_url": str(provider.get("base_url") or ""),
+        "supports_partial_messages": bool(
+            provider.get("supports_partial_messages", normalized_provider_id != "anthropic_compatible")
+        ),
     }
 
 

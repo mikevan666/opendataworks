@@ -2,34 +2,34 @@
   <div class="query-workbench">
     <aside class="query-sidebar">
       <div class="query-sidebar-head">
-        <div>
-          <div class="query-brand">智能问数</div>
-          <div class="query-brand-meta">DataAgent 会话空间</div>
+          <div>
+            <div class="query-brand">智能问数</div>
+            <div class="query-brand-meta">数据分析</div>
+          </div>
+          <button class="query-btn-new" @click="handleNewTopic">新建</button>
         </div>
-        <button class="query-btn-new" @click="handleNewSession">新建</button>
-      </div>
 
       <div class="query-sidebar-search">
         <input
           v-model="searchKeyword"
           class="query-search-input"
           type="text"
-          placeholder="搜索会话"
+          placeholder="搜索话题"
         >
       </div>
 
       <div class="query-session-list">
         <button
-          v-for="session in filteredSessions"
-          :key="session.session_id"
+          v-for="topic in filteredTopics"
+          :key="topic.topic_id"
           class="query-session-item"
-          :class="{ active: session.session_id === activeSessionId }"
-          @click="handleSelectSession(session.session_id)"
+          :class="{ active: topic.topic_id === activeTopicId }"
+          @click="handleSelectTopic(topic.topic_id)"
         >
-          <div class="query-session-title">{{ truncate(session.title, 26) }}</div>
-          <div class="query-session-meta">{{ formatTime(session.updated_at || session.created_at) }}</div>
+          <div class="query-session-title">{{ truncate(topic.title, 26) }}</div>
+          <div class="query-session-meta">{{ formatTime(topic.updated_at || topic.created_at) }}</div>
         </button>
-        <div v-if="!filteredSessions.length" class="query-empty-sessions">暂无会话</div>
+        <div v-if="!filteredTopics.length" class="query-empty-sessions">暂无话题</div>
       </div>
     </aside>
 
@@ -38,25 +38,25 @@
         <div class="query-messages-inner">
           <div class="query-main-head">
             <div>
-              <p class="query-main-kicker">Natural Language To SQL</p>
-              <h3>{{ activeSession ? truncate(activeSession.title, 48) : '开始一次新的数据分析' }}</h3>
-              <p class="query-main-subtitle">仅展示你已开启且通过校验的供应商与模型，支持连续追问、工具执行轨迹和图表渲染。</p>
+              <p class="query-main-kicker">数据分析助手</p>
+              <h3>{{ activeTopic ? truncate(activeTopic.title, 48) : '开始一次新的数据分析' }}</h3>
+              <p class="query-main-subtitle">围绕数据查询与分析开展连续对话。</p>
             </div>
             <div class="query-model-badge">
-              <span>{{ activeProviderConfig?.display_name || 'Provider 未配置' }}</span>
+              <span>{{ activeProviderConfig?.display_name || '未配置' }}</span>
               <strong>{{ selectedModel || settings.default_model || '默认模型' }}</strong>
             </div>
           </div>
 
           <div v-if="!settings.providers.length" class="query-config-empty">
             <div class="query-config-empty-title">还没有可用的智能问数模型</div>
-            <div class="query-config-empty-text">请先在配置页填写供应商 Token，并把模型加入“已验证候选”。</div>
+            <div class="query-config-empty-text">请先完成模型配置。</div>
           </div>
 
           <div v-if="!activeMessages.length" class="query-empty">
             <div class="query-empty-mark">AI</div>
-            <div class="query-empty-title">输入 OpenDataWorks 场景问题，直接开始分析</div>
-            <div class="query-empty-subtitle">我会结合平台元数据、工作流治理表和托管数据源执行 SQL 或 Python，并在适合时自动生成图表。</div>
+            <div class="query-empty-title">请输入你的数据问题</div>
+            <div class="query-empty-subtitle">支持数据查询、趋势分析与结果可视化。</div>
             <div class="query-suggestions">
               <button
                 v-for="suggestion in suggestions"
@@ -79,12 +79,12 @@
                 <div
                   v-if="hasProcessPanel(msg)"
                   class="query-process-panel"
-                  :class="{ expanded: isProcessPanelExpanded(msg), complete: hasFinalResult(msg) && !isActiveRunStatus(msg.status) }"
+                  :class="{ expanded: isProcessPanelExpanded(msg), complete: hasFinalResult(msg) && !isActiveTaskStatus(msg.status) }"
                 >
                   <div class="query-process-summary-row">
                     <button type="button" class="query-process-summary" @click.stop="toggleProcessPanel(msg)">
                       <span class="query-process-badge">
-                        <span v-if="isActiveRunStatus(msg.status)" class="query-process-badge-dot" />
+                        <span v-if="isActiveTaskStatus(msg.status)" class="query-process-badge-dot" />
                         思考过程
                       </span>
                       <span v-if="processSummaryPreview(msg)" class="query-process-summary-preview">{{ processSummaryPreview(msg) }}</span>
@@ -92,10 +92,10 @@
                       <span class="query-process-summary-chevron" :class="{ open: isProcessPanelExpanded(msg) }">⌄</span>
                     </button>
                     <button
-                      v-if="msg.run_id && isActiveRunStatus(msg.status)"
+                      v-if="msg.task_id && isActiveTaskStatus(msg.status)"
                       type="button"
                       class="query-process-cancel"
-                      @click="cancelRun(msg)"
+                      @click="cancelTask(msg)"
                     >
                       取消
                     </button>
@@ -143,13 +143,6 @@
                   <div v-else-if="block.kind === 'error' && block.text" class="query-error-card">
                     <span class="query-error-label">错误</span>
                     <span>{{ block.text }}</span>
-                  </div>
-
-                  <div v-if="block.kind === 'main_text' && segmentUsageFooter(msg, block)" class="query-message-meta">
-                    <span class="query-message-meta-total">Tokens: {{ segmentUsageFooter(msg, block).total }}</span>
-                    <span v-if="segmentUsageFooter(msg, block).input" class="query-message-meta-arrow is-up">↑{{ segmentUsageFooter(msg, block).input }}</span>
-                    <span v-if="segmentUsageFooter(msg, block).output" class="query-message-meta-arrow is-down">↓{{ segmentUsageFooter(msg, block).output }}</span>
-                    <span v-if="segmentUsageFooter(msg, block).cacheRead" class="query-message-meta-cache">命中 {{ segmentUsageFooter(msg, block).cacheRead }}</span>
                   </div>
                 </div>
 
@@ -210,7 +203,7 @@
               @keydown.ctrl.enter.prevent="handleSend"
               @keydown.meta.enter.prevent="handleSend"
             />
-            <button class="query-btn-send" :disabled="!inputText.trim() || activeSessionSubmitting || !selectedProvider || !selectedModel" @click="handleSend">
+            <button class="query-btn-send" :disabled="!inputText.trim() || activeTopicSubmitting || !selectedProvider || !selectedModel" @click="handleSend">
               发送
             </button>
           </div>
@@ -227,7 +220,6 @@ import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { extractChartSpecsFromText, parseChartSpec, stripChartSpecsFromText } from './chartSpec'
-import { formatUsageFooter } from './messageUsage'
 import {
   activeStreamingBlock as activeStreamingMessageBlock,
   createAssistantMessageState,
@@ -239,15 +231,16 @@ import {
 marked.setOptions({ breaks: true, gfm: true })
 
 const api = createNl2SqlApiClient({ timeout: 300000 })
+const { topicApi, taskApi, adminApi } = api
 
-const sessions = ref([])
-const activeSessionId = ref('')
+const topics = ref([])
+const activeTopicId = ref('')
 const inputText = ref('')
 const searchKeyword = ref('')
 const messagesRef = ref(null)
 const autoScroll = ref(true)
 const hydratedIds = new Set()
-const runSubscriptions = new Map()
+const taskSubscriptions = new Map()
 const pendingSubmitKeys = ref(new Set())
 
 const settings = reactive({
@@ -266,12 +259,12 @@ const suggestions = [
   '查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘'
 ]
 
-const activeSession = computed(() => sessions.value.find((session) => session.session_id === activeSessionId.value) || null)
-const activeMessages = computed(() => activeSession.value?.messages || [])
-const filteredSessions = computed(() => {
+const activeTopic = computed(() => topics.value.find((topic) => topic.topic_id === activeTopicId.value) || null)
+const activeMessages = computed(() => activeTopic.value?.messages || [])
+const filteredTopics = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase()
-  if (!keyword) return sessions.value
-  return sessions.value.filter((session) => String(session.title || '').toLowerCase().includes(keyword))
+  if (!keyword) return topics.value
+  return topics.value.filter((topic) => String(topic.title || '').toLowerCase().includes(keyword))
 })
 
 const activeProviderConfig = computed(() => {
@@ -289,23 +282,23 @@ const availableModels = computed(() => {
   return models
 })
 
-const NEW_SESSION_PENDING_KEY = '__new_session__'
+const NEW_TOPIC_PENDING_KEY = '__new_topic__'
 
-const normalizePendingSessionKey = (sessionId) => String(sessionId || NEW_SESSION_PENDING_KEY)
+const normalizePendingTopicKey = (topicId) => String(topicId || NEW_TOPIC_PENDING_KEY)
 
-const isSessionSubmitting = (sessionId) => pendingSubmitKeys.value.has(normalizePendingSessionKey(sessionId))
+const isTopicSubmitting = (topicId) => pendingSubmitKeys.value.has(normalizePendingTopicKey(topicId))
 
-const markSessionSubmitting = (sessionId) => {
-  const key = normalizePendingSessionKey(sessionId)
+const markTopicSubmitting = (topicId) => {
+  const key = normalizePendingTopicKey(topicId)
   const next = new Set(pendingSubmitKeys.value)
   next.add(key)
   pendingSubmitKeys.value = next
   return key
 }
 
-const moveSessionSubmitting = (fromSessionId, toSessionId) => {
-  const fromKey = normalizePendingSessionKey(fromSessionId)
-  const toKey = normalizePendingSessionKey(toSessionId)
+const moveTopicSubmitting = (fromTopicId, toTopicId) => {
+  const fromKey = normalizePendingTopicKey(fromTopicId)
+  const toKey = normalizePendingTopicKey(toTopicId)
   const next = new Set(pendingSubmitKeys.value)
   next.delete(fromKey)
   next.add(toKey)
@@ -313,16 +306,16 @@ const moveSessionSubmitting = (fromSessionId, toSessionId) => {
   return toKey
 }
 
-const clearSessionSubmitting = (key) => {
+const clearTopicSubmitting = (key) => {
   const next = new Set(pendingSubmitKeys.value)
   next.delete(String(key || ''))
   pendingSubmitKeys.value = next
 }
 
-const activeSessionSubmitting = computed(() => isSessionSubmitting(activeSessionId.value))
+const activeTopicSubmitting = computed(() => isTopicSubmitting(activeTopicId.value))
 
 const truncate = (value, max) => {
-  const text = String(value || '新会话')
+  const text = String(value || '新话题')
   return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
@@ -476,16 +469,18 @@ const renderMarkdown = (text) => {
   }
 }
 
-const sortSessions = () => {
-  sessions.value.sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0))
+const sortTopics = () => {
+  topics.value.sort((left, right) => new Date(right.updated_at || right.created_at || 0) - new Date(left.updated_at || left.created_at || 0))
 }
 
-const normSession = (session) => ({
-  session_id: String(session?.session_id || ''),
-  title: String(session?.title || '新会话'),
-  message_count: Number(session?.message_count || 0),
-  created_at: String(session?.created_at || new Date().toISOString()),
-  updated_at: String(session?.updated_at || new Date().toISOString()),
+const normalizeTopicSummary = (topic) => ({
+  topic_id: String(topic?.topic_id || ''),
+  title: String(topic?.title || '新话题'),
+  message_count: Number(topic?.message_count || 0),
+  current_task_id: String(topic?.current_task_id || ''),
+  current_task_status: String(topic?.current_task_status || ''),
+  created_at: String(topic?.created_at || new Date().toISOString()),
+  updated_at: String(topic?.updated_at || new Date().toISOString()),
   messages: []
 })
 
@@ -499,7 +494,17 @@ const syncAssistantMessage = (target, source) => {
   Object.assign(target, source)
 }
 
-const isActiveRunStatus = (status) => ['queued', 'running', 'streaming'].includes(String(status || '').trim())
+const toUiTaskStatus = (status) => {
+  const raw = String(status || '').trim()
+  if (!raw) return 'queued'
+  if (raw === 'waiting') return 'queued'
+  if (raw === 'finished') return 'success'
+  if (raw === 'error') return 'failed'
+  if (raw === 'suspended') return 'cancelled'
+  return raw
+}
+
+const isActiveTaskStatus = (status) => ['queued', 'running', 'streaming'].includes(String(status || '').trim())
 
 const parseToolInput = (value) => {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value
@@ -547,7 +552,7 @@ const describeToolActivity = (tool) => {
 
 const streamingActivity = (msg) => {
   const status = String(msg?.status || '').trim()
-  if (!isActiveRunStatus(status)) return null
+  if (!isActiveTaskStatus(status)) return null
   if (status === 'queued') {
     return {
       kind: 'thinking',
@@ -617,7 +622,7 @@ const processSummaryPreview = (msg) => {
 }
 
 const processSummaryMeta = (msg) => {
-  if (isActiveRunStatus(msg?.status)) return '进行中'
+  if (isActiveTaskStatus(msg?.status)) return '进行中'
   const steps = processBlocksForMessage(msg).filter((block) => {
     if (block.kind === 'tool' && block.tool) return true
     return Boolean(String(block.text || '').trim())
@@ -627,7 +632,7 @@ const processSummaryMeta = (msg) => {
 
 const processPanelKey = (msg) => String(msg?.message_id || msg?.id || '')
 
-const defaultProcessPanelExpanded = (msg) => isActiveRunStatus(msg?.status) || !hasFinalResult(msg)
+const defaultProcessPanelExpanded = (msg) => isActiveTaskStatus(msg?.status) || !hasFinalResult(msg)
 
 const isProcessPanelExpanded = (msg) => {
   if (msg?._processPanelTouched) return Boolean(msg._processPanelExpanded)
@@ -640,76 +645,57 @@ const toggleProcessPanel = (msg) => {
   msg._processPanelExpanded = !isProcessPanelExpanded(msg)
 }
 
-const isLastBlockInSegment = (msg, block) => {
-  const key = String(block?.messageKey || '').trim()
-  if (!key) return false
-  const blocks = renderBlocksForMessage(msg)
-  const last = [...blocks].reverse().find((item) => String(item?.messageKey || '').trim() === key)
-  return Boolean(last && last.id === block?.id)
-}
-
-const segmentUsageFooter = (msg, block) => {
-  if (!isLastBlockInSegment(msg, block)) return null
-  const key = String(block?.messageKey || '').trim()
-  const usage = msg?._messageMeta?.[key]?.usage || (key === 'm0' ? msg?.usage : null)
-  return formatUsageFooter(usage)
-}
 const processEvent = processAssistantStreamEvent
 
-const stopRunSubscription = (runId) => {
-  const key = String(runId || '').trim()
-  const current = runSubscriptions.get(key)
+const stopTaskSubscription = (taskId) => {
+  const key = String(taskId || '').trim()
+  const current = taskSubscriptions.get(key)
   if (!current) return
   current.controller.abort()
-  runSubscriptions.delete(key)
+  taskSubscriptions.delete(key)
 }
 
-const stopAllRunSubscriptions = () => {
-  for (const runId of runSubscriptions.keys()) {
-    stopRunSubscription(runId)
+const stopAllTaskSubscriptions = () => {
+  for (const taskId of taskSubscriptions.keys()) {
+    stopTaskSubscription(taskId)
   }
 }
 
-const subscribeRun = (runId, assistantMsg) => {
-  const key = String(runId || assistantMsg?.run_id || '').trim()
-  if (!key || !assistantMsg || runSubscriptions.has(key)) return
+const subscribeTask = (taskId, assistantMsg) => {
+  const key = String(taskId || assistantMsg?.task_id || '').trim()
+  if (!key || !assistantMsg || taskSubscriptions.has(key)) return
 
   const controller = new AbortController()
   let afterSeq = 0
 
-  const finalizeWithRunState = async () => {
+  const finalizeWithTaskState = async () => {
     try {
-      const run = await api.getRun(key)
-      if (!run) return false
-      if (run.status === 'cancelled' && assistantMsg.status === 'queued') {
+      const task = await taskApi.getTask(key)
+      if (!task) return false
+      const taskStatus = String(task.task_status || task.status || '').trim()
+      if (taskStatus === 'suspended' && assistantMsg.status === 'queued') {
         processEvent(assistantMsg, {
-          run_id: key,
+          task_id: key,
           message_id: assistantMsg.message_id,
-          type: 'done',
-          payload: {
-            status: 'cancelled',
-            content: '任务已取消',
-            blocks: [
-              {
-                block_id: 'cancelled-1',
-                type: 'error',
-                status: 'failed',
-                text: '任务已取消',
-                payload: { code: 'run_cancelled', message: '任务已取消' }
-              }
-            ],
-            error: { code: 'run_cancelled', message: '任务已取消' },
-            provider_id: run.provider_id,
-            model: run.model
+          record_type: 'event',
+          event_type: 'AGENT_SUSPENDED',
+          data: {
+            status: 'suspended',
+            error: { code: 'task_cancelled', message: '任务已取消' }
           }
         })
-      } else if (run.status === 'failed' && assistantMsg.status === 'queued') {
+      } else if (taskStatus === 'error' && assistantMsg.status === 'queued') {
         assistantMsg.status = 'failed'
-      } else if (isActiveRunStatus(run.status)) {
-        assistantMsg.status = run.status
+        if (task.error?.message) {
+          assistantMsg.error = { message: String(task.error.message) }
+        }
+      } else if (taskStatus === 'finished') {
+        assistantMsg.status = 'success'
+      } else if (isActiveTaskStatus(taskStatus === 'waiting' ? 'queued' : taskStatus)) {
+        assistantMsg.status = taskStatus === 'waiting' ? 'queued' : taskStatus
         return true
       }
-      triggerRef(sessions)
+      triggerRef(topics)
       scrollToBottom()
       return false
     } catch (_error) {
@@ -721,76 +707,61 @@ const subscribeRun = (runId, assistantMsg) => {
     try {
       while (!controller.signal.aborted) {
         try {
-          const doneEvent = await api.streamRunEvents(key, {
+          await taskApi.streamTaskEvents(key, {
             afterSeq,
             signal: controller.signal,
             onEvent: (event) => {
-              afterSeq = Math.max(afterSeq, Number(event?.seq || 0))
+              afterSeq = Math.max(afterSeq, Number(event?.seq_id || event?.seq || 0))
               processEvent(assistantMsg, event)
-              triggerRef(sessions)
+              triggerRef(topics)
               scrollToBottom()
             }
           })
-          if (doneEvent) {
-            afterSeq = Math.max(afterSeq, Number(doneEvent?.seq || 0))
-            break
-          }
-          const shouldContinue = await finalizeWithRunState()
+          const shouldContinue = await finalizeWithTaskState()
           if (!shouldContinue) break
         } catch (error) {
           if (controller.signal.aborted) break
-          const shouldContinue = await finalizeWithRunState()
+          const shouldContinue = await finalizeWithTaskState()
           if (!shouldContinue) break
           await new Promise((resolve) => window.setTimeout(resolve, 1500))
         }
       }
     } finally {
-      runSubscriptions.delete(key)
+      taskSubscriptions.delete(key)
     }
   }
 
-  runSubscriptions.set(key, { controller })
+  taskSubscriptions.set(key, { controller })
   void pump()
 }
 
-const resumePendingRuns = (session) => {
-  if (!session || !Array.isArray(session.messages)) return
-  for (const message of session.messages) {
+const resumePendingTasks = (topic) => {
+  if (!topic || !Array.isArray(topic.messages)) return
+  for (const message of topic.messages) {
     if (message?.role !== 'assistant') continue
-    if (!message?.run_id) continue
-    if (!isActiveRunStatus(message?.status)) continue
-    subscribeRun(message.run_id, message)
+    if (!message?.task_id) continue
+    if (!isActiveTaskStatus(message?.status)) continue
+    subscribeTask(message.task_id, message)
   }
 }
 
-const cancelRun = async (msg) => {
-  const runId = String(msg?.run_id || '').trim()
-  if (!runId) return
+const cancelTask = async (msg) => {
+  const taskId = String(msg?.task_id || '').trim()
+  if (!taskId) return
   try {
-    await api.cancelRun(runId)
-    stopRunSubscription(runId)
+    await taskApi.cancelTask(taskId)
+    stopTaskSubscription(taskId)
     processEvent(msg, {
-      run_id: runId,
+      task_id: taskId,
       message_id: msg.message_id,
-      type: 'done',
-      payload: {
-        status: 'cancelled',
-        content: '任务已取消',
-        blocks: [
-          {
-            block_id: 'cancelled-1',
-            type: 'error',
-            status: 'failed',
-            text: '任务已取消',
-            payload: { code: 'run_cancelled', message: '任务已取消' }
-          }
-        ],
-        error: { code: 'run_cancelled', message: '任务已取消' },
-        provider_id: msg.provider_id,
-        model: msg.model
+      record_type: 'event',
+      event_type: 'AGENT_SUSPENDED',
+      data: {
+        status: 'suspended',
+        error: { code: 'task_cancelled', message: '任务已取消' }
       }
     })
-    triggerRef(sessions)
+    triggerRef(topics)
     scrollToBottom()
   } catch (error) {
     ElMessage.error(String(error?.message || '取消任务失败'))
@@ -799,9 +770,9 @@ const cancelRun = async (msg) => {
 
 const loadSettings = async () => {
   try {
-    const payload = await api.getSettings()
-    settings.default_provider_id = payload?.default_provider_id || settings.default_provider_id
-    settings.default_model = payload?.default_model || settings.default_model
+    const payload = await adminApi.getSettings()
+    settings.default_provider_id = payload?.provider_id || payload?.default_provider_id || settings.default_provider_id
+    settings.default_model = payload?.model || payload?.default_model || settings.default_model
     settings.providers = Array.isArray(payload?.providers) ? payload.providers : []
     selectedProvider.value = settings.default_provider_id || settings.providers[0]?.provider_id || ''
     const provider = settings.providers.find((item) => item.provider_id === selectedProvider.value)
@@ -811,20 +782,25 @@ const loadSettings = async () => {
   }
 }
 
-const hydrateSession = async (sessionId) => {
-  if (!sessionId || hydratedIds.has(sessionId)) return
+const hydrateTopic = async (topicId) => {
+  if (!topicId || hydratedIds.has(topicId)) return
 
   try {
-    const detail = await api.getSession(sessionId)
-    const target = sessions.value.find((session) => session.session_id === sessionId)
+    const [detail, messagePage] = await Promise.all([
+      topicApi.getTopic(topicId),
+      topicApi.getTopicMessages(topicId, { page: 1, page_size: 500, order: 'asc' })
+    ])
+    const target = topics.value.find((topic) => topic.topic_id === topicId)
     if (target && detail) {
       target.title = String(detail.title || target.title)
       target.updated_at = String(detail.updated_at || target.updated_at)
-      const rawMessages = Array.isArray(detail.messages) ? detail.messages : []
+      target.current_task_id = String(detail.current_task_id || target.current_task_id || '')
+      target.current_task_status = String(detail.current_task_status || target.current_task_status || '')
+      const rawMessages = Array.isArray(messagePage?.items) ? messagePage.items : []
       target.messages = rawMessages.map((message) => {
         if (!message) return null
-        const role = String(message.role || 'assistant')
-        if (role === 'user') {
+        const senderType = String(message.sender_type || message.role || 'assistant')
+        if (senderType === 'user') {
           return {
             id: String(message.message_id || uid()),
             role: 'user',
@@ -835,85 +811,85 @@ const hydrateSession = async (sessionId) => {
 
         return reactive(hydrateAssistantMessageState(message))
       }).filter(Boolean)
-      target.message_count = target.messages.length
-      resumePendingRuns(target)
+      target.message_count = Number(messagePage?.total || target.messages.length)
+      resumePendingTasks(target)
     }
 
-    hydratedIds.add(sessionId)
+    hydratedIds.add(topicId)
   } catch (error) {
-    console.warn('hydrate session failed', error)
+    console.warn('hydrate topic failed', error)
   }
 }
 
-const loadSessions = async () => {
+const loadTopics = async () => {
   try {
-    const list = await api.listSessions()
-    sessions.value = (Array.isArray(list) ? list : []).map(normSession)
-    sortSessions()
-    if (!activeSessionId.value && sessions.value.length) {
-      activeSessionId.value = sessions.value[0].session_id
+    const list = await topicApi.listTopics()
+    topics.value = (Array.isArray(list) ? list : []).map(normalizeTopicSummary)
+    sortTopics()
+    if (!activeTopicId.value && topics.value.length) {
+      activeTopicId.value = topics.value[0].topic_id
     }
-    if (activeSessionId.value) {
-      await hydrateSession(activeSessionId.value)
+    if (activeTopicId.value) {
+      await hydrateTopic(activeTopicId.value)
     }
   } catch (error) {
-    console.warn('load sessions failed', error)
+    console.warn('load topics failed', error)
   }
 }
 
-const handleNewSession = async () => {
-  const session = normSession(await api.createSession())
-  sessions.value.unshift(session)
-  hydratedIds.add(session.session_id)
-  activeSessionId.value = session.session_id
+const handleNewTopic = async () => {
+  const topic = normalizeTopicSummary(await topicApi.createTopic())
+  topics.value.unshift(topic)
+  hydratedIds.add(topic.topic_id)
+  activeTopicId.value = topic.topic_id
   autoScroll.value = true
   scrollToBottom(true)
 }
 
-const handleSelectSession = async (sessionId) => {
-  activeSessionId.value = sessionId
-  await hydrateSession(sessionId)
+const handleSelectTopic = async (topicId) => {
+  activeTopicId.value = topicId
+  await hydrateTopic(topicId)
   autoScroll.value = true
   scrollToBottom(true)
 }
 
 const handleSend = async () => {
   const text = inputText.value.trim()
-  if (!text || isSessionSubmitting(activeSessionId.value) || !selectedProvider.value || !selectedModel.value) return
+  if (!text || isTopicSubmitting(activeTopicId.value) || !selectedProvider.value || !selectedModel.value) return
 
   inputText.value = ''
   autoScroll.value = true
   scrollToBottom(true)
 
-  let session = null
+  let topic = null
   let assistantMsg = null
-  let submitSessionId = activeSessionId.value
-  let pendingKey = markSessionSubmitting(submitSessionId)
+  let submitTopicId = activeTopicId.value
+  let pendingKey = markTopicSubmitting(submitTopicId)
 
   try {
-    if (!activeSessionId.value) {
+    if (!activeTopicId.value) {
       const title = text.length > 20 ? `${text.slice(0, 20)}...` : text
-      const created = normSession(await api.createSession(title))
-      sessions.value.unshift(created)
-      hydratedIds.add(created.session_id)
-      activeSessionId.value = created.session_id
-      submitSessionId = created.session_id
-      pendingKey = moveSessionSubmitting('', submitSessionId)
+      const created = normalizeTopicSummary(await topicApi.createTopic(title))
+      topics.value.unshift(created)
+      hydratedIds.add(created.topic_id)
+      activeTopicId.value = created.topic_id
+      submitTopicId = created.topic_id
+      pendingKey = moveTopicSubmitting('', submitTopicId)
     }
 
-    submitSessionId = activeSessionId.value
-    await hydrateSession(submitSessionId)
+    submitTopicId = activeTopicId.value
+    await hydrateTopic(submitTopicId)
 
-    session = sessions.value.find((item) => item.session_id === submitSessionId) || null
-    if (!session) {
-      throw new Error('会话初始化失败')
+    topic = topics.value.find((item) => item.topic_id === submitTopicId) || null
+    if (!topic) {
+      throw new Error('话题初始化失败')
     }
 
-    if (!Array.isArray(session.messages)) {
-      session.messages = []
+    if (!Array.isArray(topic.messages)) {
+      topic.messages = []
     }
 
-    session.messages.push({
+    topic.messages.push({
       id: `u_${uid()}`,
       role: 'user',
       content: text,
@@ -922,41 +898,34 @@ const handleSend = async () => {
 
     assistantMsg = makeAssistantMsg()
     assistantMsg.status = 'queued'
-    session.messages.push(assistantMsg)
+    topic.messages.push(assistantMsg)
     scrollToBottom(true)
 
-    const response = await api.sendMessage(
-      submitSessionId,
-      {
-        content: text,
-        provider_id: selectedProvider.value,
-        model: selectedModel.value,
-        debug: true,
-        execution_mode: 'auto',
-        wait_timeout_seconds: 20
-      }
-    )
+    const response = await taskApi.deliverMessage({
+      topic_id: submitTopicId,
+      content: text,
+      provider_id: selectedProvider.value,
+      model: selectedModel.value,
+      debug: true,
+      execution_mode: 'auto'
+    })
 
-    if (response?.accepted) {
-      const hydrated = hydrateAssistantMessageState(response.message || {
-        message_id: response.message_id,
-        run_id: response.run_id,
-        status: response.status,
-        content: ''
-      })
-      syncAssistantMessage(assistantMsg, hydrated)
-      assistantMsg.run_id = String(response.run_id || assistantMsg.run_id || '')
-      subscribeRun(assistantMsg.run_id, assistantMsg)
-    } else {
-      syncAssistantMessage(assistantMsg, hydrateAssistantMessageState(response))
+    assistantMsg.message_id = String(response?.assistant_message_id || assistantMsg.message_id || '')
+    assistantMsg.task_id = String(response?.task_id || assistantMsg.task_id || '')
+    assistantMsg.status = toUiTaskStatus(response?.task_status)
+    topic.current_task_id = assistantMsg.task_id
+    topic.current_task_status = String(response?.task_status || topic.current_task_status || '')
+    if (assistantMsg.task_id) {
+      subscribeTask(assistantMsg.task_id, assistantMsg)
     }
-    session.updated_at = new Date().toISOString()
-    session.message_count = session.messages.length
-    if (session.title === '新会话') {
-      session.title = text.length > 30 ? `${text.slice(0, 30)}...` : text
+
+    topic.updated_at = new Date().toISOString()
+    topic.message_count = topic.messages.length
+    if (topic.title === '新话题') {
+      topic.title = text.length > 30 ? `${text.slice(0, 30)}...` : text
     }
-    sortSessions()
-    triggerRef(sessions)
+    sortTopics()
+    triggerRef(topics)
     scrollToBottom(true)
   } catch (error) {
     const message = String(error?.message || '请求失败')
@@ -967,7 +936,7 @@ const handleSend = async () => {
       ElMessage.error(message)
     }
   } finally {
-    clearSessionSubmitting(pendingKey)
+    clearTopicSubmitting(pendingKey)
   }
 }
 
@@ -1005,12 +974,12 @@ watch(
 
 onMounted(async () => {
   await loadSettings()
-  await loadSessions()
+  await loadTopics()
   scrollToBottom(true)
 })
 
 onBeforeUnmount(() => {
-  stopAllRunSubscriptions()
+  stopAllTaskSubscriptions()
 })
 </script>
 
@@ -1243,6 +1212,15 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 1.5;
   word-break: break-all;
+}
+
+.query-model-badge-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.5;
 }
 
 .query-config-empty {

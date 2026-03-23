@@ -26,7 +26,9 @@ from models.schemas import (
     SkillSyncResponse,
 )
 
-router = APIRouter(prefix="/api/v1/dataagent")
+router = APIRouter()
+settings_router = APIRouter(prefix="/api/v1/nl2sql-admin")
+skills_router = APIRouter(prefix="/api/v1/dataagent")
 
 
 def _provider_catalog() -> list[ProviderConfig]:
@@ -61,12 +63,12 @@ def _build_admin_settings_response(updated_at: str = "") -> AdminSettingsRespons
     )
 
 
-@router.get("/settings", response_model=AdminSettingsResponse)
+@settings_router.get("/settings", response_model=AdminSettingsResponse)
 async def get_admin_settings():
     return _build_admin_settings_response()
 
 
-@router.put("/settings", response_model=AdminSettingsResponse)
+@settings_router.put("/settings", response_model=AdminSettingsResponse)
 async def update_admin_settings(request: AdminSettingsUpdateRequest):
     try:
         saved = persist_admin_settings(request.model_dump(exclude_none=True))
@@ -75,12 +77,12 @@ async def update_admin_settings(request: AdminSettingsUpdateRequest):
     return _build_admin_settings_response(updated_at=str(saved.get("updated_at") or ""))
 
 
-@router.get("/skills/documents", response_model=list[SkillDocumentSummary])
+@skills_router.get("/skills/documents", response_model=list[SkillDocumentSummary])
 async def get_skill_documents():
     return [SkillDocumentSummary.model_validate(item) for item in list_documents()]
 
 
-@router.get("/skills/documents/{document_id}", response_model=SkillDocumentDetail)
+@skills_router.get("/skills/documents/{document_id}", response_model=SkillDocumentDetail)
 async def get_skill_document(document_id: int):
     document = get_document_detail(document_id)
     if not document:
@@ -88,7 +90,7 @@ async def get_skill_document(document_id: int):
     return SkillDocumentDetail.model_validate(document)
 
 
-@router.put("/skills/documents/{document_id}", response_model=SkillDocumentDetail)
+@skills_router.put("/skills/documents/{document_id}", response_model=SkillDocumentDetail)
 async def update_skill_document(document_id: int, request: SkillDocumentUpdateRequest):
     try:
         document = save_document_content(document_id, request.content, request.change_summary)
@@ -99,7 +101,7 @@ async def update_skill_document(document_id: int, request: SkillDocumentUpdateRe
     return SkillDocumentDetail.model_validate(document)
 
 
-@router.post("/skills/documents/{document_id}/compare", response_model=SkillDocumentCompareResponse)
+@skills_router.post("/skills/documents/{document_id}/compare", response_model=SkillDocumentCompareResponse)
 async def compare_skill_document(document_id: int, request: SkillDocumentCompareRequest):
     try:
         result = compare_document_versions(
@@ -114,7 +116,7 @@ async def compare_skill_document(document_id: int, request: SkillDocumentCompare
     return SkillDocumentCompareResponse.model_validate(result)
 
 
-@router.post("/skills/documents/{document_id}/versions/{version_id}/rollback", response_model=SkillDocumentDetail)
+@skills_router.post("/skills/documents/{document_id}/versions/{version_id}/rollback", response_model=SkillDocumentDetail)
 async def rollback_skill_document(document_id: int, version_id: int):
     try:
         document = rollback_document(document_id, version_id)
@@ -125,10 +127,14 @@ async def rollback_skill_document(document_id: int, version_id: int):
     return SkillDocumentDetail.model_validate(document)
 
 
-@router.post("/skills/sync", response_model=SkillSyncResponse)
+@skills_router.post("/skills/sync", response_model=SkillSyncResponse)
 async def sync_skill_documents():
     try:
         result = sync_from_opendataworks()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return SkillSyncResponse.model_validate(result)
+
+
+router.include_router(settings_router)
+router.include_router(skills_router)

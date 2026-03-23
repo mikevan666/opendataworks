@@ -5,6 +5,89 @@ import {
 } from '../messageStream'
 
 describe('messageStream', () => {
+  it('renders magic task lifecycle events and chunk records', () => {
+    const msg = createAssistantMessageState({ id: 'magic-1', task_id: 'task-1' })
+
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'BEFORE_AGENT_THINK',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-1',
+      request_id: 'req-1',
+      chunk_id: 1,
+      content: '先定位指标',
+      delta: { status: 'START' },
+      metadata: { correlation_id: 'reasoning_1', content_type: 'reasoning' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'PENDING_TOOL_CALL',
+      correlation_id: 'tool-read-1',
+      data: { tool: { id: 'tool-read-1', name: 'Read', status: 'pending', input: { path: 'reference.md' } } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'AFTER_TOOL_CALL',
+      correlation_id: 'tool-read-1',
+      data: { tool: { id: 'tool-read-1', name: 'Read', status: 'success', output: '读取完成' } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'AFTER_AGENT_THINK',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'content',
+      correlation_id: 'content_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-1',
+      request_id: 'req-1',
+      chunk_id: 2,
+      content: '最终回答',
+      delta: { status: 'END' },
+      metadata: { correlation_id: 'content_1', content_type: 'content' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-1',
+      event_type: 'AFTER_AGENT_REPLY',
+      content_type: 'content',
+      correlation_id: 'content_1',
+      data: { status: 'finished', token_usage: { input_tokens: 10, output_tokens: 5 } }
+    })
+
+    expect(msg.task_id).toBe('task-1')
+    expect(msg.status).toBe('success')
+    expect(msg.thinkingText).toBe('先定位指标')
+    expect(msg.content).toBe('最终回答')
+    expect(msg.renderBlocks.map((block) => block.kind)).toEqual(['thinking', 'tool', 'main_text'])
+    expect(msg.renderBlocks[1].tool.status).toBe('success')
+    expect(msg.usage).toEqual({ input_tokens: 10, output_tokens: 5 })
+  })
+
   it('appends render blocks in stream order', () => {
     const msg = createAssistantMessageState({ id: 'a1' })
 

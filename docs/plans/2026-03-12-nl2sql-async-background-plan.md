@@ -1,5 +1,7 @@
 # NL2SQL Async Background Task Implementation Plan
 
+> Superseded on 2026-03-23 by [2026-03-23-dataagent-magic-task-model-plan.md](./2026-03-23-dataagent-magic-task-model-plan.md). The old `session/run + worker` execution plan is retained only for history.
+
 > Design: [../design/2026-03-12-nl2sql-async-background-design.md](../design/2026-03-12-nl2sql-async-background-design.md)
 
 **Goal:** 为智能问数引入后台任务 run 模型、独立 worker、可恢复事件流和分层超时，使长任务不再绑定单次 HTTP 请求寿命。

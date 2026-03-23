@@ -1,5 +1,7 @@
 # NL2SQL Async Background Task Design
 
+> Superseded on 2026-03-23 by [2026-03-23-dataagent-magic-task-model-design.md](./2026-03-23-dataagent-magic-task-model-design.md). The old `session/run + worker` model is no longer the current target architecture.
+
 **Date:** 2026-03-12
 **Goal:** 让智能问数支持 `30-60` 分钟级长任务，将“用户等多久”和“任务能活多久”彻底解耦，同时保持通用 agent 模块与 skill 规则解耦。
 **Tech Stack:** 前端使用 `Vue 3`、`Vite 5`、`Vue Router 4`、`Pinia`、`Element Plus`，并允许在新增智能问数界面中增量引入 `Tailwind CSS`；主后端使用 `Java 8`、`Spring Boot 2.7`、`MyBatis-Plus`、`MySQL 8`、`Flyway`；智能问数后端使用 `Python`、`FastAPI`、`Pydantic`、`PyMySQL`、`Alembic`、`AnyIO`；部署层使用 `nginx` 与 `Docker Compose`。

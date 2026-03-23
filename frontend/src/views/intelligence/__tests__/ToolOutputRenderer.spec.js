@@ -225,4 +225,42 @@ describe('ToolOutputRenderer', () => {
     expect(wrapper.text()).toContain('正在浏览')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
   })
+
+  it('renders markdown skill output as a collapsed preview and expands on demand', async () => {
+    const wrapper = mountRenderer({
+      id: 'tool-skill-preview',
+      name: 'Skill',
+      status: 'success',
+      _callComplete: true,
+      _runtimeStarted: true,
+      input: {
+        description: '加载技能说明'
+      },
+      output: [
+        '1→# 场景 Playbooks',
+        '2→',
+        '3→先结论：优先覆盖统计、对比、趋势、占比、明细、诊断六类问题。',
+        '4→',
+        '5→## 托管业务表',
+        '6→需要先查 metadata，再解析 datasource，最后执行 SQL。'
+      ].join('\n')
+    })
+
+    await wrapper.find('.shell-trace-summary').trigger('click')
+
+    expect(wrapper.find('.tool-markdown').exists()).toBe(true)
+    expect(wrapper.text()).toContain('场景 Playbooks')
+    expect(wrapper.text()).toContain('托管业务表')
+    expect(wrapper.text()).not.toContain('1→# 场景 Playbooks')
+    expect(wrapper.text()).not.toContain('5→## 托管业务表')
+    expect(wrapper.text()).not.toContain('需要先查 metadata，再解析 datasource，最后执行 SQL。')
+    expect(wrapper.find('.tool-markdown-toggle').text()).toContain('展开')
+    expect(wrapper.findAll('.tool-code').length).toBe(0)
+
+    await wrapper.find('.tool-markdown-toggle').trigger('click')
+
+    expect(wrapper.text()).toContain('需要先查 metadata，再解析 datasource，最后执行 SQL。')
+    expect(wrapper.text()).not.toContain('6→需要先查 metadata，再解析 datasource，最后执行 SQL。')
+    expect(wrapper.find('.tool-markdown-toggle').text()).toContain('收起')
+  })
 })

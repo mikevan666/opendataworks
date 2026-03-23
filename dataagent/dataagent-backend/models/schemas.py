@@ -47,15 +47,69 @@ class QAExample(BaseModel):
     tags: List[str] = Field(default_factory=list)
 
 
-class SendMessageRequest(BaseModel):
+class CreateTopicRequest(BaseModel):
+    title: Optional[str] = None
+
+
+class UpdateTopicRequest(BaseModel):
+    title: str
+
+
+class DeliverMessageRequest(BaseModel):
+    topic_id: str
     content: str
     provider_id: Optional[str] = None
     model: Optional[str] = None
-    stream: bool = True
     debug: bool = False
     database: Optional[str] = None
     execution_mode: Optional[str] = None
-    wait_timeout_seconds: Optional[int] = None
+
+
+class CreateTaskRequest(BaseModel):
+    topic_id: str
+    message_type: str
+    message_content: Any
+    provider_id: Optional[str] = None
+    model: Optional[str] = None
+    debug: bool = False
+    database: Optional[str] = None
+    execution_mode: Optional[str] = None
+    source_queue_id: Optional[str] = None
+    source_schedule_id: Optional[str] = None
+    source_schedule_log_id: Optional[str] = None
+
+
+class MessageQueueQueryRequest(BaseModel):
+    topic_id: Optional[str] = None
+    page: int = 1
+    page_size: int = 50
+
+
+class MessageQueueUpsertRequest(BaseModel):
+    topic_id: str
+    message_type: str
+    message_content: Any
+
+
+class MessageScheduleQueryRequest(BaseModel):
+    topic_id: Optional[str] = None
+    page: int = 1
+    page_size: int = 50
+
+
+class MessageScheduleUpsertRequest(BaseModel):
+    topic_id: str
+    name: str
+    message_type: str
+    message_content: Any
+    cron_expr: str
+    enabled: bool = True
+    timezone: str = "Asia/Shanghai"
+
+
+class MessageScheduleLogsQueryRequest(BaseModel):
+    page: int = 1
+    page_size: int = 50
 
 
 class ProviderSettingsUpdate(BaseModel):
@@ -66,6 +120,7 @@ class ProviderSettingsUpdate(BaseModel):
     api_key: Optional[str] = None
     auth_token: Optional[str] = None
     base_url: Optional[str] = None
+    supports_partial_messages: Optional[bool] = None
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -98,101 +153,6 @@ class SqlExecutionResult(BaseModel):
     error: Optional[str] = None
 
 
-class MessageBlock(BaseModel):
-    block_id: str
-    type: str
-    status: str = "success"
-    text: Optional[str] = None
-    tool_name: Optional[str] = None
-    tool_id: Optional[str] = None
-    input: Any = None
-    output: Any = None
-    payload: Dict[str, Any] = Field(default_factory=dict)
-
-
-class SessionMessage(BaseModel):
-    message_id: str
-    role: str
-    content: str = ""
-    status: str = "success"
-    stop_reason: Optional[str] = None
-    stop_sequence: Optional[str] = None
-    usage: Optional[Dict[str, Any]] = None
-    run_id: Optional[str] = None
-    blocks: List[MessageBlock] = Field(default_factory=list)
-    error: Optional[Dict[str, Any]] = None
-    provider_id: Optional[str] = None
-    model: Optional[str] = None
-    created_at: str = ""
-
-
-class AssistantMessageResponse(BaseModel):
-    role: str = "assistant"
-    message_id: str
-    run_id: str
-    status: str = "success"
-    content: str
-    stop_reason: Optional[str] = None
-    stop_sequence: Optional[str] = None
-    usage: Optional[Dict[str, Any]] = None
-    blocks: List[MessageBlock] = Field(default_factory=list)
-    error: Optional[Dict[str, Any]] = None
-    provider_id: str
-    model: str
-    created_at: str = ""
-
-
-class AcceptedRunResponse(BaseModel):
-    accepted: bool = True
-    session_id: str
-    run_id: str
-    message_id: str
-    status: str
-    mode: str
-    wait_timeout_seconds: int = 0
-    message: AssistantMessageResponse
-
-
-class RunStatusResponse(BaseModel):
-    run_id: str
-    session_id: str
-    user_message_id: str
-    message_id: str
-    mode: str
-    status: str
-    provider_id: str
-    model: str
-    database_hint: Optional[str] = None
-    timeout_seconds: int = 0
-    idle_timeout_seconds: int = 0
-    wait_timeout_seconds: int = 0
-    sql_read_timeout_seconds: int = 0
-    sql_write_timeout_seconds: int = 0
-    last_event_seq: int = 0
-    cancel_requested_at: Optional[str] = None
-    started_at: Optional[str] = None
-    heartbeat_at: Optional[str] = None
-    finished_at: Optional[str] = None
-    error: Optional[Dict[str, Any]] = None
-    created_at: str = ""
-    updated_at: str = ""
-
-
-class RunEventPageResponse(BaseModel):
-    run_id: str
-    status: str
-    after_seq: int = 0
-    next_after_seq: int = 0
-    has_more: bool = False
-    events: List["StreamEvent"] = Field(default_factory=list)
-
-
-class CancelRunResponse(BaseModel):
-    run_id: str
-    status: str
-    cancel_requested_at: Optional[str] = None
-
-
 class ProviderConfig(BaseModel):
     provider_id: str
     display_name: str
@@ -205,6 +165,7 @@ class ProviderConfig(BaseModel):
     custom_models: List[str] = Field(default_factory=list)
     default_model: str = ""
     enabled: bool = False
+    supports_partial_messages: bool = True
     validation_status: str = "unverified"
     validation_message: str = ""
 
@@ -334,32 +295,183 @@ class SkillSyncResponse(BaseModel):
     document_count: int = 0
 
 
-class SessionSummary(BaseModel):
-    session_id: str
+class TopicMessage(BaseModel):
+    message_id: str
+    topic_id: str
+    task_id: Optional[str] = None
+    sender_type: str
+    type: str
+    status: str = "success"
+    content: str = ""
+    event: str = ""
+    steps: Optional[List[Dict[str, Any]]] = None
+    tool: Optional[Dict[str, Any]] = None
+    seq_id: int = 0
+    correlation_id: Optional[str] = None
+    parent_correlation_id: Optional[str] = None
+    content_type: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    show_in_ui: bool = True
+    error: Optional[Dict[str, Any]] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class TopicSummary(BaseModel):
+    topic_id: str
     title: str
+    chat_topic_id: str
+    chat_conversation_id: str
+    current_task_id: Optional[str] = None
+    current_task_status: Optional[str] = None
     message_count: int = 0
     last_message_preview: str = ""
     created_at: str = ""
     updated_at: str = ""
 
 
-class SessionDetail(BaseModel):
-    session_id: str
+class TopicDetail(BaseModel):
+    topic_id: str
     title: str
-    messages: List[SessionMessage] = Field(default_factory=list)
+    chat_topic_id: str
+    chat_conversation_id: str
+    current_task_id: Optional[str] = None
+    current_task_status: Optional[str] = None
     created_at: str = ""
     updated_at: str = ""
 
 
-class StreamEvent(BaseModel):
-    run_id: str
-    session_id: str
-    message_id: str
-    seq: int
-    type: str
-    ts: str
-    payload: Dict[str, Any] = Field(default_factory=dict)
+class TopicMessagePageResponse(BaseModel):
+    topic_id: str
+    page: int = 1
+    page_size: int = 200
+    order: str = "asc"
+    total: int = 0
+    items: List[TopicMessage] = Field(default_factory=list)
+
+
+class TaskSubmissionResponse(BaseModel):
+    accepted: bool = True
+    topic_id: str
+    task_id: str
+    task_status: str
+    user_message_id: str
+    assistant_message_id: str
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    topic_id: str
+    from_task_id: Optional[str] = None
+    task_status: str
+    prompt: str = ""
+    provider_id: str = ""
+    model: str = ""
+    database_hint: Optional[str] = None
+    cancel_requested_at: Optional[str] = None
+    started_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class TaskEventRecord(BaseModel):
+    record_type: str
+    seq_id: int
+    created_at: str = ""
+    event_type: Optional[str] = None
+    correlation_id: Optional[str] = None
+    parent_correlation_id: Optional[str] = None
+    content_type: Optional[str] = None
+    data: Dict[str, Any] = Field(default_factory=dict)
+    request_id: Optional[str] = None
+    chunk_id: Optional[int] = None
+    content: Optional[str] = None
+    delta: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class TaskEventPageResponse(BaseModel):
+    task_id: str
+    task_status: str
+    after_seq: int = 0
+    next_after_seq: int = 0
+    has_more: bool = False
+    events: List[TaskEventRecord] = Field(default_factory=list)
+
+
+class CancelTaskResponse(BaseModel):
+    task_id: str
+    task_status: str
+    cancel_requested_at: Optional[str] = None
+
+
+class MessageQueueRecord(BaseModel):
+    queue_id: str
+    topic_id: str
+    message_type: str
+    message_content: Any = None
+    status: str
+    last_task_id: Optional[str] = None
+    error_message: Optional[str] = None
+    source_schedule_id: Optional[str] = None
+    source_schedule_log_id: Optional[str] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class MessageQueuePageResponse(BaseModel):
+    page: int = 1
+    page_size: int = 50
+    total: int = 0
+    list: List[MessageQueueRecord] = Field(default_factory=list)
+
+
+class MessageScheduleRecord(BaseModel):
+    schedule_id: str
+    topic_id: str
+    name: str
+    message_type: str
+    message_content: Any = None
+    cron_expr: str
+    enabled: bool = True
+    timezone: str = "Asia/Shanghai"
+    last_task_id: Optional[str] = None
+    last_queue_id: Optional[str] = None
+    last_run_at: Optional[str] = None
+    next_run_at: Optional[str] = None
+    last_error_message: Optional[str] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class MessageSchedulePageResponse(BaseModel):
+    page: int = 1
+    page_size: int = 50
+    total: int = 0
+    list: List[MessageScheduleRecord] = Field(default_factory=list)
+
+
+class MessageScheduleLogRecord(BaseModel):
+    schedule_log_id: str
+    schedule_id: str
+    queue_id: Optional[str] = None
+    task_id: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    created_at: str = ""
+
+
+class MessageScheduleLogPageResponse(BaseModel):
+    schedule_id: str
+    page: int = 1
+    page_size: int = 50
+    total: int = 0
+    list: List[MessageScheduleLogRecord] = Field(default_factory=list)
 
 
 TableMeta.model_rebuild()
-RunEventPageResponse.model_rebuild()

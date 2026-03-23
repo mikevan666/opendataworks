@@ -75,6 +75,9 @@
               <div class="provider-kicker">{{ currentProvider.provider_group }}</div>
               <h3>{{ currentProvider.display_name }}</h3>
               <p>{{ currentProviderPreview.message }}</p>
+              <div v-if="currentProviderCompatibilityHint" class="provider-compatibility-note">
+                {{ currentProviderCompatibilityHint }}
+              </div>
             </div>
             <div class="provider-hero-status">
               <span class="provider-status" :class="statusClass(currentProviderPreview.status)">
@@ -103,6 +106,24 @@
                     v-model="currentDraft.base_url"
                     :placeholder="baseUrlPlaceholder(currentProvider.provider_id)"
                   />
+                </el-form-item>
+                <el-form-item label="流式能力">
+                  <div class="provider-capability-row">
+                    <el-switch
+                      v-model="currentDraft.supports_partial_messages"
+                      inline-prompt
+                      active-text="细粒度"
+                      inactive-text="兼容"
+                    />
+                    <div class="provider-capability-copy">
+                      <strong>{{ currentDraft.supports_partial_messages ? '开启 Claude partial stream' : '兼容模式' }}</strong>
+                      <span>
+                        {{ currentDraft.supports_partial_messages
+                          ? '展示实时思考增量和更细粒度的流式事件。'
+                          : '关闭实时思考增量，保留工具调用和最终回答。' }}
+                      </span>
+                    </div>
+                  </div>
                 </el-form-item>
                 <div class="provider-inline-hints">
                   <span>{{ storedCredentialHint(currentProvider) }}</span>
@@ -343,7 +364,8 @@ const getDraft = (providerId) => {
     custom_models: [],
     base_supported_models: [],
     token: '',
-    base_url: ''
+    base_url: '',
+    supports_partial_messages: true
   }
 }
 
@@ -406,7 +428,9 @@ const providerPreview = (provider) => {
   }
   return {
     status: 'verified',
-    message: '已完成本地配置校验，保存后会进入智能问数候选',
+    message: draft.supports_partial_messages === false
+      ? '已完成本地配置校验，保存后会进入智能问数候选。当前以兼容模式运行，不展示实时思考增量。'
+      : '已完成本地配置校验，保存后会进入智能问数候选',
     enabled: true,
     enabledModels
   }
@@ -422,6 +446,12 @@ const currentProviderPreview = computed(() => {
     }
   }
   return providerPreview(currentProvider.value)
+})
+
+const currentProviderCompatibilityHint = computed(() => {
+  if (!currentProvider.value || !currentDraft.value) return ''
+  if (currentDraft.value.supports_partial_messages !== false) return ''
+  return '兼容模式：关闭实时思考增量，保留工具调用与最终回答。适合不支持 Claude partial stream 的 relay。'
 })
 
 const validatedProviders = computed(() => {
@@ -461,6 +491,7 @@ const resetProviderDrafts = (items) => {
       provider_id: provider.provider_id,
       token: '',
       base_url: provider.base_url || '',
+      supports_partial_messages: provider.supports_partial_messages !== false,
       enabled_models: [...(provider.models || [])],
       custom_models: [...(provider.custom_models || [])],
       base_supported_models: (provider.supported_models || []).filter((model) => !(provider.custom_models || []).includes(model))
@@ -527,6 +558,7 @@ const buildProviderPayload = (provider) => {
   const payload = {
     provider_id: provider.provider_id,
     base_url: draft.base_url,
+    supports_partial_messages: draft.supports_partial_messages !== false,
     enabled_models: uniqueStrings(draft.enabled_models),
     custom_models: uniqueStrings(draft.custom_models)
   }
@@ -804,6 +836,17 @@ onMounted(() => {
   color: #475569;
 }
 
+.provider-compatibility-note {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0f4c81;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .provider-hero-status {
   display: flex;
   flex-direction: column;
@@ -845,6 +888,32 @@ onMounted(() => {
 
 .provider-form {
   margin-top: 14px;
+}
+
+.provider-capability-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+}
+
+.provider-capability-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.provider-capability-copy strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.provider-capability-copy span {
+  font-size: 12px;
+  color: #64748b;
 }
 
 .provider-inline-hints {

@@ -17,11 +17,11 @@ dataagentRequest.interceptors.response.use(
 
 export const dataagentApi = {
   getSettings() {
-    return dataagentRequest.get('/v1/dataagent/settings')
+    return dataagentRequest.get('/v1/nl2sql-admin/settings')
   },
 
   updateSettings(data) {
-    return dataagentRequest.put('/v1/dataagent/settings', data)
+    return dataagentRequest.put('/v1/nl2sql-admin/settings', data)
   },
 
   listSkillDocuments() {

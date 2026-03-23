@@ -22,6 +22,12 @@ from main import app
 
 
 def test_admin_settings_contract(monkeypatch):
+    captured = {}
+
+    def _persist(payload):
+        captured["payload"] = payload
+        return {"updated_at": "2026-03-06T12:00:00"}
+
     monkeypatch.setattr(
         admin_routes,
         "current_settings_payload",
@@ -58,6 +64,7 @@ def test_admin_settings_contract(monkeypatch):
                 supported_models=["anthropic/claude-sonnet-4.5"],
                 default_model="anthropic/claude-sonnet-4.5",
                 enabled=True,
+                supports_partial_messages=False,
                 validation_status="verified",
             )
         ],
@@ -65,21 +72,34 @@ def test_admin_settings_contract(monkeypatch):
     monkeypatch.setattr(
         admin_routes,
         "persist_admin_settings",
-        lambda payload: {"updated_at": "2026-03-06T12:00:00"},
+        _persist,
     )
 
     client = TestClient(app)
 
-    response = client.get("/api/v1/dataagent/settings")
+    response = client.get("/api/v1/nl2sql-admin/settings")
     assert response.status_code == 200
     assert response.json()["provider_id"] == "openrouter"
+    assert response.json()["providers"][0]["supports_partial_messages"] is False
 
     update = client.put(
-        "/api/v1/dataagent/settings",
-        json={"provider_id": "openrouter", "model": "anthropic/claude-sonnet-4.5"},
+        "/api/v1/nl2sql-admin/settings",
+        json={
+            "provider_id": "openrouter",
+            "model": "anthropic/claude-sonnet-4.5",
+            "providers": [
+                {
+                    "provider_id": "openrouter",
+                    "supports_partial_messages": False,
+                    "enabled_models": ["anthropic/claude-sonnet-4.5"],
+                }
+            ],
+        },
     )
     assert update.status_code == 200
     assert update.json()["updated_at"] == "2026-03-06T12:00:00"
+    assert captured["payload"]["providers"][0]["supports_partial_messages"] is False
+    assert client.get("/api/v1/dataagent/settings").status_code == 404
 
 
 def test_skill_document_routes_contract(monkeypatch):

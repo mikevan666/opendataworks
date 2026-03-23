@@ -2,14 +2,41 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiMocks = vi.hoisted(() => ({
-  createSession: vi.fn(),
-  listSessions: vi.fn(),
-  getSession: vi.fn(),
-  deleteSession: vi.fn(),
-  sendMessage: vi.fn(),
-  streamMessage: vi.fn(),
-  getSettings: vi.fn(),
-  updateSettings: vi.fn(),
+  topicApi: {
+    createTopic: vi.fn(),
+    listTopics: vi.fn(),
+    getTopic: vi.fn(),
+    updateTopic: vi.fn(),
+    deleteTopic: vi.fn(),
+    getTopicMessages: vi.fn()
+  },
+  taskApi: {
+    deliverMessage: vi.fn(),
+    createTask: vi.fn(),
+    getTask: vi.fn(),
+    getTaskEvents: vi.fn(),
+    cancelTask: vi.fn(),
+    streamTaskEvents: vi.fn()
+  },
+  messageQueueApi: {
+    query: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    consume: vi.fn()
+  },
+  scheduleApi: {
+    query: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    get: vi.fn(),
+    logs: vi.fn()
+  },
+  adminApi: {
+    getSettings: vi.fn(),
+    updateSettings: vi.fn()
+  },
   health: vi.fn()
 }))
 
@@ -37,39 +64,72 @@ const deferred = () => {
   return { promise, resolve, reject }
 }
 
+const makeTopicSummary = (topicId, title) => ({
+  topic_id: topicId,
+  title,
+  chat_topic_id: `chat_${topicId}`,
+  chat_conversation_id: `conversation_${topicId}`,
+  current_task_id: '',
+  current_task_status: '',
+  message_count: 0,
+  last_message_preview: '',
+  created_at: '2026-03-10T02:00:00Z',
+  updated_at: '2026-03-10T02:00:00Z'
+})
+
+const makeTopicDetail = (topicId, title) => ({
+  topic_id: topicId,
+  title,
+  chat_topic_id: `chat_${topicId}`,
+  chat_conversation_id: `conversation_${topicId}`,
+  current_task_id: '',
+  current_task_status: '',
+  created_at: '2026-03-10T02:00:00Z',
+  updated_at: '2026-03-10T02:00:00Z'
+})
+
 describe('NL2SqlChat', () => {
   beforeEach(() => {
-    apiMocks.getSettings.mockResolvedValue({
-      default_provider_id: 'anyrouter',
-      default_model: 'claude-opus-4-6',
+    Object.values(apiMocks.topicApi).forEach((fn) => fn.mockReset())
+    Object.values(apiMocks.taskApi).forEach((fn) => fn.mockReset())
+    Object.values(apiMocks.messageQueueApi).forEach((fn) => fn.mockReset())
+    Object.values(apiMocks.scheduleApi).forEach((fn) => fn.mockReset())
+    Object.values(apiMocks.adminApi).forEach((fn) => fn.mockReset())
+    apiMocks.health.mockReset()
+
+    apiMocks.adminApi.getSettings.mockResolvedValue({
+      provider_id: 'anyrouter',
+      model: 'claude-opus-4-6',
       providers: [
         {
           provider_id: 'anyrouter',
           display_name: 'AnyRouter',
           models: ['claude-opus-4-6'],
-          default_model: 'claude-opus-4-6'
+          default_model: 'claude-opus-4-6',
+          supports_partial_messages: true
         }
       ]
     })
-    apiMocks.listSessions.mockResolvedValue([
-      {
-        session_id: 's1',
-        title: '流式会话',
-        created_at: '2026-03-10T02:00:00Z',
-        updated_at: '2026-03-10T02:00:00Z'
-      }
+    apiMocks.topicApi.createTopic.mockResolvedValue(makeTopicSummary('topic-new', '新话题'))
+    apiMocks.topicApi.listTopics.mockResolvedValue([
+      makeTopicSummary('topic-1', '流式话题')
     ])
-    apiMocks.getSession.mockResolvedValue({
-      session_id: 's1',
-      title: '流式会话',
-      created_at: '2026-03-10T02:00:00Z',
-      updated_at: '2026-03-10T02:00:00Z',
-      messages: [
+    apiMocks.topicApi.getTopic.mockImplementation(async (topicId) => makeTopicDetail(topicId, topicId === 'topic-1' ? '流式话题' : '新话题'))
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
         {
           message_id: 'a1',
-          role: 'assistant',
-          status: 'streaming',
-          created_at: '2026-03-10T02:00:00Z',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'running',
+          content: '',
           blocks: [
             {
               block_id: 'main-1',
@@ -88,13 +148,21 @@ describe('NL2SqlChat', () => {
               },
               output: ''
             }
-          ]
+          ],
+          created_at: '2026-03-10T02:00:00Z'
         }
       ]
+    })
+    apiMocks.taskApi.streamTaskEvents.mockResolvedValue(undefined)
+    apiMocks.taskApi.getTask.mockResolvedValue({
+      task_id: 'task-1',
+      topic_id: 'topic-1',
+      task_status: 'finished'
     })
   })
 
   it('keeps streamed main text visible while tools are still running', async () => {
+    apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
     const wrapper = shallowMount(NL2SqlChat)
 
     await flushPromises()
@@ -110,17 +178,21 @@ describe('NL2SqlChat', () => {
   })
 
   it('collapses the process panel after the final answer is ready', async () => {
-    apiMocks.getSession.mockResolvedValue({
-      session_id: 's1',
-      title: '已完成会话',
-      created_at: '2026-03-10T02:00:00Z',
-      updated_at: '2026-03-10T02:00:00Z',
-      messages: [
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
         {
           message_id: 'a1',
-          role: 'assistant',
-          status: 'success',
-          created_at: '2026-03-10T02:00:00Z',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'finished',
+          content: '最终结果：北区的下单量最高。',
           blocks: [
             {
               block_id: 'think-1',
@@ -149,7 +221,8 @@ describe('NL2SqlChat', () => {
               status: 'success',
               text: '最终结果：北区的下单量最高。'
             }
-          ]
+          ],
+          created_at: '2026-03-10T02:00:00Z'
         }
       ]
     })
@@ -169,34 +242,31 @@ describe('NL2SqlChat', () => {
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
   })
 
-  it('allows another session to submit while the current session is still awaiting acceptance', async () => {
+  it('allows another topic to submit while the current topic is still awaiting acceptance', async () => {
     const firstPending = deferred()
     const secondPending = deferred()
 
-    apiMocks.listSessions.mockResolvedValue([
-      {
-        session_id: 's1',
-        title: '会话一',
-        created_at: '2026-03-10T02:00:00Z',
-        updated_at: '2026-03-10T02:00:00Z'
-      },
-      {
-        session_id: 's2',
-        title: '会话二',
-        created_at: '2026-03-10T03:00:00Z',
-        updated_at: '2026-03-10T03:00:00Z'
-      }
+    apiMocks.topicApi.listTopics.mockResolvedValue([
+      makeTopicSummary('topic-1', '话题一'),
+      makeTopicSummary('topic-2', '话题二')
     ])
-    apiMocks.getSession.mockImplementation(async (sessionId) => ({
-      session_id: sessionId,
-      title: sessionId === 's1' ? '会话一' : '会话二',
-      created_at: '2026-03-10T02:00:00Z',
-      updated_at: '2026-03-10T02:00:00Z',
-      messages: []
+    apiMocks.topicApi.getTopic.mockImplementation(async (topicId) => makeTopicDetail(topicId, topicId === 'topic-1' ? '话题一' : '话题二'))
+    apiMocks.topicApi.getTopicMessages.mockImplementation(async (topicId) => ({
+      topic_id: topicId,
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 0,
+      items: []
     }))
-    apiMocks.sendMessage
+    apiMocks.taskApi.deliverMessage
       .mockImplementationOnce(() => firstPending.promise)
       .mockImplementationOnce(() => secondPending.promise)
+    apiMocks.taskApi.getTask.mockResolvedValue({
+      task_id: 'task-finished',
+      topic_id: 'topic-1',
+      task_status: 'finished'
+    })
 
     const wrapper = shallowMount(NL2SqlChat)
 
@@ -205,52 +275,34 @@ describe('NL2SqlChat', () => {
 
     await wrapper.find('.query-textarea').setValue('第一个问题')
     await wrapper.find('.query-btn-send').trigger('click')
-    expect(apiMocks.sendMessage).toHaveBeenCalledTimes(1)
+    expect(apiMocks.taskApi.deliverMessage).toHaveBeenCalledTimes(1)
 
-    const sessionButtons = wrapper.findAll('.query-session-item')
-    await sessionButtons[1].trigger('click')
+    const topicButtons = wrapper.findAll('.query-session-item')
+    await topicButtons[1].trigger('click')
     await flushPromises()
 
     await wrapper.find('.query-textarea').setValue('第二个问题')
     await wrapper.find('.query-btn-send').trigger('click')
 
-    expect(apiMocks.sendMessage).toHaveBeenCalledTimes(2)
-    const requestedSessionIds = apiMocks.sendMessage.mock.calls.map((call) => call[0]).sort()
-    expect(requestedSessionIds).toEqual(['s1', 's2'])
+    expect(apiMocks.taskApi.deliverMessage).toHaveBeenCalledTimes(2)
+    const requestedTopicIds = apiMocks.taskApi.deliverMessage.mock.calls.map((call) => call[0].topic_id).sort()
+    expect(requestedTopicIds).toEqual(['topic-1', 'topic-2'])
 
     firstPending.resolve({
       accepted: true,
-      run_id: 'run-1',
-      message_id: 'a-run-1',
-      status: 'queued',
-      message: {
-        message_id: 'a-run-1',
-        run_id: 'run-1',
-        status: 'queued',
-        content: '',
-        blocks: [],
-        error: null,
-        provider_id: 'anyrouter',
-        model: 'claude-opus-4-6',
-        created_at: '2026-03-10T02:00:00Z'
-      }
+      topic_id: 'topic-1',
+      task_id: 'task-1',
+      task_status: 'waiting',
+      user_message_id: 'u-1',
+      assistant_message_id: 'a-1'
     })
     secondPending.resolve({
       accepted: true,
-      run_id: 'run-2',
-      message_id: 'a-run-2',
-      status: 'queued',
-      message: {
-        message_id: 'a-run-2',
-        run_id: 'run-2',
-        status: 'queued',
-        content: '',
-        blocks: [],
-        error: null,
-        provider_id: 'anyrouter',
-        model: 'claude-opus-4-6',
-        created_at: '2026-03-10T02:00:00Z'
-      }
+      topic_id: 'topic-2',
+      task_id: 'task-2',
+      task_status: 'waiting',
+      user_message_id: 'u-2',
+      assistant_message_id: 'a-2'
     })
 
     await flushPromises()

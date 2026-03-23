@@ -32,12 +32,16 @@ class Settings(BaseSettings):
     agent_interactive_sql_read_timeout_seconds: int = 300
     agent_background_sql_read_timeout_seconds: int = 900
     agent_sql_write_timeout_seconds: int = 60
-    run_worker_poll_interval_seconds: int = 2
-    run_worker_max_concurrency: int = 4
-    run_worker_lease_seconds: int = 30
-    run_worker_heartbeat_seconds: int = 5
     run_events_stream_poll_interval_seconds: int = 1
     run_events_stream_ping_seconds: int = 10
+    task_max_concurrency: int = 4
+    task_lease_ttl_seconds: int = 30
+    task_heartbeat_seconds: int = 5
+    task_recovery_scan_interval_seconds: int = 2
+    task_recovery_batch_size: int = 20
+    schedule_scan_interval_seconds: int = 10
+    schedule_scan_batch_size: int = 10
+    schedule_lock_ttl_seconds: int = 60
 
     # ---- Anthropic 兼容认证 ----
     anthropic_api_key: str = ""
@@ -51,6 +55,12 @@ class Settings(BaseSettings):
     mysql_password: str = "dataagent123"
     mysql_database: str = "opendataworks"
     session_mysql_database: str = "dataagent"
+
+    # ---- Redis（task 协调）----
+    redis_host: str = "127.0.0.1"
+    redis_port: int = 6379
+    redis_password: str = ""
+    redis_db: int = 0
 
     # ---- Doris（查询工具）----
     doris_host: str = "localhost"

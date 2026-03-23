@@ -31,7 +31,20 @@
         <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
           {{ traceDescription }}
         </div>
-        <pre v-if="traceOutputText" class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
+        <template v-if="traceOutputText">
+          <div v-if="showTraceMarkdown" class="tool-markdown">
+            <div class="tool-markdown-body" v-html="traceMarkdownExpanded ? renderedTraceMarkdown : renderedTraceMarkdownPreview" />
+            <button
+              v-if="traceMarkdownCollapsible"
+              type="button"
+              class="tool-markdown-toggle"
+              @click="traceMarkdownExpanded = !traceMarkdownExpanded"
+            >
+              {{ traceMarkdownExpanded ? '收起' : '展开...' }}
+            </button>
+          </div>
+          <pre v-else class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
+        </template>
         <div v-else class="shell-trace-empty">无输出</div>
         <div class="shell-trace-footer">
           <span class="shell-trace-footer-label">状态</span>
@@ -118,6 +131,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { marked } from 'marked'
 import * as echarts from 'echarts/core'
 import { use } from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
@@ -151,8 +165,53 @@ const props = defineProps({
 const chartCanvasRef = ref(null)
 const shellOpen = ref(false)
 const nowTick = ref(Date.now())
+const traceMarkdownExpanded = ref(false)
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
+
+const MARKDOWN_PREVIEW_LINES = 5
+
+const escapeHtml = (text) => String(text || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+
+const TOOL_LINE_PREFIX_PATTERN = /^\s*\d+\s*(?:→|->)\s?/
+
+const stripToolLinePrefixes = (text) => {
+  const value = String(text || '')
+  if (!value.trim()) return ''
+
+  const lines = value.split('\n')
+  const nonEmptyLines = lines.filter((line) => line.trim().length > 0)
+  if (!nonEmptyLines.length) return value
+
+  const prefixedCount = nonEmptyLines.filter((line) => TOOL_LINE_PREFIX_PATTERN.test(line)).length
+  const shouldStrip = prefixedCount >= 2 || prefixedCount === nonEmptyLines.length
+  if (!shouldStrip) return value
+
+  return lines.map((line) => line.replace(TOOL_LINE_PREFIX_PATTERN, '')).join('\n')
+}
+
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  try {
+    return marked.parse(escapeHtml(text), { breaks: true, gfm: true })
+  } catch (_error) {
+    return escapeHtml(text)
+  }
+}
+
+const looksLikeMarkdown = (text) => {
+  const value = String(text || '').trim()
+  if (!value) return false
+  return /^#{1,6}\s/m.test(value)
+    || /^>\s/m.test(value)
+    || /^[-*+]\s/m.test(value)
+    || /^\d+\.\s/m.test(value)
+    || /```/.test(value)
+    || /\[[^\]]+\]\([^)]+\)/.test(value)
+}
 
 const extractTextParts = (value) => {
   if (typeof value === 'string') return value
@@ -294,9 +353,27 @@ const showMainHeader = computed(() => {
 
 const traceOutputText = computed(() => {
   const directText = extractTextParts(props.tool?.output).trim()
-  if (directText) return directText
-  return rawText.value
+  if (directText) return stripToolLinePrefixes(directText).trim()
+  return stripToolLinePrefixes(rawText.value).trim()
 })
+const traceOutputLines = computed(() => String(traceOutputText.value || '').split('\n'))
+const traceMarkdownSource = computed(() => String(traceOutputText.value || '').trim())
+const showTraceMarkdown = computed(() => {
+  if (!traceOutputText.value) return false
+  if (traceKind.value === 'skill') return looksLikeMarkdown(traceMarkdownSource.value)
+  const path = traceCommand.value || readPath.value
+  if (/\.(md|markdown)$/i.test(String(path || '').trim())) {
+    return looksLikeMarkdown(traceMarkdownSource.value) || Boolean(traceMarkdownSource.value)
+  }
+  return false
+})
+const traceMarkdownCollapsible = computed(() => showTraceMarkdown.value && traceOutputLines.value.length > MARKDOWN_PREVIEW_LINES)
+const traceMarkdownPreview = computed(() => {
+  if (!traceMarkdownCollapsible.value) return traceMarkdownSource.value
+  return traceOutputLines.value.slice(0, MARKDOWN_PREVIEW_LINES).join('\n')
+})
+const renderedTraceMarkdown = computed(() => renderMarkdown(traceMarkdownSource.value))
+const renderedTraceMarkdownPreview = computed(() => renderMarkdown(traceMarkdownPreview.value))
 
 const traceTitle = computed(() => {
   if (traceKind.value === 'read') return 'Read'
@@ -395,7 +472,7 @@ const showChartRawText = computed(() => {
   if (kind.value !== 'chart_spec') return false
   return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(rawText.value)
 })
-const showRawPayload = computed(() => Boolean(rawText.value) && traceKind.value !== 'read')
+const showRawPayload = computed(() => Boolean(rawText.value) && !showTrace.value)
 
 let chartRefreshFrame = 0
 let chartInstance = null
@@ -464,6 +541,14 @@ watch(
     if (!showTrace.value || !traceHasPanel.value) return
     const value = String(status || 'success')
     shellOpen.value = !Boolean(callComplete) || (Boolean(runtimeStarted) && (value === 'pending' || value === 'streaming'))
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.tool?.id,
+  () => {
+    traceMarkdownExpanded.value = false
   },
   { immediate: true }
 )
@@ -604,6 +689,84 @@ onBeforeUnmount(() => {
   color: #9a9a9a;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.tool-markdown {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #dbe3ec;
+}
+
+.tool-markdown-body {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.tool-markdown-body :deep(h1),
+.tool-markdown-body :deep(h2),
+.tool-markdown-body :deep(h3),
+.tool-markdown-body :deep(h4),
+.tool-markdown-body :deep(h5),
+.tool-markdown-body :deep(h6) {
+  margin: 0 0 10px;
+  color: #162131;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.tool-markdown-body :deep(p),
+.tool-markdown-body :deep(ul),
+.tool-markdown-body :deep(ol),
+.tool-markdown-body :deep(blockquote) {
+  margin: 0 0 10px;
+}
+
+.tool-markdown-body :deep(ul),
+.tool-markdown-body :deep(ol) {
+  padding-left: 18px;
+}
+
+.tool-markdown-body :deep(code) {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #f4f7fb;
+  color: #1f3b57;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.tool-markdown-body :deep(pre) {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #102033;
+  color: #edf5ff;
+  overflow: auto;
+}
+
+.tool-markdown-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.tool-markdown-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #31567a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tool-markdown-toggle:hover {
+  color: #1d3f5e;
 }
 
 .shell-trace-footer {

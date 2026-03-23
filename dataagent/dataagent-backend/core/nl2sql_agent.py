@@ -46,6 +46,9 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     cfg = get_settings()
     runtime_target = resolve_runtime_provider_selection(params.provider_id, params.model)
     provider_id = _normalize_provider_id(runtime_target.get("provider_id"), runtime_target.get("base_url"))
+    supports_partial_messages = bool(
+        runtime_target.get("supports_partial_messages", provider_id != "anthropic_compatible")
+    )
     model = str(runtime_target.get("model") or cfg.claude_model or "").strip()
     if not model:
         model = _default_model_for_provider(provider_id)
@@ -253,8 +256,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         setting_sources=setting_sources,
         max_turns=max_turns,
         allowed_tools=allowed_tools,
-        # 关键：开启 SDK partial stream，才能拿到 content_block_delta 等细粒度增量
-        include_partial_messages=True,
+        include_partial_messages=supports_partial_messages,
         env=runtime_env,
         stderr=lambda line: logger.error(
             "sdk.stderr run_id=%s provider=%s model=%s %s",
@@ -269,7 +271,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     options = ClaudeAgentOptions(**options_kwargs)
     timeout_seconds = max(10, int(params.timeout_seconds or cfg.agent_timeout_seconds))
     logger.info(
-        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s max_turns=%s base_url=%s",
+        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s max_turns=%s partial=%s base_url=%s",
         params.run_id,
         provider_id,
         model,
@@ -279,6 +281,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         permission_mode or "(sdk-default)",
         timeout_seconds,
         max_turns,
+        supports_partial_messages,
         _safe_base_url(env_payload.get("ANTHROPIC_BASE_URL")),
     )
 
@@ -847,6 +850,7 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
             "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_BASE_URL": str(base_url or "https://openrouter.ai/api").strip(),
+            "DISABLE_PROMPT_CACHING": "",
         }
 
     if provider_id == "anyrouter":
@@ -854,6 +858,7 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
             "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_BASE_URL": str(base_url or "https://a-ocnfniawgw.cn-shanghai.fcapp.run").strip(),
+            "DISABLE_PROMPT_CACHING": "",
         }
 
     if provider_id == "anthropic_compatible":
@@ -861,12 +866,16 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
             "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_BASE_URL": str(base_url or "").strip(),
+            # Third-party Anthropic-compatible relays often reject Claude Code's
+            # automatic prompt caching beta headers.
+            "DISABLE_PROMPT_CACHING": "1",
         }
 
     return {
         "ANTHROPIC_AUTH_TOKEN": "",
         "ANTHROPIC_API_KEY": str(api_key or "").strip(),
         "ANTHROPIC_BASE_URL": str(base_url or "").strip(),
+        "DISABLE_PROMPT_CACHING": "",
     }
 
 
