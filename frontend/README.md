@@ -34,12 +34,16 @@
 
 ### 前置要求
 
-- Node.js >= 18
+- Node.js >= 20.19.0
 - npm >= 8
 
 ### 安装依赖
 
 ```bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use || nvm install
+
 npm install
 ```
 
@@ -66,7 +70,16 @@ npm run build
 ```javascript
 export default defineConfig({
   server: {
+    port: 3000,
     proxy: {
+      '/api/v1/dataagent': {
+        target: 'http://localhost:8900',
+        changeOrigin: true
+      },
+      '/api/v1/nl2sql': {
+        target: 'http://localhost:8900',
+        changeOrigin: true
+      },
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -83,13 +96,14 @@ frontend/
 ├── src/
 │   ├── api/              # API 接口封装
 │   │   ├── task.js       # 任务相关 API
+│   │   ├── workflow.js   # 工作流发布 / 执行 / 版本 API
+│   │   ├── nl2sql.js     # 智能问数 API
 │   │   ├── table.js      # 表相关 API
 │   │   └── lineage.js    # 血缘相关 API
 │   ├── views/            # 页面组件
-│   │   ├── tasks/        # 任务管理
-│   │   │   ├── TaskList.vue    # 任务列表
-│   │   │   └── TaskForm.vue    # 任务表单
-│   │   ├── tables/       # 表管理
+│   │   ├── workflows/    # 工作流与任务调度
+│   │   ├── intelligence/ # 智能问数
+│   │   ├── datastudio/   # Data Studio
 │   │   └── lineage/      # 血缘管理
 │   ├── router/           # 路由配置
 │   ├── stores/           # 状态管理
@@ -146,10 +160,11 @@ frontend/
 
 ## API 接口
 
-### 任务 API (`/v1/tasks`)
+### 任务与工作流 API
 
 ```javascript
 import { taskApi } from '@/api/task'
+import { workflowApi } from '@/api/workflow'
 
 // 查询任务列表
 const { records, total } = await taskApi.list({
@@ -183,11 +198,13 @@ const newTask = await taskApi.create({
 // 更新任务
 await taskApi.update(taskId, updatedTask)
 
-// 发布任务
-await taskApi.publish(taskId)
+// 发布工作流
+await workflowApi.publish(workflowId, {
+  publishMode: 'DIRECT'
+})
 
-// 执行任务
-await taskApi.execute(taskId)
+// 执行工作流
+await workflowApi.execute(workflowId)
 
 // 删除任务
 await taskApi.delete(taskId)
