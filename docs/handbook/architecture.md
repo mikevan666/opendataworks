@@ -42,7 +42,9 @@
 | `backend` | `com.onedata.portal` | 表/字段/任务 CRUD、血缘生成、巡检、执行记录、调用 DolphinScheduler OpenAPI | `/api/v1/tables`, `/api/v1/tasks`, `/api/v1/lineage`, `/api/v1/dolphin/...` |
 | `frontend` | `src/views/*` | 可视化界面、交互校验、日志展示、血缘 ECharts、智能问数工作台 | `/dashboard`, `/workflows`, `/lineage`, `/intelligent-query` |
 | `dataagent-backend` | `dataagent/dataagent-backend` | NL2SQL 会话、Skills 同步、问答流式响应与 SQL 执行 | `/api/v1/nl2sql/...`, `/api/v1/dataagent/...` |
-| `dinky/` | 上游源码 | 作为未来流任务执行引擎 | 目前仅占位，无需构建 |
+| `portal-mcp` | `dataagent/portal-mcp` | 复用 backend 元数据与只读查询能力，对外提供 MCP 服务 | `/health`, `/mcp` |
+| `redis` | Compose 依赖 | DataAgent 任务协调、租约与调度锁 | 内部依赖，无对外 HTTP 接口 |
+| Dinky / Flink | 外部预留能力 | 未来流任务执行引擎 | 当前仓库未内置模块 |
 | `DolphinScheduler` | 外部集群 | 接收 Portal 提交的工作流/实例并运行 | OpenAPI `/projects/...` |
 
 ## 数据流与生命周期
@@ -57,17 +59,19 @@
 
 | 组件 | 端口 | 健康检查 | 日志|
 | --- | --- | --- | --- |
-| MySQL | 3306 | `mysqladmin ping` | Docker 卷 `mysql-data` or `/var/lib/mysql` |
+| MySQL | 3306（prod compose）/ 3316（dev compose） | `mysqladmin ping` | Docker 卷 `mysql-data` 或 `/var/lib/mysql` |
+| Redis | 6379 | `redis-cli ping` | 容器日志 |
 | Backend | 8080 | `/api/v1/health` | `docker volume backend-logs` 或 `backend/logs/` |
 | DolphinScheduler | 12345 (示例) | `/dolphinscheduler` 登录页或 OpenAPI `/projects` | 外部集群日志 |
-| Frontend | 80/3000/5173 | `/`、`/intelligent-query` | Nginx 日志或 `frontend/dist` |
+| Frontend | 80（容器）/ 8081（compose）/ 3000（Vite dev） | `/`、`/intelligent-query` | Nginx 日志或 `frontend/dist` |
 | DataAgent Backend | 8900 | `/api/v1/nl2sql/health` | 容器日志或 `dataagent/dataagent-backend` |
+| Portal MCP | 8801 | `/health` | 容器日志或 `dataagent/portal-mcp` |
 
 ## 技术栈
 
 | 层 | 技术 | 备注 |
 | --- | --- | --- |
-| 后端 | Java 8+, Spring Boot 2.7.18, MyBatis-Plus 3.5.5, Lombok | 构建脚本 `./mvnw` |
+| 后端 | Java 8+, Spring Boot 2.7.18, MyBatis-Plus 3.5.5, Lombok | 使用 Maven reactor 构建 |
 | 前端 | Vue 3.4+, Vite 5, Pinia, Element Plus, ECharts | `npm run dev/build` |
 | 数据库 | MySQL 8.0+, Doris (目标库) | 初始化脚本见 `backend/src/main/resources/db/migration` (Flyway) |
 
