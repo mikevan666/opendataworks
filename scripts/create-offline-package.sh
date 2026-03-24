@@ -275,6 +275,7 @@ MAIN_IMAGES=(
 
 EXTRA_IMAGES=(
     "mysql-8.0.tar|docker.io/library/mysql:8.0|mysql:8.0"
+    "redis-7.2-alpine.tar|docker.io/library/redis:7.2-alpine|redis:7.2-alpine"
 )
 
 log "Pulling application images from ${PARSER_REGISTRY}/${PARSER_NAMESPACE} tag ${OP_TAG}"

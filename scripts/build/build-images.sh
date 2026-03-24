@@ -33,6 +33,7 @@ FRONTEND_IMAGE="opendataworks-frontend:latest"
 BACKEND_IMAGE="opendataworks-backend:latest"
 DATAAGENT_BACKEND_IMAGE="opendataworks-dataagent-backend:latest"
 PORTAL_MCP_IMAGE="opendataworks-portal-mcp:latest"
+REDIS_IMAGE="redis:7.2-alpine"
 
 # 创建输出目录
 OUTPUT_DIR="$REPO_ROOT/deploy/docker-images"
@@ -68,6 +69,11 @@ $CONTAINER_CMD build --platform linux/amd64 -t $PORTAL_MCP_IMAGE \
 echo "✅ Portal MCP 镜像构建完成"
 echo ""
 
+echo "📦 拉取 Redis 运行时镜像..."
+$CONTAINER_CMD pull --platform linux/amd64 $REDIS_IMAGE
+echo "✅ Redis 镜像拉取完成"
+echo ""
+
 echo "📦 导出镜像为 tar 包..."
 echo "  - 导出前端镜像..."
 $CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-frontend.tar" $FRONTEND_IMAGE
@@ -77,6 +83,8 @@ echo "  - 导出 DataAgent 后端镜像..."
 $CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-dataagent-backend.tar" $DATAAGENT_BACKEND_IMAGE
 echo "  - 导出 Portal MCP 镜像..."
 $CONTAINER_CMD save -o "$OUTPUT_DIR/opendataworks-portal-mcp.tar" $PORTAL_MCP_IMAGE
+echo "  - 导出 Redis 镜像..."
+$CONTAINER_CMD save -o "$OUTPUT_DIR/redis-7.2-alpine.tar" $REDIS_IMAGE
 
 echo "✅ 所有镜像导出完成"
 echo ""
@@ -93,6 +101,7 @@ echo "  ✓ $FRONTEND_IMAGE"
 echo "  ✓ $BACKEND_IMAGE"
 echo "  ✓ $DATAAGENT_BACKEND_IMAGE"
 echo "  ✓ $PORTAL_MCP_IMAGE"
+echo "  ✓ $REDIS_IMAGE"
 echo ""
 echo "📝 下一步："
 echo "  1. 将 $OUTPUT_DIR/ 目录下的所有 tar 文件传输到内网服务器"
