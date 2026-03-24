@@ -78,6 +78,15 @@ class _PhaseState:
     last_flush_at: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class _ProvisionalReducerState:
+    pending_answer_text: str = ""
+    pending_answer_boundary: int = 0
+    active_reasoning_correlation_id: str | None = None
+    last_seen_tool_boundary: int = 0
+    turn_finished: bool = False
+
+
 class ClaudeToMagicAdapter:
     def __init__(self, params: TaskExecutionInput, *, provider_id: str, model: str):
         self.params = params
@@ -101,6 +110,7 @@ class ClaudeToMagicAdapter:
         self.result_is_error = False
         self.provider_error_message = ""
         self.saw_partial_stream = False
+        self.reducer = _ProvisionalReducerState()
 
     def _new_correlation_id(self, prefix: str) -> str:
         return f"{prefix}_{uuid.uuid4().hex[:18]}"
@@ -210,8 +220,11 @@ class ClaudeToMagicAdapter:
                     )
                 )
                 self.pending_after_think = False
+                self.reducer.active_reasoning_correlation_id = None
 
             self.current_phase = _PhaseState(kind=kind, correlation_id=correlation_id)
+            if kind == "reasoning":
+                self.reducer.active_reasoning_correlation_id = correlation_id
             records.append(
                 self._event(
                     "BEFORE_AGENT_REPLY",
@@ -273,6 +286,39 @@ class ClaudeToMagicAdapter:
             parts.append(self.current_phase.full_text)
         return "".join(parts)
 
+    def _buffer_pending_answer_text(self, piece: str) -> None:
+        text = str(piece or "")
+        if not text:
+            return
+        if not self.reducer.pending_answer_text:
+            self.reducer.pending_answer_boundary = self.reducer.last_seen_tool_boundary
+        self.reducer.pending_answer_text = f"{self.reducer.pending_answer_text}{text}"
+
+    def _flush_pending_answer_text(self, kind: str) -> list[dict[str, Any]]:
+        text = str(self.reducer.pending_answer_text or "")
+        self.reducer.pending_answer_text = ""
+        if not text:
+            return []
+        if kind == "content" and self.reducer.pending_answer_boundary != self.reducer.last_seen_tool_boundary:
+            kind = "reasoning"
+        self.reducer.pending_answer_boundary = self.reducer.last_seen_tool_boundary
+        return self._append_phase_text(kind, text)
+
+    def _promote_pending_answer_to_reasoning(self) -> list[dict[str, Any]]:
+        return self._flush_pending_answer_text("reasoning")
+
+    def _commit_pending_answer_to_content(self) -> list[dict[str, Any]]:
+        if not self.reducer.turn_finished:
+            return []
+        return self._flush_pending_answer_text("content")
+
+    def _discard_pending_answer_text(self) -> None:
+        self.reducer.pending_answer_text = ""
+        self.reducer.pending_answer_boundary = self.reducer.last_seen_tool_boundary
+
+    def _mark_tool_boundary(self) -> None:
+        self.reducer.last_seen_tool_boundary += 1
+
     def _tool_payload(
         self,
         *,
@@ -298,11 +344,16 @@ class ClaudeToMagicAdapter:
         tool_name = str(block_payload.get("name") or "Tool")
         tool_input = block_payload.get("input")
 
-        records: list[dict[str, Any]] = []
-        if self.current_phase and self.current_phase.kind == "content":
+        records = self._promote_pending_answer_to_reasoning()
+        self._mark_tool_boundary()
+        if self.current_phase:
             records.extend(self._close_phase())
 
-        parent_correlation_id = self.current_phase.correlation_id if self.current_phase else None
+        parent_correlation_id = (
+            self.current_phase.correlation_id
+            if self.current_phase
+            else self.reducer.active_reasoning_correlation_id
+        )
         self.tool_state[tool_id] = {
             "id": tool_id,
             "name": tool_name,
@@ -469,7 +520,7 @@ class ClaudeToMagicAdapter:
             if block_type == "text":
                 self.block_context[int(block_index or 0)]["phase_kind"] = "content"
                 if block_payload.get("text"):
-                    records.extend(self._append_phase_text("content", str(block_payload.get("text") or "")))
+                    self._buffer_pending_answer_text(str(block_payload.get("text") or ""))
                 return records
 
             if block_type in {"tool_use", "server_tool_use"}:
@@ -498,9 +549,11 @@ class ClaudeToMagicAdapter:
             delta_payload = raw_event.get("delta") if isinstance(raw_event.get("delta"), dict) else {}
             delta_type = str(delta_payload.get("type") or "").strip()
             if delta_type == "thinking_delta":
-                return self._append_phase_text("reasoning", str(delta_payload.get("thinking") or ""))
+                records.extend(self._append_phase_text("reasoning", str(delta_payload.get("thinking") or "")))
+                return records
             if delta_type == "text_delta":
-                return self._append_phase_text("content", str(delta_payload.get("text") or ""))
+                self._buffer_pending_answer_text(str(delta_payload.get("text") or ""))
+                return records
             if delta_type == "input_json_delta":
                 block_payload = self.block_context.get(block_index) or {}
                 self._append_tool_input(block_payload, str(delta_payload.get("partial_json") or ""))
@@ -532,6 +585,7 @@ class ClaudeToMagicAdapter:
                 self.result_error = _clip_text(_safe_stringify(result_raw), 2000)
             if self.result_is_error and self.result_error:
                 self._remember_provider_error(self.result_error)
+                self._discard_pending_answer_text()
             return records
 
         if msg_type == "StreamEvent":
@@ -542,17 +596,10 @@ class ClaudeToMagicAdapter:
 
         if isinstance(content, list):
             text_parts: list[str] = []
-            tool_use_positions: list[int] = []
-            if msg_type == "AssistantMessage" and not self.saw_partial_stream:
-                for index, candidate in enumerate(content):
-                    candidate_type, _, _ = _extract_block(candidate)
-                    lower_candidate_type = candidate_type.lower()
-                    if "tooluse" in lower_candidate_type or lower_candidate_type in {"tool_use", "tooluseblock"}:
-                        tool_use_positions.append(index)
             assistant_error = str(getattr(msg, "error", "") or "").strip() if msg_type == "AssistantMessage" else ""
             if assistant_error:
                 self._remember_provider_error(assistant_error)
-            for index, block in enumerate(content):
+            for block in content:
                 block_type, block_text, block_payload = _extract_block(block)
                 lower_type = block_type.lower()
                 if "toolresult" in lower_type or lower_type in {"tool_result", "toolresultblock"}:
@@ -573,11 +620,10 @@ class ClaudeToMagicAdapter:
                     records.extend(self._start_tool(block_payload))
                     continue
                 if msg_type == "AssistantMessage" and not self.saw_partial_stream and block_text:
-                    has_tool_use_ahead = any(position > index for position in tool_use_positions)
-                    phase_kind = "reasoning" if ("thinking" in lower_type or has_tool_use_ahead) else "content"
-                    records.extend(self._append_phase_text(phase_kind, block_text))
-                    if assistant_error:
-                        self._remember_provider_error(block_text)
+                    if "thinking" in lower_type:
+                        records.extend(self._append_phase_text("reasoning", block_text))
+                    else:
+                        self._buffer_pending_answer_text(block_text)
                     continue
                 if msg_type == "UserMessage" and block_text:
                     text_parts.append(block_text)
@@ -596,10 +642,7 @@ class ClaudeToMagicAdapter:
 
         if isinstance(content, str) and content.strip():
             if msg_type == "AssistantMessage" and not self.saw_partial_stream:
-                records.extend(self._append_phase_text("content", content))
-                assistant_error = str(getattr(msg, "error", "") or "").strip()
-                if assistant_error:
-                    self._remember_provider_error(content)
+                self._buffer_pending_answer_text(content)
                 return records
             if self.latest_tool_id and not self._is_internal_skill_bootstrap(content):
                 records.extend(
@@ -611,19 +654,25 @@ class ClaudeToMagicAdapter:
                 )
         return records
 
-    def finalize_success_records(self) -> list[dict[str, Any]]:
+    def finalize_records(self, *, final_status: str, commit_pending_answer: bool) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
+        self.reducer.turn_finished = final_status == "finished"
+        if commit_pending_answer:
+            records.extend(self._commit_pending_answer_to_content())
+        else:
+            self._discard_pending_answer_text()
         if self.current_phase:
-            records.extend(self._close_phase(final_status="finished", finish_reason=self.stop_reason or None))
+            records.extend(self._close_phase(final_status=final_status, finish_reason=self.stop_reason or None))
         if self.pending_after_think:
             records.append(
                 self._event(
                     "AFTER_AGENT_THINK",
                     content_type="reasoning",
-                    data={"status": "finished"},
+                    data={"status": final_status},
                 )
             )
             self.pending_after_think = False
+            self.reducer.active_reasoning_correlation_id = None
         return records
 
     def build_result(self) -> TaskExecutionResult:
@@ -811,7 +860,7 @@ async def execute_task_stream(
                 if await _cancelled():
                     await _emit_records(
                         emit,
-                        adapter.finalize_success_records()
+                        adapter.finalize_records(final_status="suspended", commit_pending_answer=False)
                         + [
                             {
                                 "record_type": "event",
@@ -846,7 +895,7 @@ async def execute_task_stream(
                 reason=reason,
             )
             if recovered_content:
-                await _emit_records(emit, adapter.finalize_success_records())
+                await _emit_records(emit, adapter.finalize_records(final_status="finished", commit_pending_answer=False))
                 return TaskExecutionResult(
                     task_status="finished",
                     content=recovered_content,
@@ -859,7 +908,7 @@ async def execute_task_stream(
         error_code = adapter.preferred_error_code()
         await _emit_records(
             emit,
-            adapter.finalize_success_records()
+            adapter.finalize_records(final_status="error", commit_pending_answer=False)
             + [
                 {
                     "record_type": "event",
@@ -888,7 +937,7 @@ async def execute_task_stream(
             model=model,
         )
 
-    await _emit_records(emit, adapter.finalize_success_records())
+    await _emit_records(emit, adapter.finalize_records(final_status="finished", commit_pending_answer=True))
     result = adapter.build_result()
     logger.info(
         "task.done task_id=%s task_status=%s provider=%s model=%s",

@@ -2,6 +2,7 @@ import {
   buildChartRenderModel,
   extractChartSpecsFromText,
   parseChartSpec,
+  stripChartSpecsFromText,
   validateChartSpec
 } from '../chartSpec'
 
@@ -102,5 +103,24 @@ describe('chartSpec', () => {
     expect(specs).toHaveLength(1)
     expect(specs[0].chart_type).toBe('pie')
     expect(specs[0].series[0].field).toBe('publish_cnt')
+  })
+
+  it('extracts and strips xml-style chart spec blocks', () => {
+    const message = `
+结论如下：
+
+<chart_spec>
+{"kind":"chart_spec","version":1,"chart_type":"line","title":"最近30天工作流发布趋势","x_field":"stat_day","series":[{"name":"发布次数","field":"publish_cnt","type":"line"}],"dataset":[{"stat_day":"2026-03-10","publish_cnt":3}],"error":null}
+</chart_spec>
+`
+
+    const specs = extractChartSpecsFromText(message)
+    const stripped = stripChartSpecsFromText(message)
+
+    expect(specs).toHaveLength(1)
+    expect(specs[0].chart_type).toBe('line')
+    expect(stripped).toContain('结论如下：')
+    expect(stripped).not.toContain('<chart_spec>')
+    expect(stripped).not.toContain('"chart_type":"line"')
   })
 })

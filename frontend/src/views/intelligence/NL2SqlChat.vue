@@ -113,14 +113,9 @@
                     </div>
 
                     <div v-for="block in processBlocksForMessage(msg)" :key="block.id" class="query-step-row">
-                      <div v-if="block.kind === 'thinking' && block.text" class="query-process-note">
-                        <div class="query-process-note-head">
-                          <span class="query-process-note-badge">{{ block.status === 'streaming' ? '思考中' : '思考' }}</span>
-                        </div>
-                        <div class="query-process-note-text">
-                          {{ block.text }}
-                          <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
-                        </div>
+                      <div v-if="block.kind === 'thinking' && block.text" class="query-process-thought">
+                        {{ block.text }}
+                        <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
                       </div>
 
                       <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
@@ -133,10 +128,6 @@
                     <div v-if="displayTextBlock(block, msg)" class="query-main-text">
                       <div v-html="renderMarkdown(displayTextBlock(block, msg))"></div>
                       <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
-                    </div>
-
-                    <div v-for="tool in inlineChartToolsForBlock(block, msg)" :key="tool.id" class="query-step-row">
-                      <ToolOutputRenderer :tool="tool" />
                     </div>
                   </template>
 
@@ -219,7 +210,7 @@ import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
-import { extractChartSpecsFromText, parseChartSpec, stripChartSpecsFromText } from './chartSpec'
+import { stripChartSpecsFromText } from './chartSpec'
 import {
   activeStreamingBlock as activeStreamingMessageBlock,
   createAssistantMessageState,
@@ -331,29 +322,6 @@ const formatTime = (value) => {
 
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-const normalizeToolPayload = (value) => {
-  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind) {
-    return value
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (item && typeof item === 'object' && item.kind) return item
-      if (typeof item === 'string') {
-        const parsed = parseMaybeJson(item)
-        if (parsed?.kind) return parsed
-      }
-      if (item && typeof item === 'object' && typeof item.text === 'string') {
-        const parsed = parseMaybeJson(item.text)
-        if (parsed?.kind) return parsed
-      }
-    }
-  }
-  if (typeof value === 'string') {
-    return parseMaybeJson(value)
-  }
-  return null
-}
-
 const cleanTextContent = (value) => {
   let text = String(value || '')
   text = text.replace(/Base directory for this skill:[\s\S]*?(?:ARGUMENTS:\s*[^\n]*\n?)/gi, '')
@@ -372,38 +340,6 @@ const thinkingPreview = (block) => {
   return preview.length > 38 ? `${preview.slice(0, 38)}...` : preview
 }
 
-const stripMarkdownTables = (text) => {
-  const lines = String(text || '').split('\n')
-  const output = []
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const nextLine = lines[index + 1]
-    const trimmed = line.trim()
-    const nextTrimmed = String(nextLine || '').trim()
-    const isTableHeader = trimmed.startsWith('|') && trimmed.endsWith('|')
-    const isTableDivider = /^\|?[\s:-|]+\|?\s*$/.test(nextTrimmed) && nextTrimmed.includes('-')
-
-    if (!isTableHeader || !isTableDivider) {
-      output.push(line)
-      continue
-    }
-
-    index += 1
-    while (index + 1 < lines.length) {
-      const rowLine = String(lines[index + 1] || '').trim()
-      if (!rowLine.startsWith('|') || !rowLine.endsWith('|')) break
-      index += 1
-    }
-
-    if (output.length && output[output.length - 1] !== '') {
-      output.push('')
-    }
-  }
-
-  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim()
-}
-
 const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.renderBlocks : []).filter((block) => {
   if (!block || typeof block !== 'object') return false
   if (block.kind === 'tool') {
@@ -420,30 +356,10 @@ const processBlocksForMessage = (msg) => renderBlocksForMessage(msg)
 const finalBlocksForMessage = (msg) => renderBlocksForMessage(msg)
   .filter((block) => ['main_text', 'error'].includes(block.kind))
 
-const toolBlocks = (msg) => renderBlocksForMessage(msg)
-  .filter((block) => block.kind === 'tool' && block.tool)
-  .map((block) => block.tool)
-
-const hasToolChart = (msg) => toolBlocks(msg).some((tool) => Boolean(parseChartSpec(normalizeToolPayload(tool.output))))
-
 const displayTextBlock = (block, msg) => {
-  let text = stripChartSpecsFromText(cleanTextContent(block?.text))
-  const hasInlineCharts = extractChartSpecsFromText(cleanTextContent(block?.text)).length > 0
-  if (hasToolChart(msg) || hasInlineCharts) {
-    text = stripMarkdownTables(text)
-  }
+  const text = stripChartSpecsFromText(cleanTextContent(block?.text)).trim()
   if (!text) return ''
   return text
-}
-
-const inlineChartToolsForBlock = (block, msg) => {
-  if (hasToolChart(msg)) return []
-  return extractChartSpecsFromText(cleanTextContent(block?.text)).map((spec, index) => ({
-    id: `inline_chart_${msg.id}_${block?.id || index}_${index}`,
-    name: 'chart_spec',
-    status: 'success',
-    output: spec
-  }))
 }
 
 const hasErrorBlock = (msg) => renderBlocksForMessage(msg).some((block) => block.kind === 'error' && String(block.text || '').trim())
@@ -666,7 +582,7 @@ const subscribeTask = (taskId, assistantMsg) => {
   if (!key || !assistantMsg || taskSubscriptions.has(key)) return
 
   const controller = new AbortController()
-  let afterSeq = 0
+  let afterSeq = Math.max(0, Number(assistantMsg?.resume_after_seq || 0))
 
   const finalizeWithTaskState = async () => {
     try {
@@ -713,6 +629,7 @@ const subscribeTask = (taskId, assistantMsg) => {
             onEvent: (event) => {
               afterSeq = Math.max(afterSeq, Number(event?.seq_id || event?.seq || 0))
               processEvent(assistantMsg, event)
+              assistantMsg.resume_after_seq = Math.max(Number(assistantMsg.resume_after_seq || 0), afterSeq)
               triggerRef(topics)
               scrollToBottom()
             }
@@ -1467,35 +1384,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 
-.query-process-note {
-  padding: 12px 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.03);
-}
-
-.query-process-note-head {
-  display: flex;
-  align-items: center;
-}
-
-.query-process-note-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 52px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.query-process-note-text {
-  margin-top: 8px;
+.query-process-thought {
+  padding: 2px 2px 2px 4px;
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.75;

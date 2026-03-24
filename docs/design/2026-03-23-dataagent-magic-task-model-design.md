@@ -68,6 +68,12 @@
 - `ClaudeToMagicAdapter` 负责把 SDK 输出转成：
   - 生命周期事件
   - `ChunkData`
+- 分类决策固定放在后端 reducer，不放在前端：
+  - assistant 纯文本先进入 `pending_answer_text`
+  - 若后续出现 `tool_use`，则把 pending 文本整体按 `reasoning` flush
+  - 只有 turn 终态确认后续不再有工具时，才把 pending 文本按 `content` 提交
+  - 每次 `tool_use` 前，当前活跃 `reasoning` phase 先收口为独立块；工具之后若继续有思考，再开启新的 `reasoning` phase
+  - 前端只消费 `content_type` 和 `ChunkData END`，不做跨 bucket 重分配
 - 思考阶段遵循 `magic` 的边界：
   - 首次 reasoning 输出前发 `BEFORE_AGENT_THINK`
   - reasoning 自身按 `BEFORE_AGENT_REPLY(reasoning) -> ChunkData -> AFTER_AGENT_REPLY(reasoning)`
@@ -84,10 +90,11 @@
   - `anthropic_compatible` 默认 `false`
 - 当 `supports_partial_messages=true` 时：
   - 继续使用 Claude SDK partial stream
-  - 继续产出当前的细粒度 Magic `ChunkData`
+  - 继续产出 Magic `ChunkData`
+  - 但 `text_delta` 先进入后端 pending reducer，不立即提交到最终 `content`
 - 当 `supports_partial_messages=false` 时：
   - 仍使用 Claude SDK tool-loop，但改为 message-level 适配
-  - `AssistantMessage(TextBlock/ThinkingBlock)` 直接映射为阶段级 `BEFORE_AGENT_REPLY + ChunkData START/END + AFTER_AGENT_REPLY`
+  - `AssistantMessage(TextBlock/ThinkingBlock)` 先走同一套 pending reducer，再映射为阶段级 `BEFORE_AGENT_REPLY + ChunkData START/END + AFTER_AGENT_REPLY`
   - `AssistantMessage(ToolUseBlock)` / `UserMessage(ToolResultBlock)` 继续映射工具事件
   - 不再保证实时思考增量
 - 若 SDK 已返回真实 provider 错误文本：
@@ -166,6 +173,13 @@
   - `task_status`
   - `user_message_id`
   - `assistant_message_id`
+- `GET /topics/{topic_id}/messages` 中 assistant message 额外返回：
+  - `blocks`
+    - 基于 `da_agent_message(show_in_ui=0)` 与 `da_agent_chunk` 重建的 canonical 过程块
+    - 覆盖 `thinking`、`tool`、`main_text`、`error`
+  - `resume_after_seq`
+    - 历史重建已消费到的最大 task event/chunk `seq`
+    - 刷新后若 task 仍在运行，前端从该游标继续订阅 SSE，而不是从 `0` 重放
 - provider 设置响应在 `ProviderConfig` 中增加 `supports_partial_messages`
 - `da_agent_settings.raw_json` 持久化 `provider_settings.<provider_id>.supports_partial_messages`
 - queue / schedule 为本次新增 durable 入口，因此需要 Alembic
@@ -198,6 +212,10 @@
   - `ChunkData`
 - 聊天页发送路径固定为 `POST /tasks/deliver-message -> GET /tasks/{task_id}/events/stream`
 - 历史 assistant message 通过 `GET /topics/{topic_id}` + `GET /topics/{topic_id}/messages` 两步恢复
+- 历史恢复以 message `blocks` 为权威：
+  - `thinking`、`tool`、`main_text`、`error` 都由后端历史投影重建
+  - 只有缺少 durable events/chunks 的极早期消息，才允许前端退回单纯 `content`
+- 前端刷新后若 task 仍在运行，使用 `resume_after_seq` 续流，只消费增量
 - settings 页只走 `/api/v1/nl2sql-admin/settings`
 
 ## Deployment Changes
@@ -216,4 +234,4 @@
 
 - 这是破坏式 API 和 schema 切换，旧前端或旧脚本若仍调用 `sessions/runs` 会直接失效
 - Redis lease 目前为轻量实现，后续若要继续贴近 `magic` 的成熟度，需要进一步强化原子续租与观测
-- 历史 `blocks` 兼容层被收缩，旧消息不再从旧 `blocks` 快照恢复完整过程轨迹
+- 若某些更早的历史 task 缺少完整 durable events/chunks，只能降级成最终 `content`，无法完整恢复过程轨迹

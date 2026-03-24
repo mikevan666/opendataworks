@@ -9,7 +9,7 @@
 | Java | 8 或 11 (Gradle/IntelliJ) |
 | Node.js | 18+ (支持 Vite 5) |
 | MySQL | 8.0+ |
-| Docker (可选) | 24+ |
+| Docker / Podman (可选) | Docker 24+ 或兼容 Podman |
 
 ## 第一步：准备数据库
 
@@ -24,7 +24,7 @@ FLUSH PRIVILEGES;
 SQL
 ```
 
-> 如果已经通过 `deploy/docker-compose.dev.yml` 启动了 MySQL，可复用该容器的账号/密码，或在 `deploy/.env` 中调整后重启。
+> 如果已经通过 `deploy/docker-compose.dev.yml` 或等价的 Podman compose 启动了 MySQL，可复用该容器的账号/密码，或在 `deploy/.env` 中调整后重启。
 
 ## 第二步：启动后端 (Spring Boot)
 

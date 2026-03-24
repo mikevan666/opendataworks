@@ -287,18 +287,30 @@ export const buildChartOption = (specInput) => {
   return model.kind === 'echarts' ? model.option : null
 }
 
+const CHART_SPEC_BLOCK_PATTERNS = [
+  /```chart\s*([\s\S]*?)```/gi,
+  /<chart_spec>\s*([\s\S]*?)<\/chart_spec>/gi
+]
+
 export const extractChartSpecsFromText = (text) => {
   const source = String(text || '')
-  const matches = source.matchAll(/```chart\s*([\s\S]*?)```/gi)
   const specs = []
-  for (const match of matches) {
-    const parsed = parseChartSpec(match[1])
-    if (parsed) specs.push(parsed)
+  for (const pattern of CHART_SPEC_BLOCK_PATTERNS) {
+    const matches = source.matchAll(pattern)
+    for (const match of matches) {
+      const parsed = parseChartSpec(match[1])
+      if (parsed) specs.push(parsed)
+    }
   }
   return specs
 }
 
-export const stripChartSpecsFromText = (text) => String(text || '')
-  .replace(/```chart\s*[\s\S]*?```/gi, '')
-  .replace(/\n{3,}/g, '\n\n')
-  .trim()
+export const stripChartSpecsFromText = (text) => {
+  let output = String(text || '')
+  for (const pattern of CHART_SPEC_BLOCK_PATTERNS) {
+    output = output.replace(pattern, '')
+  }
+  return output
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}

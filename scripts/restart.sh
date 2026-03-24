@@ -8,18 +8,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
+LIB_DIR="$SCRIPT_DIR/lib"
 COMPOSE_FILE_NAME="docker-compose.prod.yml"
 COMPOSE_FILE="$DEPLOY_DIR/$COMPOSE_FILE_NAME"
 ENV_FILE="$DEPLOY_DIR/.env"
-USE_ENV_FLAG=false
 
-if command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD=(docker-compose)
-elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    COMPOSE_CMD=(docker compose)
-    USE_ENV_FLAG=true
-else
-    echo "❌ 错误: 未找到 docker-compose 或 docker compose"
+# shellcheck source=/dev/null
+source "$LIB_DIR/container-runtime.sh"
+
+if ! detect_compose_cmd; then
+    echo "❌ 错误: 未找到可用的 compose 命令（docker-compose、docker compose、podman compose、podman-compose）"
     exit 1
 fi
 
@@ -31,7 +29,7 @@ echo ""
 echo "🔄 重启 OpenDataWorks 服务..."
 pushd "$DEPLOY_DIR" >/dev/null
 ENV_FLAG_ARGS=()
-if [ "$USE_ENV_FLAG" = true ] && [ -f "$ENV_FILE" ]; then
+if [ "$COMPOSE_SUPPORTS_ENV_FILE" = true ] && [ -f "$ENV_FILE" ]; then
     ENV_FLAG_ARGS=(--env-file "$ENV_FILE")
 fi
 

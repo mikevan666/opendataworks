@@ -250,6 +250,7 @@ export const createAssistantMessageState = (seed = {}) => ({
   id: textOrEmpty(seed.id).trim() || '',
   message_id: textOrEmpty(seed.message_id || seed.id).trim() || '',
   task_id: textOrEmpty(seed.task_id).trim() || '',
+  resume_after_seq: Number(seed.resume_after_seq || 0),
   role: 'assistant',
   content: textOrEmpty(seed.content),
   status: toUiStatus(seed.status) || 'streaming',
@@ -285,7 +286,8 @@ export const hydrateAssistantMessageState = (message) => {
     error: isPlainObject(message?.error) ? message.error : null,
     provider_id: message?.provider_id || null,
     model: message?.model || null,
-    usage: isPlainObject(message?.usage) ? message.usage : null
+    usage: isPlainObject(message?.usage) ? message.usage : null,
+    resume_after_seq: Number(message?.resume_after_seq || 0)
   })
 
   const rawBlocks = Array.isArray(message?.blocks) ? message.blocks : []
@@ -356,6 +358,8 @@ export const hydrateAssistantMessageState = (message) => {
 const processMagicTaskEvent = (msg, event) => {
   const recordType = textOrEmpty(event?.record_type).trim()
   if (!recordType) return false
+
+  msg.resume_after_seq = Math.max(Number(msg.resume_after_seq || 0), Number(event?.seq_id || event?.seq || 0))
 
   if (event.task_id) {
     msg.task_id = textOrEmpty(event.task_id)

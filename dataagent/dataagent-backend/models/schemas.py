@@ -311,6 +311,8 @@ class TopicMessage(BaseModel):
     parent_correlation_id: Optional[str] = None
     content_type: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+    blocks: Optional[List[Dict[str, Any]]] = None
+    resume_after_seq: int = 0
     show_in_ui: bool = True
     error: Optional[Dict[str, Any]] = None
     created_at: str = ""

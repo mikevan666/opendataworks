@@ -2,10 +2,10 @@
   <div class="tool-output" :class="{ failed: hasError, 'tool-output-shell': showTrace }">
     <div v-if="showTrace" class="shell-trace">
       <button
-        v-if="traceHasPanel"
+        v-if="traceSummaryInteractive"
         type="button"
         class="shell-trace-summary"
-        @click="shellOpen = !shellOpen"
+        @click="togglePanel"
       >
         <span class="shell-trace-summary-text">
           {{ traceSummaryText }}
@@ -13,7 +13,7 @@
         <span class="shell-trace-summary-status" :class="`is-${traceStatusTone}`">
           {{ statusLabel }}
         </span>
-        <span class="shell-trace-summary-chevron" :class="{ open: shellOpen }">⌄</span>
+        <span class="shell-trace-summary-chevron" :class="{ open: panelOpen }">⌄</span>
       </button>
 
       <div v-else class="shell-trace-summary shell-trace-summary-static">
@@ -25,27 +25,29 @@
         </span>
       </div>
 
-      <div v-if="traceHasPanel && shellOpen" class="shell-trace-panel">
+      <div v-if="tracePanelVisible" class="tool-output-panel shell-trace-panel">
         <div class="shell-trace-panel-title">{{ traceTitle }}</div>
-        <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
-        <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
-          {{ traceDescription }}
-        </div>
-        <template v-if="traceOutputText">
-          <div v-if="showTraceMarkdown" class="tool-markdown">
-            <div class="tool-markdown-body" v-html="traceMarkdownExpanded ? renderedTraceMarkdown : renderedTraceMarkdownPreview" />
-            <button
-              v-if="traceMarkdownCollapsible"
-              type="button"
-              class="tool-markdown-toggle"
-              @click="traceMarkdownExpanded = !traceMarkdownExpanded"
-            >
-              {{ traceMarkdownExpanded ? '收起' : '展开...' }}
-            </button>
+        <div class="tool-output-body-scroll">
+          <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
+          <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
+            {{ traceDescription }}
           </div>
-          <pre v-else class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
-        </template>
-        <div v-else class="shell-trace-empty">无输出</div>
+          <template v-if="traceOutputText">
+            <div v-if="showTraceMarkdown" class="tool-markdown">
+              <div class="tool-markdown-body" v-html="traceMarkdownExpanded ? renderedTraceMarkdown : renderedTraceMarkdownPreview" />
+              <button
+                v-if="traceMarkdownCollapsible"
+                type="button"
+                class="tool-markdown-toggle"
+                @click="traceMarkdownExpanded = !traceMarkdownExpanded"
+              >
+                {{ traceMarkdownExpanded ? '收起' : '展开...' }}
+              </button>
+            </div>
+            <pre v-else class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
+          </template>
+          <div v-else class="shell-trace-empty">无输出</div>
+        </div>
         <div class="shell-trace-footer">
           <span class="shell-trace-footer-label">状态</span>
           <span class="shell-trace-footer-value" :class="`is-${traceStatusTone}`">{{ statusLabel }}</span>
@@ -70,62 +72,89 @@
 
     <div v-if="errorText && showMainHeader" class="tool-output-error">{{ errorText }}</div>
 
-    <template v-if="kind === 'sql_execution'">
-      <pre v-if="sqlText" class="tool-code"><code>{{ sqlText }}</code></pre>
+    <button
+      v-if="showMainToggle"
+      type="button"
+      class="tool-output-toggle"
+      @click="togglePanel"
+    >
+      <span>{{ panelOpen ? '收起输出' : '展开输出' }}</span>
+      <span class="tool-output-toggle-chevron" :class="{ open: panelOpen }">⌄</span>
+    </button>
 
-      <div v-if="columns.length && rows.length" class="tool-table-wrap">
-        <table class="tool-table">
-          <thead>
-            <tr>
-              <th v-for="column in columns" :key="column">{{ column }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, rowIndex) in rows" :key="rowIndex">
-              <td v-for="column in columns" :key="column">{{ row[column] }}</td>
-            </tr>
-          </tbody>
-        </table>
+    <div v-if="mainPanelVisible" class="tool-output-panel">
+      <div class="tool-output-body-scroll">
+        <template v-if="kind === 'sql_execution'">
+          <pre v-if="sqlText" class="tool-code"><code>{{ sqlText }}</code></pre>
+
+          <div v-if="columns.length && rows.length" class="tool-table-wrap">
+            <table class="tool-table">
+              <thead>
+                <tr>
+                  <th v-for="column in columns" :key="column">{{ column }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rowIndex) in rows" :key="rowIndex">
+                  <td v-for="column in columns" :key="column">{{ row[column] }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else-if="!errorText" class="tool-output-empty">无数据</div>
+        </template>
+
+        <template v-else-if="kind === 'chart_spec'">
+          <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
+          <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
+
+          <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
+            <table class="tool-table">
+              <thead>
+                <tr>
+                  <th v-for="column in chartColumns" :key="column">{{ column }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rowIndex) in chartRows" :key="rowIndex">
+                  <td v-for="column in chartColumns" :key="column">{{ row[column] }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            v-else-if="chartRenderState === 'renderable' && chartOption"
+            ref="chartCanvasRef"
+            class="tool-chart"
+          />
+          <div v-else-if="chartRenderState === 'empty'" class="tool-output-empty">图表暂无可渲染数据</div>
+          <div v-else-if="chartRenderState !== 'invalid' && chartRenderState !== 'error'" class="tool-output-empty">图表数据为空</div>
+
+          <pre v-if="showChartRawText" class="tool-code tool-code-light"><code>{{ normalizedRawText }}</code></pre>
+        </template>
+
+        <template v-else-if="kind === 'python_execution'">
+          <pre v-if="stdoutText" class="tool-code"><code>{{ stdoutText }}</code></pre>
+          <pre v-if="resultText" class="tool-code tool-code-light"><code>{{ resultText }}</code></pre>
+        </template>
+
+        <template v-else-if="showRawPayload">
+          <div v-if="showRawMarkdown" class="tool-markdown">
+            <div class="tool-markdown-body" v-html="rawMarkdownExpanded ? renderedRawMarkdown : renderedRawMarkdownPreview" />
+            <button
+              v-if="rawMarkdownCollapsible"
+              type="button"
+              class="tool-markdown-toggle"
+              @click="rawMarkdownExpanded = !rawMarkdownExpanded"
+            >
+              {{ rawMarkdownExpanded ? '收起' : '展开...' }}
+            </button>
+          </div>
+          <pre v-else class="tool-code tool-code-light"><code>{{ normalizedRawText }}</code></pre>
+        </template>
       </div>
-      <div v-else-if="!errorText" class="tool-output-empty">无数据</div>
-    </template>
-
-    <template v-else-if="kind === 'chart_spec'">
-      <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
-      <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
-
-      <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
-        <table class="tool-table">
-          <thead>
-            <tr>
-              <th v-for="column in chartColumns" :key="column">{{ column }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, rowIndex) in chartRows" :key="rowIndex">
-              <td v-for="column in chartColumns" :key="column">{{ row[column] }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div
-        v-else-if="chartRenderState === 'renderable' && chartOption"
-        ref="chartCanvasRef"
-        class="tool-chart"
-      />
-      <div v-else-if="chartRenderState === 'empty'" class="tool-output-empty">图表暂无可渲染数据</div>
-      <div v-else-if="chartRenderState !== 'invalid' && chartRenderState !== 'error'" class="tool-output-empty">图表数据为空</div>
-
-      <pre v-if="showChartRawText" class="tool-code tool-code-light"><code>{{ rawText }}</code></pre>
-    </template>
-
-    <template v-else-if="kind === 'python_execution'">
-      <pre v-if="stdoutText" class="tool-code"><code>{{ stdoutText }}</code></pre>
-      <pre v-if="resultText" class="tool-code tool-code-light"><code>{{ resultText }}</code></pre>
-    </template>
-
-    <pre v-else-if="showRawPayload" class="tool-code tool-code-light"><code>{{ rawText }}</code></pre>
+    </div>
   </div>
 </template>
 
@@ -163,9 +192,11 @@ const props = defineProps({
 })
 
 const chartCanvasRef = ref(null)
-const shellOpen = ref(false)
+const panelOpen = ref(false)
+const panelTouched = ref(false)
 const nowTick = ref(Date.now())
 const traceMarkdownExpanded = ref(false)
+const rawMarkdownExpanded = ref(false)
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
 
@@ -284,12 +315,15 @@ const columns = computed(() => {
   const firstRow = rows.value[0]
   return isPlainObject(firstRow) ? Object.keys(firstRow) : []
 })
-const stdoutText = computed(() => String(outputPayload.value.stdout || '').trim())
-const resultText = computed(() => prettyPrint(outputPayload.value.result))
+const normalizeDisplayText = (value) => stripToolLinePrefixes(String(value || ''))
+
+const stdoutText = computed(() => normalizeDisplayText(outputPayload.value.stdout || '').trim())
+const resultText = computed(() => normalizeDisplayText(prettyPrint(outputPayload.value.result)).trim())
 const rawText = computed(() => {
   const source = outputPayload.value.kind ? outputPayload.value : props.tool?.output
   return prettyPrint(source)
 })
+const normalizedRawText = computed(() => normalizeDisplayText(rawText.value).trim())
 const errorText = computed(() => String(outputPayload.value.error || '').trim())
 const hasError = computed(() => Boolean(errorText.value) || String(props.tool?.status || '') === 'failed')
 const rowCountText = computed(() => {
@@ -344,7 +378,6 @@ const traceKind = computed(() => {
 })
 
 const showTrace = computed(() => Boolean(traceKind.value))
-const traceHasPanel = computed(() => traceKind.value !== 'read')
 const showMainHeader = computed(() => {
   if (!showTrace.value) return true
   if (kind.value === 'chart_spec') return false
@@ -353,8 +386,8 @@ const showMainHeader = computed(() => {
 
 const traceOutputText = computed(() => {
   const directText = extractTextParts(props.tool?.output).trim()
-  if (directText) return stripToolLinePrefixes(directText).trim()
-  return stripToolLinePrefixes(rawText.value).trim()
+  if (directText) return normalizeDisplayText(directText).trim()
+  return normalizedRawText.value
 })
 const traceOutputLines = computed(() => String(traceOutputText.value || '').split('\n'))
 const traceMarkdownSource = computed(() => String(traceOutputText.value || '').trim())
@@ -374,6 +407,16 @@ const traceMarkdownPreview = computed(() => {
 })
 const renderedTraceMarkdown = computed(() => renderMarkdown(traceMarkdownSource.value))
 const renderedTraceMarkdownPreview = computed(() => renderMarkdown(traceMarkdownPreview.value))
+
+const rawOutputLines = computed(() => String(normalizedRawText.value || '').split('\n'))
+const showRawMarkdown = computed(() => showRawPayload.value && looksLikeMarkdown(normalizedRawText.value))
+const rawMarkdownCollapsible = computed(() => showRawMarkdown.value && rawOutputLines.value.length > MARKDOWN_PREVIEW_LINES)
+const rawMarkdownPreview = computed(() => {
+  if (!rawMarkdownCollapsible.value) return normalizedRawText.value
+  return rawOutputLines.value.slice(0, MARKDOWN_PREVIEW_LINES).join('\n')
+})
+const renderedRawMarkdown = computed(() => renderMarkdown(normalizedRawText.value))
+const renderedRawMarkdownPreview = computed(() => renderMarkdown(rawMarkdownPreview.value))
 
 const traceTitle = computed(() => {
   if (traceKind.value === 'read') return 'Read'
@@ -470,9 +513,42 @@ const chartOption = computed(() => {
 })
 const showChartRawText = computed(() => {
   if (kind.value !== 'chart_spec') return false
-  return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(rawText.value)
+  return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(normalizedRawText.value)
 })
-const showRawPayload = computed(() => Boolean(rawText.value) && !showTrace.value)
+const showRawPayload = computed(() => Boolean(normalizedRawText.value) && !showTrace.value)
+
+const tracePanelAvailable = computed(() => {
+  if (!showTrace.value) return false
+  if (traceOutputText.value) return true
+  if (traceKind.value === 'read') return false
+  return Boolean(traceCommand.value || traceDescription.value)
+})
+
+const mainPanelAvailable = computed(() => {
+  if (kind.value === 'sql_execution') return Boolean(sqlText.value || (columns.value.length && rows.value.length) || !errorText.value)
+  if (kind.value === 'chart_spec') return true
+  if (kind.value === 'python_execution') return Boolean(stdoutText.value || resultText.value)
+  return Boolean(showRawPayload.value)
+})
+
+const hasExpandablePanel = computed(() => tracePanelAvailable.value || mainPanelAvailable.value)
+const traceSummaryInteractive = computed(() => showTrace.value && hasExpandablePanel.value)
+const showMainToggle = computed(() => !showTrace.value && hasExpandablePanel.value)
+const tracePanelVisible = computed(() => showTrace.value && tracePanelAvailable.value && panelOpen.value)
+const mainPanelVisible = computed(() => mainPanelAvailable.value && panelOpen.value)
+
+const toolInstanceKey = computed(() => {
+  const stableId = String(props.tool?.id || '').trim()
+  if (stableId) return stableId
+  return [
+    toolName.value,
+    kind.value,
+    shellCommand.value,
+    readPath.value,
+    scriptName.value,
+    summaryText.value
+  ].filter(Boolean).join('|')
+})
 
 let chartRefreshFrame = 0
 let chartInstance = null
@@ -506,9 +582,9 @@ const refreshChart = async () => {
 }
 
 watch(
-  () => [chartRenderState.value, chartOption.value, props.tool?.id],
+  () => [chartRenderState.value, chartOption.value, props.tool?.id, mainPanelVisible.value],
   () => {
-    if (chartRenderState.value === 'renderable' && chartOption.value) {
+    if (chartRenderState.value === 'renderable' && chartOption.value && mainPanelVisible.value) {
       refreshChart()
       return
     }
@@ -517,14 +593,24 @@ watch(
   { deep: true }
 )
 
+const shouldAutoOpenPanel = () => {
+  if (!hasExpandablePanel.value) return false
+  const status = String(props.tool?.status || 'success')
+  const callComplete = Boolean(props.tool?._callComplete)
+  if (status === 'pending' || status === 'streaming') return true
+  if (showTrace.value && !callComplete) return true
+  return false
+}
+
+const togglePanel = () => {
+  if (!hasExpandablePanel.value) return
+  panelTouched.value = true
+  panelOpen.value = !panelOpen.value
+}
+
 onMounted(() => {
-  if (showTrace.value && traceHasPanel.value) {
-    const status = String(props.tool?.status || 'success')
-    const callComplete = Boolean(props.tool?._callComplete)
-    const runtimeStarted = Boolean(props.tool?._runtimeStarted)
-    shellOpen.value = (!callComplete) || (runtimeStarted && (status === 'pending' || status === 'streaming'))
-  }
-  if (chartRenderState.value === 'renderable' && chartOption.value) {
+  panelOpen.value = shouldAutoOpenPanel()
+  if (chartRenderState.value === 'renderable' && chartOption.value && mainPanelVisible.value) {
     refreshChart()
   }
 
@@ -536,19 +622,21 @@ onMounted(() => {
 })
 
 watch(
-  () => [props.tool?.status, props.tool?._callComplete, props.tool?._runtimeStarted],
-  ([status, callComplete, runtimeStarted]) => {
-    if (!showTrace.value || !traceHasPanel.value) return
-    const value = String(status || 'success')
-    shellOpen.value = !Boolean(callComplete) || (Boolean(runtimeStarted) && (value === 'pending' || value === 'streaming'))
+  () => [props.tool?.status, props.tool?._callComplete, props.tool?._runtimeStarted, hasExpandablePanel.value],
+  () => {
+    if (panelTouched.value) return
+    panelOpen.value = shouldAutoOpenPanel()
   },
   { immediate: true }
 )
 
 watch(
-  () => props.tool?.id,
+  () => toolInstanceKey.value,
   () => {
+    panelTouched.value = false
+    panelOpen.value = shouldAutoOpenPanel()
     traceMarkdownExpanded.value = false
+    rawMarkdownExpanded.value = false
   },
   { immediate: true }
 )
@@ -649,11 +737,22 @@ onBeforeUnmount(() => {
   transform: rotate(180deg);
 }
 
+.tool-output-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.tool-output-body-scroll {
+  max-height: 360px;
+  overflow: auto;
+}
+
 .shell-trace-panel {
   margin-top: 8px;
-  padding: 12px 14px;
   border: 1px solid #d9d9d9;
-  border-radius: 14px;
   background: linear-gradient(180deg, #f3f3f3 0%, #ececec 100%);
 }
 
@@ -767,6 +866,33 @@ onBeforeUnmount(() => {
 
 .tool-markdown-toggle:hover {
   color: #1d3f5e;
+}
+
+.tool-output-toggle {
+  margin-top: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #31567a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-output-toggle:hover {
+  color: #1d3f5e;
+}
+
+.tool-output-toggle-chevron {
+  font-size: 14px;
+  transition: transform 0.18s ease;
+}
+
+.tool-output-toggle-chevron.open {
+  transform: rotate(180deg);
 }
 
 .shell-trace-footer {

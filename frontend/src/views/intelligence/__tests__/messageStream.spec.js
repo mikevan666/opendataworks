@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createAssistantMessageState,
+  hydrateAssistantMessageState,
   processAssistantStreamEvent
 } from '../messageStream'
 
@@ -10,6 +11,7 @@ describe('messageStream', () => {
 
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 1,
       task_id: 'task-1',
       event_type: 'BEFORE_AGENT_THINK',
       content_type: 'reasoning',
@@ -18,6 +20,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 2,
       task_id: 'task-1',
       event_type: 'BEFORE_AGENT_REPLY',
       content_type: 'reasoning',
@@ -26,6 +29,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'chunk',
+      seq_id: 3,
       task_id: 'task-1',
       request_id: 'req-1',
       chunk_id: 1,
@@ -35,6 +39,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 4,
       task_id: 'task-1',
       event_type: 'PENDING_TOOL_CALL',
       correlation_id: 'tool-read-1',
@@ -42,6 +47,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 5,
       task_id: 'task-1',
       event_type: 'AFTER_TOOL_CALL',
       correlation_id: 'tool-read-1',
@@ -49,12 +55,14 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 6,
       task_id: 'task-1',
       event_type: 'AFTER_AGENT_THINK',
       data: { status: 'running' }
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 7,
       task_id: 'task-1',
       event_type: 'BEFORE_AGENT_REPLY',
       content_type: 'content',
@@ -63,6 +71,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'chunk',
+      seq_id: 8,
       task_id: 'task-1',
       request_id: 'req-1',
       chunk_id: 2,
@@ -72,6 +81,7 @@ describe('messageStream', () => {
     })
     processAssistantStreamEvent(msg, {
       record_type: 'event',
+      seq_id: 9,
       task_id: 'task-1',
       event_type: 'AFTER_AGENT_REPLY',
       content_type: 'content',
@@ -86,6 +96,204 @@ describe('messageStream', () => {
     expect(msg.renderBlocks.map((block) => block.kind)).toEqual(['thinking', 'tool', 'main_text'])
     expect(msg.renderBlocks[1].tool.status).toBe('success')
     expect(msg.usage).toEqual({ input_tokens: 10, output_tokens: 5 })
+    expect(msg.resume_after_seq).toBe(9)
+  })
+
+  it('renders blocks strictly from backend content_type without frontend reclassification', () => {
+    const msg = createAssistantMessageState({ id: 'magic-2', task_id: 'task-2' })
+
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-2',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'content',
+      correlation_id: 'content_2',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-2',
+      request_id: 'req-2',
+      chunk_id: 1,
+      content: '最终结果：最近 30 天累计发布 4 次。',
+      delta: { status: 'END' },
+      metadata: { correlation_id: 'content_2', content_type: 'content' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-2',
+      event_type: 'AFTER_AGENT_REPLY',
+      content_type: 'content',
+      correlation_id: 'content_2',
+      data: { status: 'finished' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-2',
+      event_type: 'PENDING_TOOL_CALL',
+      correlation_id: 'tool-after-content',
+      data: { tool: { id: 'tool-after-content', name: 'Bash', status: 'pending' } }
+    })
+
+    expect(msg.renderBlocks.map((block) => block.kind)).toEqual(['main_text', 'tool'])
+    expect(msg.renderBlocks[0].text).toBe('最终结果：最近 30 天累计发布 4 次。')
+  })
+
+  it('preserves backend interleaving for reasoning and tool blocks', () => {
+    const msg = createAssistantMessageState({ id: 'magic-3', task_id: 'task-3' })
+
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'BEFORE_AGENT_THINK',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-3',
+      request_id: 'req-3',
+      chunk_id: 1,
+      content: '先定位问题。',
+      delta: { status: 'END' },
+      metadata: { correlation_id: 'reasoning_1', content_type: 'reasoning' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'AFTER_AGENT_REPLY',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_1',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'PENDING_TOOL_CALL',
+      correlation_id: 'tool-read-1',
+      data: { tool: { id: 'tool-read-1', name: 'Read', status: 'pending' } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'AFTER_TOOL_CALL',
+      correlation_id: 'tool-read-1',
+      data: { tool: { id: 'tool-read-1', name: 'Read', status: 'success', output: '读取完成' } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_2',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-3',
+      request_id: 'req-3',
+      chunk_id: 2,
+      content: '再补一段分析。',
+      delta: { status: 'END' },
+      metadata: { correlation_id: 'reasoning_2', content_type: 'reasoning' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'AFTER_AGENT_REPLY',
+      content_type: 'reasoning',
+      correlation_id: 'reasoning_2',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'PENDING_TOOL_CALL',
+      correlation_id: 'tool-bash-1',
+      data: { tool: { id: 'tool-bash-1', name: 'Bash', status: 'pending' } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'AFTER_TOOL_CALL',
+      correlation_id: 'tool-bash-1',
+      data: { tool: { id: 'tool-bash-1', name: 'Bash', status: 'success', output: '执行完成' } }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'AFTER_AGENT_THINK',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'event',
+      task_id: 'task-3',
+      event_type: 'BEFORE_AGENT_REPLY',
+      content_type: 'content',
+      correlation_id: 'content_3',
+      data: { status: 'running' }
+    })
+    processAssistantStreamEvent(msg, {
+      record_type: 'chunk',
+      task_id: 'task-3',
+      request_id: 'req-3',
+      chunk_id: 3,
+      content: '最终结论。',
+      delta: { status: 'END' },
+      metadata: { correlation_id: 'content_3', content_type: 'content' }
+    })
+
+    expect(msg.renderBlocks.map((block) => block.kind)).toEqual(['thinking', 'tool', 'thinking', 'tool', 'main_text'])
+    expect(msg.renderBlocks[0].text).toBe('先定位问题。')
+    expect(msg.renderBlocks[2].text).toBe('再补一段分析。')
+    expect(msg.renderBlocks[4].text).toBe('最终结论。')
+  })
+
+  it('hydrates stored history blocks and resume cursor from topic messages', () => {
+    const msg = hydrateAssistantMessageState({
+      message_id: 'assistant-1',
+      task_id: 'task-history-1',
+      status: 'running',
+      content: '最终结果。',
+      resume_after_seq: 18,
+      blocks: [
+        {
+          block_id: 'reasoning:1',
+          type: 'thinking',
+          status: 'success',
+          text: '先定位表。'
+        },
+        {
+          block_id: 'tool:1',
+          type: 'tool',
+          status: 'success',
+          tool_id: 'tool-read-1',
+          tool_name: 'Read',
+          input: { path: 'skill.md' },
+          output: '读取完成'
+        },
+        {
+          block_id: 'content:1',
+          type: 'main_text',
+          status: 'success',
+          text: '最终结果。'
+        }
+      ]
+    })
+
+    expect(msg.resume_after_seq).toBe(18)
+    expect(msg.renderBlocks.map((block) => block.kind)).toEqual(['thinking', 'tool', 'main_text'])
+    expect(msg.renderBlocks[1].tool.name).toBe('Read')
+    expect(msg.content).toBe('最终结果。')
   })
 
   it('appends render blocks in stream order', () => {

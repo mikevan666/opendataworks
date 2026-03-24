@@ -47,7 +47,7 @@ describe('ToolOutputRenderer', () => {
   it('renders table chart_spec payloads as tables', () => {
     const wrapper = mountRenderer({
       name: 'build_chart_spec.py',
-      status: 'success',
+      status: 'streaming',
       output: {
         kind: 'chart_spec',
         version: 1,
@@ -68,7 +68,7 @@ describe('ToolOutputRenderer', () => {
   it('renders chart_spec payloads through the chart renderer', () => {
     const wrapper = mountRenderer({
       name: 'build_chart_spec.py',
-      status: 'success',
+      status: 'streaming',
       output: {
         kind: 'chart_spec',
         version: 1,
@@ -84,13 +84,14 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
+    expect(wrapper.find('.tool-output-panel').exists()).toBe(true)
     expect(wrapper.find('.tool-chart').exists()).toBe(true)
   })
 
   it('shows explicit invalid-spec feedback and raw payloads', () => {
     const wrapper = mountRenderer({
       name: 'build_chart_spec.py',
-      status: 'success',
+      status: 'streaming',
       output: {
         kind: 'chart_spec',
         version: 1,
@@ -143,7 +144,7 @@ describe('ToolOutputRenderer', () => {
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
   })
 
-  it('renders read tools as compact one-line traces without output panels', async () => {
+  it('renders read tools with an expandable output panel once content is available', async () => {
     const wrapper = mountRenderer({
       name: 'Read',
       status: 'streaming',
@@ -157,8 +158,8 @@ describe('ToolOutputRenderer', () => {
 
     expect(wrapper.text()).toContain('正在浏览')
     expect(wrapper.text()).toContain('/tmp/reference/00-skill-map.md')
-    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('## skill map')
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('skill map')
 
     await wrapper.setProps({
       tool: {
@@ -175,7 +176,7 @@ describe('ToolOutputRenderer', () => {
 
     expect(wrapper.text()).toContain('已浏览')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('## skill map')
+    expect(wrapper.text()).not.toContain('skill map')
   })
 
   it('keeps read traces compact across invocation and runtime states', async () => {
@@ -223,7 +224,7 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.text()).toContain('正在浏览')
-    expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
+    expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
   })
 
   it('renders markdown skill output as a collapsed preview and expands on demand', async () => {
@@ -248,6 +249,7 @@ describe('ToolOutputRenderer', () => {
 
     await wrapper.find('.shell-trace-summary').trigger('click')
 
+    expect(wrapper.find('.tool-output-body-scroll').exists()).toBe(true)
     expect(wrapper.find('.tool-markdown').exists()).toBe(true)
     expect(wrapper.text()).toContain('场景 Playbooks')
     expect(wrapper.text()).toContain('托管业务表')
@@ -262,5 +264,55 @@ describe('ToolOutputRenderer', () => {
     expect(wrapper.text()).toContain('需要先查 metadata，再解析 datasource，最后执行 SQL。')
     expect(wrapper.text()).not.toContain('6→需要先查 metadata，再解析 datasource，最后执行 SQL。')
     expect(wrapper.find('.tool-markdown-toggle').text()).toContain('收起')
+  })
+
+  it('collapses generic tool output after completion and auto-expands while running', async () => {
+    const wrapper = mountRenderer({
+      name: 'SQLQuery',
+      status: 'streaming',
+      output: {
+        kind: 'sql_execution',
+        sql: 'select * from workflow_publish_record limit 2',
+        columns: ['workflow_id'],
+        rows: [{ workflow_id: 1 }]
+      }
+    })
+
+    expect(wrapper.find('.tool-output-panel').exists()).toBe(true)
+    expect(wrapper.find('.tool-output-body-scroll').exists()).toBe(true)
+
+    await wrapper.setProps({
+      tool: {
+        name: 'SQLQuery',
+        status: 'success',
+        output: {
+          kind: 'sql_execution',
+          sql: 'select * from workflow_publish_record limit 2',
+          columns: ['workflow_id'],
+          rows: [{ workflow_id: 1 }]
+        }
+      }
+    })
+
+    expect(wrapper.find('.tool-output-panel').exists()).toBe(false)
+    expect(wrapper.find('.tool-output-toggle').exists()).toBe(true)
+  })
+
+  it('strips numbered arrow prefixes in the raw text branch', async () => {
+    const wrapper = mountRenderer({
+      id: 'tool-raw-preview',
+      name: 'CustomTool',
+      status: 'success',
+      output: '1→alpha\n2→beta'
+    })
+
+    expect(wrapper.find('.tool-output-panel').exists()).toBe(false)
+    await wrapper.find('.tool-output-toggle').trigger('click')
+
+    expect(wrapper.find('.tool-output-body-scroll').exists()).toBe(true)
+    expect(wrapper.text()).toContain('alpha')
+    expect(wrapper.text()).toContain('beta')
+    expect(wrapper.text()).not.toContain('1→alpha')
+    expect(wrapper.text()).not.toContain('2→beta')
   })
 })
