@@ -7,7 +7,7 @@
 | 组件 | 版本建议 |
 | --- | --- |
 | Java | 8 或 11 (Gradle/IntelliJ) |
-| Node.js | 18+ (支持 Vite 5) |
+| Node.js | 20.19.0+（按 `.nvmrc`） |
 | MySQL | 8.0+ |
 | Docker / Podman (可选) | Docker 24+ 或兼容 Podman |
 
@@ -29,29 +29,35 @@ SQL
 ## 第二步：启动后端 (Spring Boot)
 
 ```bash
-cd backend
-./mvnw spring-boot:run
+# 在仓库根目录执行
+mvn -f pom.xml -pl backend -am spring-boot:run
 # 或使用 IntelliJ 运行 DataPortalApplication
 ```
 
 - 默认端口 `8080`，上下文路径 `/api`。
 - 配置文件 `application.yml` 中的 `spring.datasource.url` 已指向 `opendataworks`。
-- 开启调试日志：`./mvnw spring-boot:run -Dspring-boot.run.arguments="--logging.level.com.onedata.portal=DEBUG"`。
+- 开启调试日志：`mvn -f pom.xml -pl backend -am spring-boot:run -Dspring-boot.run.arguments="--logging.level.com.onedata.portal=DEBUG"`。
 
 ## 第三步：启动前端 (Vue3)
 
 ```bash
 cd frontend
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use || nvm install
+
 npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+npm run dev
 ```
 
-- 通过 `VITE_API_BASE=http://localhost:8080/api npm run dev` 可自定义后端地址。
+- 开发服务器默认运行在 `http://localhost:3000`。
+- 默认代理已指向 `http://localhost:8080`、`http://localhost:8900`；如需修改后端或 DataAgent 地址，请编辑 `frontend/vite.config.js` 中的 `server.proxy`。
 - 生产构建：`npm run build` → 静态文件输出到 `frontend/dist`。
 
 ## 联调确认清单
 
-1. 打开 `http://localhost:5173`，登录演示账号 (`admin/admin123`)。
+1. 打开 `http://localhost:3000`；当前默认开启匿名访问，本地开发默认无需登录。
 2. 表管理 → 查看示例表 `ods_user`，确认字段 & Doris 配置渲染正常。
 3. 任务管理 → 执行 `sample_batch_user_daily`，在 DolphinScheduler 中新增临时工作流。
 4. 进入血缘视图，确认 DAG 渲染、节点点击信息正常。
@@ -63,13 +69,13 @@ npm run dev -- --host 0.0.0.0 --port 5173
 | --- | --- |
 | “Access denied for user 'opendataworks'” | 确认数据库用户/密码已创建；`mysql -uopendataworks -popendataworks123 opendataworks -e "SHOW TABLES;"` |
 | 调度接口 500 | 检查后端日志；确认系统管理 -> Dolphin 配置（URL/token/Project）正确且 OpenAPI 可访问 |
-| 前端跨域 | 运行前端时设置 `VITE_API_BASE=http://localhost:8080/api npm run dev`，或在 backend 开启 CORS |
+| 前端跨域 | 检查 `frontend/vite.config.js` 中 `server.proxy` 是否指向正确的 backend / dataagent 地址 |
 | 示例数据缺失 | 确认 Flyway 迁移已完成；如需演示数据可根据业务手工插入 |
 | Doris 集群不可用 | 在 `doris_cluster` 表中配置 FE 地址，并在 Portal 中标记 `is_default=1` |
 
 ## 推荐工作流
 
 1. **代码变更**：使用 feature 分支；需要的情况下更新数据库脚本并编写对应变更说明。
-2. **单元/集成测试**：`./mvnw test`（支持 `-Dtest=TaskExecutionWorkflowTest` 等定点执行）。
+2. **单元/集成测试**：`mvn -f pom.xml -pl backend -am test`（支持 `-Dtest=TaskExecutionWorkflowTest` 等定点执行）。
 3. **前端校验**：`npm run test` (如有) + 手动验证关键流程。
 4. **文档同步**：凡是增加接口、表字段、配置项，都在本手册中更新相应章节。

@@ -6,7 +6,7 @@
 
 | 层级 | 覆盖内容 | 入口 |
 | --- | --- | --- |
-| 单元/服务测试 | Mapper、Service、调度编排 | `./mvnw test`，可通过 `-Dtest=TaskExecutionWorkflowTest` 定点 |
+| 单元/服务测试 | Mapper、Service、调度编排 | `mvn -f pom.xml -pl backend -am test`，可通过 `-Dtest=TaskExecutionWorkflowTest` 定点 |
 | 集成测试 | 真正调用 DolphinScheduler OpenAPI、MySQL | `backend/scripts/run-integration-test.sh` |
 | 手工回归 | 浏览器操作、工作流生命周期、异常场景 | 本指南 “手工测试剧本” |
 | 前端冒烟 | 关键页面渲染、交互 | `docs/reports/BROWSER_TEST_RESULTS.md` 中列出的脚本 |
@@ -18,7 +18,7 @@
 1. 登录 DolphinScheduler (默认 `admin/dolphinscheduler123`)，统计当前工作流数量。
 2. 在 Portal 前端执行 `sample_batch_user_daily` 任务；如前端未启动，可调用 API：
    ```bash
-   curl -X POST http://localhost:8080/api/tasks/1/execute
+   curl -X POST http://localhost:8080/api/v1/workflows/1/execute
    ```
 3. 回到 DolphinScheduler → Workflow Definition 页面，确认多出 `test-task-<timestamp>`。
 4. 手动删除（OpenAPI 示例）：

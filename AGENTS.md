@@ -164,17 +164,17 @@ When working in this repository, optimize for:
 
 ### Intelligent Query verification rules
 
-- For medium and large intelligent-query changes that span `frontend/`, `dataagent/dataagent-backend/`, worker execution, schema, or deployment wiring, targeted unit or contract tests are not enough on their own.
+- For medium and large intelligent-query changes that span `frontend/`, `dataagent/dataagent-backend/`, task coordination/runtime execution, schema, or deployment wiring, targeted unit or contract tests are not enough on their own.
 - Before claiming the change is fully validated, run at least one local end-to-end smoke flow when the environment is available.
 - The minimum local intelligent-query smoke flow is:
-  - start the required local services for the touched path, typically MySQL, `dataagent-backend`, `dataagent-worker`, and the frontend when UI behavior changed
+  - start the required local services for the touched path, typically MySQL, `dataagent-backend`, and the frontend when UI behavior changed
   - submit one real NL2SQL request through the actual entrypoint affected by the change
-  - verify run creation, event streaming or polling, terminal status persistence, and result rendering or session recovery for the changed path
+  - verify task creation, event streaming or polling, terminal status persistence, and result rendering or topic recovery for the changed path
 - If the change specifically affects async or background execution, the smoke flow must cover:
-  - request accepted with `run_id`
-  - worker pickup and execution
-  - `/runs/{run_id}` status transition
-  - `/runs/{run_id}/events` or stream consumption
+  - request accepted with `task_id`
+  - coordinator pickup and execution
+  - `/api/v1/nl2sql/tasks/{task_id}` status transition
+  - `/api/v1/nl2sql/tasks/{task_id}/events` or stream consumption
   - final assistant message persistence
 - If a local full-flow test was not run, do not describe the change as fully verified. State exactly which layer was verified and which end-to-end path remains untested.
 
@@ -210,7 +210,7 @@ When working in this repository, optimize for:
   - install `dataagent/dataagent-backend/requirements.txt`
   - set runtime env to local MySQL:
     - `MYSQL_HOST=127.0.0.1`
-    - `MYSQL_PORT=3306`
+    - `MYSQL_PORT=3316` when using `deploy/docker-compose.dev.yml` (or the actual published port in your local setup)
     - `MYSQL_USER=dataagent`
     - `MYSQL_PASSWORD=dataagent123`
     - `MYSQL_DATABASE=opendataworks`
@@ -220,17 +220,16 @@ When working in this repository, optimize for:
   - run `alembic upgrade head` in `dataagent/dataagent-backend`
   - ensure `da_agent_settings` in `dataagent` contains a valid provider selection and runtime DB config before starting services
   - start `uvicorn main:app`
-  - start `python worker_main.py`
+  - do not start a separate `worker_main.py`; the task coordinator is started inside `main.py`
   - drive the smoke through real HTTP requests, not mocked store calls
-  - do not stop at `/api/v1/nl2sql/health`; also verify `POST /api/v1/nl2sql/sessions` succeeds, because `health` can be green while session-store MySQL access is still broken
+  - do not stop at `/api/v1/nl2sql/health`; also verify `POST /api/v1/nl2sql/topics` succeeds, because `health` can be green while topic/task-store MySQL access is still broken
 
 ### Intelligent Query environment defaults
 
 - For local UI validation of intelligent-query, default to starting:
   - frontend dev server with `nvm use`
   - `dataagent-backend`
-  - `dataagent-worker`
-- When switching the DataAgent Python environment or restarting services after fixing dependencies, stop any stale `main.py` and `worker_main.py` processes first. Old workers can keep claiming runs and surface outdated errors such as `claude-agent-sdk 未安装` even after the correct environment has been fixed.
+- When switching the DataAgent Python environment or restarting services after fixing dependencies, stop any stale `main.py` processes first. Old backend processes can keep using the wrong interpreter and surface outdated errors such as `claude-agent-sdk 未安装` even after the correct environment has been fixed.
 - Do not ask the user to repeat frontend `nvm`, Python interpreter choice, or Docker MySQL as long as these repository defaults are applicable.
 - Do not ask the user to repeat Docker Redis as long as the repository default `127.0.0.1:6379` assumption is still applicable.
 - If startup fails, report the concrete failed assumption directly, for example:
@@ -241,11 +240,11 @@ When working in this repository, optimize for:
   - wrong Python major/minor for `claude-agent-sdk`
   - provider credentials or `da_agent_settings` not configured
 - Minimum smoke scenarios for async intelligent-query changes:
-  - background run accepted: verify `POST /sessions/{session_id}/messages` returns `accepted=true` and a `run_id`
-  - worker pickup: verify run status transitions `queued -> running -> success|failed|cancelled`
-  - event persistence: verify `/runs/{run_id}/events` returns the expected terminal `done` event and any relevant `tool.*` events
-  - message persistence: verify the final assistant message is present in `GET /sessions/{session_id}`
-  - cancel path: stop or bypass worker pickup long enough to verify queued-run cancellation through `POST /runs/{run_id}/cancel`
+  - background run accepted: verify `POST /api/v1/nl2sql/tasks` or `POST /api/v1/nl2sql/tasks/deliver-message` returns `accepted=true` and a `task_id`
+  - task pickup: verify task status transitions `waiting -> running -> success|failed|suspended`
+  - event persistence: verify `GET /api/v1/nl2sql/tasks/{task_id}/events` or `GET /api/v1/nl2sql/tasks/{task_id}/events/stream` returns the terminal event stream
+  - message persistence: verify the final assistant message is present in `GET /api/v1/nl2sql/topics/{topic_id}/messages`
+  - cancel path: verify cancellation through `POST /api/v1/nl2sql/tasks/{task_id}/cancel`
 - Recommended smoke prompts:
   - minimal run liveness check: `你好，请直接回复 smoke-ok。`
   - real NL2SQL path: `最近 30 天工作流发布次数趋势`

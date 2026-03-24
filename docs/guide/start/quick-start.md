@@ -5,7 +5,7 @@
 - **操作系统**: Linux / macOS / Windows
 - **JDK**: 8 或更高版本
 - **Maven**: 3.6+
-- **Node.js**: 16+ (推荐 18 LTS)
+- **Node.js**: 20.19.0+（建议使用仓库根目录 `.nvmrc`）
 - **MySQL**: 8.0+
 - **DolphinScheduler**: 3.2.0+ (可选,用于任务调度)
 
@@ -48,14 +48,14 @@ EXIT;
 ### 4. 启动后端服务
 
 ```bash
-cd backend
+# 在仓库根目录执行
 
-# 修改配置文件 (如需修改数据库密码或 DolphinScheduler 地址)
-# vim src/main/resources/application.yml
+# 修改配置文件 (如需修改数据库密码)
+# vim backend/src/main/resources/application.yml
 
-# 编译并启动
-mvn clean install
-mvn spring-boot:run
+# 编译并启动 backend 模块
+mvn -f pom.xml -pl backend -am clean install
+mvn -f pom.xml -pl backend -am spring-boot:run
 ```
 
 - 服务启动后，Flyway 会自动执行迁移脚本 (`src/main/resources/db/migration/`)。
@@ -66,6 +66,10 @@ mvn spring-boot:run
 ```bash
 cd frontend
 
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use || nvm install
+
 # 安装依赖
 npm install
 
@@ -73,12 +77,12 @@ npm install
 npm run dev
 ```
 
-- 应用将运行在 `http://localhost:5173`。
-- 默认账户：不需要登录（目前版本）或根据后续更新。
+- 应用将运行在 `http://localhost:3000`。
+- 当前默认开启匿名访问，本地开发默认无需登录。
 
 ### 6. 访问应用
 
-打开浏览器访问: `http://localhost:5173`
+打开浏览器访问: `http://localhost:3000`
 
 ## Docker 部署
 
@@ -86,7 +90,7 @@ npm run dev
 
 ### 开发环境快速启动
 
-如果希望一次性在本机拉起完整环境（前端 + 后端 + MySQL），可使用开发环境 Compose：
+如果希望一次性在本机拉起完整环境（前端 + 后端 + DataAgent Backend + Redis + MySQL + Portal MCP），可使用开发环境 Compose：
 
 ```bash
 # 1. 准备配置
@@ -101,14 +105,17 @@ docker compose -f deploy/docker-compose.dev.yml up -d
 # 访问
 # 前端: http://localhost:8081
 # 后端: http://localhost:8080/api
+# DataAgent Backend: http://localhost:8900
+# Portal MCP: http://localhost:8801/mcp
+# MySQL: 127.0.0.1:3316
 ```
 
 **数据库自动初始化说明**：
 - MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本
-- 数据库 `opendataworks` 和用户 `opendataworks` 会自动创建，字符集为 `utf8mb4`
+- 数据库 `opendataworks` / `dataagent` 与用户 `opendataworks` / `dataagent` 会自动创建，字符集为 `utf8mb4`
 - 表结构由后端服务的 Flyway 自动创建（首次启动时）
 - 数据保存在 Docker volume 中，重启容器不会丢失数据，也不会重复执行初始化脚本
 
 ### 生产环境/离线部署
 
-请参考 [部署文档](../../../../deploy/README.md) 获取详细的生产环境部署和离线包制作指南。
+请参考 [部署文档](../../../deploy/README.md) 获取详细的生产环境部署和离线包制作指南。

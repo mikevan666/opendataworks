@@ -7,8 +7,8 @@
 ```
 deploy/
 ├── .env.example              # 环境变量配置示例
-├── docker-compose.dev.yml    # 开发环境编排 (Backend + Frontend + MySQL)
-├── docker-compose.prod.yml   # 生产环境编排 (Backend + Frontend + MySQL，DolphinScheduler 外置)
+├── docker-compose.dev.yml    # 开发环境编排 (Backend + Frontend + DataAgent Backend + Redis + MySQL + Portal MCP)
+├── docker-compose.prod.yml   # 生产环境编排 (Backend + Frontend + DataAgent Backend + Redis + MySQL + Portal MCP，DolphinScheduler 外置)
 ├── docker-images/            # 离线镜像存储目录 (自动生成/使用)
 └── README.md                 # 目录说明
 ```
@@ -23,7 +23,7 @@ deploy/
 
 ## 2. 快速开始 (开发/体验)
 
-如果您只是想快速体验 OpenDataWorks，可以使用开发环境配置。该模式仅启动核心服务 (Backend, Frontend, MySQL)，不包含 DolphinScheduler。
+如果您只是想快速体验 OpenDataWorks，可以使用开发环境配置。该模式会启动 Backend、Frontend、DataAgent Backend、Redis、MySQL 与 Portal MCP；DolphinScheduler 仍需单独部署或指向现有集群。
 
 ```bash
 # 1. 准备配置文件
@@ -38,11 +38,14 @@ docker compose -f deploy/docker-compose.dev.yml up -d
 
 # 4. 访问应用
 # 前端地址: http://localhost:8081
+# 后端地址: http://localhost:8080/api
+# DataAgent Backend: http://localhost:8900
+# Portal MCP: http://localhost:8801/mcp
 ```
 
 ## 3. 生产环境部署
 
-生产环境部署包含核心组件栈 (Backend, Frontend, MySQL)，DolphinScheduler 需单独部署或指向现有集群。
+生产环境部署包含 Backend、Frontend、DataAgent Backend、Redis、MySQL 与 Portal MCP，DolphinScheduler 需单独部署或指向现有集群。
 
 ### 步骤
 
@@ -60,8 +63,10 @@ docker compose -f deploy/docker-compose.dev.yml up -d
     ```
 
 3.  **验证**:
-    - 前端: `http://<服务器IP>` (默认 80)
+    - 前端: `http://<服务器IP>:8081`（默认 compose 映射）
     - 后端: `http://<服务器IP>:8080/api`
+    - DataAgent Backend: `http://<服务器IP>:8900/api/v1/nl2sql/health`
+    - Portal MCP Health: `http://<服务器IP>:8801/health`
 
 ## 4. 离线部署
 
@@ -80,16 +85,15 @@ bash scripts/create-offline-package.sh --platform linux/amd64
 
 ### 安装离线包 (在内网机器)
 
-1.  上传 tar.gz 包到目标服务器。
-2.  解压并进入目录：
+1.  上传 tar.gz 包到目标服务器并解压：
     ```bash
     tar -xzvf opendataworks-deployment-xxxx.tar.gz
     cd opendataworks-deployment
     ```
-3.  执行启动脚本：
+2.  在已解压目录内执行启动脚本：
     ```bash
-    # 加载镜像并启动服务（脚本会自动解压并查找 deploy/docker-images）
-    bash scripts/load-package-and-start.sh --package opendataworks-deployment-xxxx.tar.gz
+    # 传入已解压目录；脚本会加载 deploy/docker-images 并启动服务
+    bash scripts/load-package-and-start.sh --package .
     ```
 
 ## 5. 常用操作
