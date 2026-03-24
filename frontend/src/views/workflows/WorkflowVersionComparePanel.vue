@@ -72,21 +72,111 @@
       </el-tab-pane>
       <el-tab-pane label="原始JSON差异" name="raw">
         <div class="raw-diff-wrap">
-          <div v-if="rawDiffRows.length" class="raw-diff-text">
-            <div
-              v-for="row in rawDiffRows"
-              :key="row.key"
-              :class="['raw-diff-row', `is-${row.type}`]"
-            >
-              <span class="raw-diff-prefix">{{ row.prefix || ' ' }}</span>
-              <span class="raw-diff-line">
-                <template v-for="(segment, index) in row.segments" :key="`${row.key}-${index}`">
-                  <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
-                    {{ segment.text }}
+          <div class="raw-diff-toolbar">
+            <div class="raw-diff-toolbar-group">
+              <span class="raw-diff-toolbar-label">布局</span>
+              <el-radio-group v-model="rawDiffLayout" size="small">
+                <el-radio-button :label="RAW_DIFF_LAYOUTS.UNIFIED">Unified</el-radio-button>
+                <el-radio-button :label="RAW_DIFF_LAYOUTS.SPLIT">Split</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div class="raw-diff-toolbar-group">
+              <span class="raw-diff-toolbar-label">内容</span>
+              <el-radio-group v-model="rawDiffFilterMode" size="small">
+                <el-radio-button :label="RAW_DIFF_FILTERS.DIFF_ONLY">只看差异</el-radio-button>
+                <el-radio-button :label="RAW_DIFF_FILTERS.SHOW_ALL">查看全部</el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
+          <div v-if="activeRawDiffRows.length" class="raw-diff-text">
+            <template v-if="!isSplitRawDiffLayout">
+              <div
+                v-for="row in unifiedRawDiffRows"
+                :key="row.key"
+                :class="[
+                  'raw-diff-row',
+                  'raw-diff-row--unified',
+                  `is-${row.type}`,
+                  { 'is-control': isControlDiffType(row.type) }
+                ]"
+              >
+                <template v-if="isControlDiffType(row.type)">
+                  <span class="raw-diff-control-line">
+                    <template v-for="(segment, index) in row.segments" :key="`${row.key}-${index}`">
+                      <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                        {{ segment.text }}
+                      </span>
+                    </template>
                   </span>
                 </template>
-              </span>
-            </div>
+                <template v-else>
+                  <span :class="['raw-diff-line-no', `is-${row.type}`]">
+                    {{ formatLineNumber(row.leftLineNumber) }}
+                  </span>
+                  <span :class="['raw-diff-line-no', `is-${row.type}`]">
+                    {{ formatLineNumber(row.rightLineNumber) }}
+                  </span>
+                  <span :class="['raw-diff-line', `is-${row.type}`]">
+                    <span class="raw-diff-prefix">{{ row.prefix || ' ' }}</span>
+                    <template v-for="(segment, index) in row.segments" :key="`${row.key}-${index}`">
+                      <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                        {{ segment.text }}
+                      </span>
+                    </template>
+                  </span>
+                </template>
+              </div>
+            </template>
+            <template v-else>
+              <div
+                v-for="row in splitRawDiffRows"
+                :key="row.key"
+                :class="[
+                  'raw-diff-row',
+                  'raw-diff-row--split',
+                  `is-${row.type}`,
+                  { 'is-control': row.isControl }
+                ]"
+              >
+                <template v-if="row.isControl">
+                  <span class="raw-diff-control-line">
+                    <template v-for="(segment, index) in row.segments" :key="`${row.key}-${index}`">
+                      <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                        {{ segment.text }}
+                      </span>
+                    </template>
+                  </span>
+                </template>
+                <template v-else>
+                  <span :class="['raw-diff-line-no', 'is-left', `is-${resolveRawDiffCellType(row.left)}`]">
+                    {{ formatLineNumber(row.left?.leftLineNumber) }}
+                  </span>
+                  <span :class="['raw-diff-line', 'raw-diff-split-cell', 'is-left', `is-${resolveRawDiffCellType(row.left)}`]">
+                    <template v-if="row.left">
+                      <span class="raw-diff-prefix">{{ row.left.prefix || ' ' }}</span>
+                      <template v-for="(segment, index) in row.left.segments" :key="`${row.key}-left-${index}`">
+                        <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                          {{ segment.text }}
+                        </span>
+                      </template>
+                    </template>
+                  </span>
+                  <span :class="['raw-diff-line-no', 'is-right', `is-${resolveRawDiffCellType(row.right)}`]">
+                    {{ formatLineNumber(row.right?.rightLineNumber) }}
+                  </span>
+                  <span :class="['raw-diff-line', 'raw-diff-split-cell', 'is-right', `is-${resolveRawDiffCellType(row.right)}`]">
+                    <template v-if="row.right">
+                      <span class="raw-diff-prefix">{{ row.right.prefix || ' ' }}</span>
+                      <template v-for="(segment, index) in row.right.segments" :key="`${row.key}-right-${index}`">
+                        <span :class="['raw-diff-segment', { 'is-inline-changed': segment.changed }]">
+                          {{ segment.text }}
+                        </span>
+                      </template>
+                    </template>
+                  </span>
+                </template>
+              </div>
+            </template>
           </div>
           <div v-else class="raw-diff-empty">-</div>
         </div>
@@ -99,7 +189,7 @@
 import { computed, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
-import { buildRawDiffRows } from './workflowRawDiffHelper'
+import { buildRawDiffRows, buildSplitViewRows, buildUnifiedViewRows, RAW_DIFF_TYPES } from './workflowRawDiffHelper'
 
 const props = defineProps({
   versions: {
@@ -127,11 +217,23 @@ const props = defineProps({
 defineEmits(['back', 'step'])
 
 const activeView = ref('structured')
+const RAW_DIFF_LAYOUTS = {
+  UNIFIED: 'unified',
+  SPLIT: 'split'
+}
+const RAW_DIFF_FILTERS = {
+  DIFF_ONLY: 'diff-only',
+  SHOW_ALL: 'show-all'
+}
+const rawDiffLayout = ref(RAW_DIFF_LAYOUTS.UNIFIED)
+const rawDiffFilterMode = ref(RAW_DIFF_FILTERS.DIFF_ONLY)
 
 watch(
   () => props.compareResult,
   () => {
     activeView.value = 'structured'
+    rawDiffLayout.value = RAW_DIFF_LAYOUTS.UNIFIED
+    rawDiffFilterMode.value = RAW_DIFF_FILTERS.DIFF_ONLY
   }
 )
 
@@ -253,9 +355,25 @@ const areaSections = computed(() => {
 })
 
 const rawDiffRows = computed(() => buildRawDiffRows(props.compareResult?.rawDiff))
+const showAllRawDiff = computed(() => rawDiffFilterMode.value === RAW_DIFF_FILTERS.SHOW_ALL)
+const unifiedRawDiffRows = computed(() => buildUnifiedViewRows(rawDiffRows.value, { showAll: showAllRawDiff.value }))
+const splitRawDiffRows = computed(() => buildSplitViewRows(rawDiffRows.value, { showAll: showAllRawDiff.value }))
+const isSplitRawDiffLayout = computed(() => rawDiffLayout.value === RAW_DIFF_LAYOUTS.SPLIT)
+const activeRawDiffRows = computed(() => (isSplitRawDiffLayout.value ? splitRawDiffRows.value : unifiedRawDiffRows.value))
+
+const isControlDiffType = (type) => {
+  return [RAW_DIFF_TYPES.META_OLD, RAW_DIFF_TYPES.META_NEW, RAW_DIFF_TYPES.HUNK].includes(type)
+}
+
+const resolveRawDiffCellType = (row) => row?.type || 'empty'
 
 const formatDateTime = (value) => {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-'
+}
+
+const formatLineNumber = (value) => {
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? String(normalized) : ''
 }
 </script>
 
@@ -393,6 +511,28 @@ const formatDateTime = (value) => {
   overflow: hidden;
 }
 
+.raw-diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border-bottom: 1px solid #ebeef5;
+  flex-wrap: wrap;
+}
+
+.raw-diff-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.raw-diff-toolbar-label {
+  color: #909399;
+  font-size: 12px;
+}
+
 .raw-diff-text {
   font-family: Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   overflow: auto;
@@ -402,73 +542,117 @@ const formatDateTime = (value) => {
   max-height: 540px;
 }
 
-.raw-diff-row {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: stretch;
-  min-width: max-content;
-}
-
 .raw-diff-row + .raw-diff-row {
   border-top: 1px solid rgba(235, 238, 245, 0.7);
 }
 
-.raw-diff-row.is-added {
-  background: #f0f9eb;
+.raw-diff-row--unified {
+  display: grid;
+  grid-template-columns: 64px 64px minmax(0, 1fr);
+  min-width: max-content;
 }
 
-.raw-diff-row.is-removed {
-  background: #fef0f0;
+.raw-diff-row--split {
+  display: grid;
+  grid-template-columns: 64px minmax(320px, 1fr) 64px minmax(320px, 1fr);
+  min-width: max-content;
 }
 
-.raw-diff-row.is-context {
-  background: #fcfcfd;
+.raw-diff-row.is-control {
+  grid-template-columns: 1fr;
 }
 
-.raw-diff-row.is-hunk {
-  background: #ecf5ff;
-}
-
-.raw-diff-row.is-meta-old,
-.raw-diff-row.is-meta-new {
-  background: #f4f4f5;
-}
-
-.raw-diff-prefix,
-.raw-diff-line {
+.raw-diff-line-no,
+.raw-diff-line,
+.raw-diff-control-line {
   padding: 4px 8px;
   white-space: pre;
 }
 
-.raw-diff-prefix {
-  text-align: center;
+.raw-diff-line-no {
+  text-align: right;
   user-select: none;
   color: #909399;
+  background: #f8f9fb;
   border-right: 1px solid rgba(235, 238, 245, 0.8);
 }
 
-.raw-diff-row.is-added .raw-diff-prefix {
-  color: #67c23a;
-  background: rgba(103, 194, 58, 0.12);
-}
-
-.raw-diff-row.is-removed .raw-diff-prefix {
-  color: #f56c6c;
-  background: rgba(245, 108, 108, 0.12);
-}
-
-.raw-diff-row.is-hunk .raw-diff-prefix {
-  color: #409eff;
-  background: rgba(64, 158, 255, 0.12);
-}
-
-.raw-diff-row.is-meta-old .raw-diff-prefix,
-.raw-diff-row.is-meta-new .raw-diff-prefix {
-  color: #606266;
+.raw-diff-line-no.is-left,
+.raw-diff-line.is-left {
+  border-right: 1px solid rgba(235, 238, 245, 0.8);
 }
 
 .raw-diff-line {
   overflow-x: auto;
+}
+
+.raw-diff-line.is-added,
+.raw-diff-split-cell.is-added {
+  background: #f0f9eb;
+}
+
+.raw-diff-line.is-removed,
+.raw-diff-split-cell.is-removed {
+  background: #fef0f0;
+}
+
+.raw-diff-line.is-context,
+.raw-diff-split-cell.is-context {
+  background: #fcfcfd;
+}
+
+.raw-diff-line.is-empty,
+.raw-diff-split-cell.is-empty {
+  background: #f8f9fb;
+}
+
+.raw-diff-line-no.is-added {
+  color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
+}
+
+.raw-diff-line-no.is-removed {
+  color: #f56c6c;
+  background: rgba(245, 108, 108, 0.1);
+}
+
+.raw-diff-line-no.is-empty {
+  color: transparent;
+}
+
+.raw-diff-control-line {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+
+.raw-diff-row.is-hunk .raw-diff-control-line {
+  background: #ecf5ff;
+  color: #409eff;
+}
+
+.raw-diff-row.is-meta-old .raw-diff-control-line,
+.raw-diff-row.is-meta-new .raw-diff-control-line {
+  background: #f4f4f5;
+  color: #606266;
+}
+
+.raw-diff-prefix {
+  display: inline-block;
+  width: 14px;
+  margin-right: 6px;
+  text-align: center;
+  color: #909399;
+  user-select: none;
+}
+
+.raw-diff-line.is-added .raw-diff-prefix,
+.raw-diff-split-cell.is-added .raw-diff-prefix {
+  color: #67c23a;
+}
+
+.raw-diff-line.is-removed .raw-diff-prefix,
+.raw-diff-split-cell.is-removed .raw-diff-prefix {
+  color: #f56c6c;
 }
 
 .raw-diff-segment.is-inline-changed {
@@ -476,12 +660,14 @@ const formatDateTime = (value) => {
   font-weight: 600;
 }
 
-.raw-diff-row.is-added .raw-diff-segment.is-inline-changed {
+.raw-diff-line.is-added .raw-diff-segment.is-inline-changed,
+.raw-diff-split-cell.is-added .raw-diff-segment.is-inline-changed {
   background: rgba(103, 194, 58, 0.24);
   color: #2f7d32;
 }
 
-.raw-diff-row.is-removed .raw-diff-segment.is-inline-changed {
+.raw-diff-line.is-removed .raw-diff-segment.is-inline-changed,
+.raw-diff-split-cell.is-removed .raw-diff-segment.is-inline-changed {
   background: rgba(245, 108, 108, 0.22);
   color: #c45656;
 }
@@ -501,6 +687,15 @@ const formatDateTime = (value) => {
 @media (max-width: 900px) {
   .version-pair {
     grid-template-columns: 1fr;
+  }
+
+  .raw-diff-toolbar {
+    align-items: flex-start;
+  }
+
+  .raw-diff-toolbar-group {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .status-grid {
