@@ -45,6 +45,7 @@ REQUIRED_IMAGES=(
     "opendataworks-dataagent-backend.tar"
     "opendataworks-portal-mcp.tar"
     "mysql-8.0.tar"
+    "redis-7.2-alpine.tar"
 )
 
 echo "🔍 检查镜像文件..."
@@ -61,33 +62,39 @@ echo "📦 开始加载镜像..."
 echo ""
 
 # 加载前端镜像
-echo "📦 [1/5] 加载前端镜像..."
+echo "📦 [1/6] 加载前端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-frontend.tar"
 echo "✅ 前端镜像加载完成"
 echo ""
 
 # 加载后端镜像
-echo "📦 [2/5] 加载后端镜像..."
+echo "📦 [2/6] 加载后端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-backend.tar"
 echo "✅ 后端镜像加载完成"
 echo ""
 
 # 加载 DataAgent 后端镜像
-echo "📦 [3/5] 加载 DataAgent 后端镜像..."
+echo "📦 [3/6] 加载 DataAgent 后端镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-dataagent-backend.tar"
 echo "✅ DataAgent 后端镜像加载完成"
 echo ""
 
 # 加载 Portal MCP 镜像
-echo "📦 [4/5] 加载 Portal MCP 镜像..."
+echo "📦 [4/6] 加载 Portal MCP 镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/opendataworks-portal-mcp.tar"
 echo "✅ Portal MCP 镜像加载完成"
 echo ""
 
 # 加载 MySQL 镜像
-echo "📦 [5/5] 加载 MySQL 镜像..."
+echo "📦 [5/6] 加载 MySQL 镜像..."
 $CONTAINER_CMD load -i "$IMAGE_DIR/mysql-8.0.tar"
 echo "✅ MySQL 镜像加载完成"
+echo ""
+
+# 加载 Redis 镜像
+echo "📦 [6/6] 加载 Redis 镜像..."
+$CONTAINER_CMD load -i "$IMAGE_DIR/redis-7.2-alpine.tar"
+echo "✅ Redis 镜像加载完成"
 echo ""
 
 echo "========================================="
@@ -116,6 +123,7 @@ IMAGES=(
     "opendataworks-dataagent-backend:latest"
     "opendataworks-portal-mcp:latest"
     "mysql:8.0"
+    "redis:7.2-alpine"
 )
 
 # 修复每个镜像
@@ -144,7 +152,7 @@ echo ""
 
 # 显示已加载的镜像
 echo "📋 已加载的镜像列表："
-$CONTAINER_CMD images | grep -E "opendataworks|mysql" | grep -E "latest|8.0|${IMAGE_TAG}"
+$CONTAINER_CMD images | grep -E "opendataworks|mysql|redis" | grep -E "latest|8.0|7.2-alpine|${IMAGE_TAG}"
 echo ""
 
 echo "📝 下一步："
