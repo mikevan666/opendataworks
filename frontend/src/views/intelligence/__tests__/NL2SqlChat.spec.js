@@ -130,10 +130,11 @@ describe('NL2SqlChat', () => {
           type: 'assistant',
           status: 'running',
           content: '',
+          resume_after_seq: 12,
           blocks: [
             {
-              block_id: 'main-1',
-              type: 'main_text',
+              block_id: 'think-1',
+              type: 'thinking',
               status: 'streaming',
               text: '问题类型：趋势分析。指标：workflow_publish_record 的发布记录数，按 created_at 按天聚合，最近 30 天。平台核心表，直接走 opendataworks MySQL。'
             },
@@ -175,6 +176,10 @@ describe('NL2SqlChat', () => {
     expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
+    expect(apiMocks.taskApi.streamTaskEvents).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({ afterSeq: 12 })
+    )
   })
 
   it('collapses the process panel after the final answer is ready', async () => {
@@ -240,6 +245,51 @@ describe('NL2SqlChat', () => {
     await flushPromises()
 
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
+  })
+
+  it('does not inject inline chart tools into the conclusion area', async () => {
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
+        {
+          message_id: 'a1',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'finished',
+          content: '最近 30 天共发布 4 次。',
+          blocks: [
+            {
+              block_id: 'main-1',
+              type: 'main_text',
+              status: 'success',
+              text: [
+                '最近 30 天共发布 4 次。',
+                '<chart_spec>',
+                '{"kind":"chart_spec","chart_type":"line","title":"发布趋势","x_field":"stat_day","series":[{"name":"发布次数","field":"publish_cnt","type":"line"}],"dataset":[{"stat_day":"2026-03-10","publish_cnt":3}]}',
+                '</chart_spec>'
+              ].join('\n')
+            }
+          ],
+          created_at: '2026-03-10T02:00:00Z'
+        }
+      ]
+    })
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('最近 30 天共发布 4 次。')
+    expect(wrapper.text()).not.toContain('<chart_spec>')
+    expect(wrapper.text()).not.toContain('发布趋势')
+    expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(false)
   })
 
   it('allows another topic to submit while the current topic is still awaiting acceptance', async () => {

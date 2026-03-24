@@ -9,12 +9,12 @@ Usage: scripts/load-package-and-start.sh [options] --package <path>
 Options:
   --package <path>     Path to deployment tar.gz (from create-offline-package script) or extracted directory
   --target-dir <path>  Target directory for extraction when --package is a tar.gz (default: ./opendataworks-deployment)
-  --no-start           Load images only; skip docker-compose up
+  --no-start           Load images only; skip compose up
   --no-env-copy        Do not auto-copy .env.example to .env when missing
   -h, --help           Show this help
 
 The script extracts the offline deployment bundle (if needed), loads all docker-images/*.tar,
-ensures .env exists, and starts the stack with docker-compose if requested.
+ensures .env exists, and starts the stack with docker compose / podman compose if requested.
 EOF
 }
 
@@ -124,7 +124,7 @@ if [[ "$DO_START" = true ]]; then
     log "Starting services via scripts/start.sh"
     (cd "$PACKAGE_DIR" && bash "scripts/start.sh")
 else
-    log "Skipping docker-compose start (--no-start specified)"
+    log "Skipping compose start (--no-start specified)"
 fi
 
 log "Deployment assets are ready in: $PACKAGE_DIR"

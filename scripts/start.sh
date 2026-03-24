@@ -8,10 +8,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy"
+LIB_DIR="$SCRIPT_DIR/lib"
 COMPOSE_FILE_NAME="docker-compose.prod.yml"
 COMPOSE_FILE="$DEPLOY_DIR/$COMPOSE_FILE_NAME"
 ENV_FILE="$DEPLOY_DIR/.env"
 ENV_EXAMPLE="$DEPLOY_DIR/.env.example"
+
+# shellcheck source=/dev/null
+source "$LIB_DIR/container-runtime.sh"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "❌ 错误: 未找到 $COMPOSE_FILE"
@@ -47,23 +51,19 @@ if [ ! -f "$ENV_FILE" ]; then
     fi
 fi
 
-USE_ENV_FLAG=false
-if command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD=(docker-compose)
-elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    COMPOSE_CMD=(docker compose)
-    USE_ENV_FLAG=true
-else
-    echo "❌ 错误: 未找到 docker-compose 或 docker compose"
+if ! detect_compose_cmd; then
+    echo "❌ 错误: 未找到可用的 compose 命令（docker-compose、docker compose、podman compose、podman-compose）"
     exit 1
 fi
 
 # 检查容器运行时是否可用
-if command -v docker &> /dev/null; then
-    if ! docker info > /dev/null 2>&1; then
+if ! ensure_container_runtime_ready "$COMPOSE_RUNTIME"; then
+    if [ "$COMPOSE_RUNTIME" = "docker" ]; then
         echo "❌ 错误: Docker 未运行，请先启动 Docker"
-        exit 1
+    else
+        echo "❌ 错误: Podman 不可用，请先启动 Podman 或检查当前用户权限"
     fi
+    exit 1
 fi
 
 echo "🚀 启动 OpenDataWorks 服务..."
@@ -71,7 +71,7 @@ echo ""
 
 # 启动服务
 pushd "$DEPLOY_DIR" >/dev/null
-if [ "$USE_ENV_FLAG" = true ]; then
+if [ "$COMPOSE_SUPPORTS_ENV_FILE" = true ]; then
     "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE_NAME" --env-file "$ENV_FILE" up -d
 else
     "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE_NAME" up -d
@@ -88,7 +88,7 @@ echo "========================================="
 echo ""
 
 # 显示服务状态
-if [ "$USE_ENV_FLAG" = true ]; then
+if [ "$COMPOSE_SUPPORTS_ENV_FILE" = true ]; then
     "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE_NAME" --env-file "$ENV_FILE" ps
 else
     "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE_NAME" ps
@@ -96,7 +96,7 @@ fi
 popd >/dev/null
 
 ENV_FLAG_TEXT=""
-if [ "$USE_ENV_FLAG" = true ]; then
+if [ "$COMPOSE_SUPPORTS_ENV_FILE" = true ]; then
     ENV_FLAG_TEXT=" --env-file $ENV_FILE"
 fi
 

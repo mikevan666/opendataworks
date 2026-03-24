@@ -62,6 +62,11 @@
 5. provider 配置增加 `supports_partial_messages`
 6. 对 `supports_partial_messages=false` 的 provider 改走 message-level Claude 适配
 7. provider 已返回真实错误时，优先写入真实错误，不再退化成 `exit code 1`
+8. 用一套共享 reducer 统一 partial stream 与 message-level 的文本分类：
+   - tool 前 assistant 纯文本先进 pending
+   - 后续出现 `tool_use` 时按 `reasoning` flush
+   - 只有 turn 终态才按 `content` commit
+   - 每个 tool 边界前主动结束当前 `reasoning` phase，确保前端呈现为 `thinking -> tool -> thinking -> tool -> answer`
 
 ## Task 4: Update frontend consumption and client layering
 
@@ -77,9 +82,11 @@
 1. 客户端拆成 `topicApi`、`taskApi`、`messageQueueApi`、`scheduleApi`、`adminApi`
 2. 聊天页发送入口改成 `/tasks/deliver-message`
 3. 历史恢复改成 `getTopic + getTopicMessages`
-4. SSE 消费改为 `TaskEventRecord`
-5. 页面在运行中根据 Magic 事件重建思考、工具和正文块
-6. settings 页改走 `nl2sql-admin`
+4. `GET /topics/{topic_id}/messages` 的 assistant message 返回 `blocks + resume_after_seq`
+5. SSE 消费改为 `TaskEventRecord`
+6. 页面在运行中根据 Magic 事件重建思考、工具和正文块
+7. 刷新后优先用历史 `blocks` hydrate，再从 `resume_after_seq` 继续订阅增量
+8. settings 页改走 `nl2sql-admin`
 
 ## Task 5: Update deploy topology
 
@@ -105,10 +112,13 @@
   - queue CRUD / consume
   - schedule CRUD / logs
   - `supports_partial_messages=true/false` 两条执行路径
+  - tool 前文本 delayed commit / finalize 分类
   - provider 真实错误透传
 - 前端测试至少覆盖：
   - Magic 事件流渲染
+  - 前端不做 bucket 重判，只按后端 `content_type` 渲染
   - `deliverMessage -> task stream -> topic messages hydrate`
+  - `blocks + resume_after_seq` 历史恢复与增量续流
 - 管理设置页至少验证：
   - `supports_partial_messages` 能正确读写
 - 环境可用时继续补：

@@ -194,6 +194,86 @@ def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch
     assert chunks[-1]["content"] == "最终回答"
 
 
+def test_execute_task_stream_buffers_partial_text_until_turn_end(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            StreamEvent({"type": "message_start", "message": {"id": "req-2"}}),
+            StreamEvent({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "我来帮你查询最近 30 天工作流发布次数的趋势。"},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 0}),
+            StreamEvent(
+                {
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": {"type": "tool_use", "id": "tool-bash-1", "name": "Bash", "input": {"command": "python run_sql.py"}},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 1}),
+            UserMessage(
+                [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-bash-1",
+                        "name": "Bash",
+                        "content": "2026-03-10,3\n2026-03-11,1",
+                    }
+                ]
+            ),
+            StreamEvent({"type": "content_block_start", "index": 2, "content_block": {"type": "text", "text": ""}}),
+            StreamEvent(
+                {
+                    "type": "content_block_delta",
+                    "index": 2,
+                    "delta": {"type": "text_delta", "text": "最近 30 天累计发布 4 次。"},
+                }
+            ),
+            StreamEvent({"type": "content_block_stop", "index": 2}),
+            StreamEvent({"type": "message_stop"}),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+            "supports_partial_messages": True,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "最近 30 天累计发布 4 次。"
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[0]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势。"
+    assert chunks[-1]["content"] == "最近 30 天累计发布 4 次。"
+
+
 def test_execute_task_stream_uses_message_level_magic_events_when_partial_disabled(monkeypatch, tmp_path: Path):
     _install_fake_sdk(
         monkeypatch,
@@ -246,6 +326,49 @@ def test_execute_task_stream_uses_message_level_magic_events_when_partial_disabl
         ("content", "END"),
     ]
     assert chunks[-1]["content"] == "最终回答"
+
+
+def test_execute_task_stream_keeps_one_shot_answer_out_of_reasoning_when_thinking_arrives_later(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage([TextBlock("smoke-ok"), ThinkingBlock("这是一个简单的冒烟测试,不需要工具。")]),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "openrouter",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://openrouter.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "smoke-ok"
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[0]["content"] == "这是一个简单的冒烟测试,不需要工具。"
+    assert chunks[-1]["content"] == "smoke-ok"
 
 
 def test_execute_task_stream_keeps_tool_loop_in_compatibility_mode(monkeypatch, tmp_path: Path):
@@ -345,10 +468,10 @@ def test_execute_task_stream_treats_pre_tool_text_as_reasoning_in_compatibility_
     assert lifecycle == [
         "BEFORE_AGENT_THINK",
         "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
         "PENDING_TOOL_CALL",
         "BEFORE_TOOL_CALL",
         "AFTER_TOOL_CALL",
-        "AFTER_AGENT_REPLY",
         "AFTER_AGENT_THINK",
         "BEFORE_AGENT_REPLY",
         "AFTER_AGENT_REPLY",
@@ -362,8 +485,77 @@ def test_execute_task_stream_treats_pre_tool_text_as_reasoning_in_compatibility_
         ("content", "END"),
     ]
     assert chunks[0]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势。"
-    assert chunks[1]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势。"
     assert chunks[-1]["content"] == "最近 30 天累计发布 4 次。"
+
+
+def test_execute_task_stream_treats_text_before_later_tool_as_reasoning_in_compatibility_mode(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            AssistantMessage([TextBlock("我来帮你查询最近 30 天工作流发布次数的趋势数据。")]),
+            AssistantMessage([ToolUseBlock(id="tool-skill-1", name="Skill", input={"skill": "dataagent-nl2sql"})]),
+            UserMessage([ToolResultBlock(tool_use_id="tool-skill-1", name="Skill", content="Launching skill: dataagent-nl2sql")]),
+            AssistantMessage([TextBlock("根据参考文档，这是一个趋势分析问题。现在执行 SQL 查询。")]),
+            AssistantMessage([ToolUseBlock(id="tool-bash-1", name="Bash", input={"command": "python scripts/run_sql.py --question trend"})]),
+            UserMessage([ToolResultBlock(tool_use_id="tool-bash-1", name="Bash", content="2026-03-10,3\n2026-03-11,1")]),
+            AssistantMessage([TextBlock("最近 30 天内共发布 4 次。")]),
+            ResultMessage("success"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": "openrouter",
+            "model": model,
+            "api_key": "",
+            "auth_token": "token",
+            "base_url": "https://openrouter.example.invalid",
+            "supports_partial_messages": False,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    emitted: list[dict] = []
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: emitted.append(record))
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.content == "最近 30 天内共发布 4 次。"
+
+    lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
+    assert lifecycle == [
+        "BEFORE_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+        "PENDING_TOOL_CALL",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+        "PENDING_TOOL_CALL",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "AFTER_AGENT_THINK",
+        "BEFORE_AGENT_REPLY",
+        "AFTER_AGENT_REPLY",
+    ]
+
+    chunks = [record for record in emitted if record.get("record_type") == "chunk"]
+    assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("reasoning", "START"),
+        ("reasoning", "END"),
+        ("content", "START"),
+        ("content", "END"),
+    ]
+    assert chunks[0]["content"] == "我来帮你查询最近 30 天工作流发布次数的趋势数据。"
+    assert chunks[2]["content"] == "根据参考文档，这是一个趋势分析问题。现在执行 SQL 查询。"
+    assert chunks[-1]["content"] == "最近 30 天内共发布 4 次。"
 
 
 def test_execute_task_stream_surfaces_provider_error_instead_of_exit_code(monkeypatch, tmp_path: Path):
@@ -411,3 +603,4 @@ def test_execute_task_stream_surfaces_provider_error_instead_of_exit_code(monkey
     ]
     assert error_events[-1]["data"]["error"]["message"] == provider_error
     assert error_events[-1]["data"]["error"]["code"] == "error_api"
+    assert [record for record in emitted if record.get("record_type") == "chunk"] == []

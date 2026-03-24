@@ -181,8 +181,12 @@ When working in this repository, optimize for:
 ### Intelligent Query local smoke method
 
 - Use the local Docker MySQL as the default smoke database when it is available. In this repo, `deploy/docker-compose.dev.yml` publishes MySQL on `127.0.0.1:3316`; `3306` is typical only for standalone MySQL or `docker-compose.prod.yml`.
+- Use local Docker Redis as the default task-coordination backend when it is available. Prefer publishing it on `127.0.0.1:6379`.
 - Treat local Docker MySQL as the default first assumption for intelligent-query validation. Do not ask the user to restate this setup unless connection checks against the expected local ports have already failed.
+- Treat local Docker Redis as the default first assumption for intelligent-query validation. Do not ask the user to restate this setup unless connection checks against `127.0.0.1:6379` or Docker availability have already failed.
+- If Docker CLI is unavailable but Podman is installed, treat Podman as the default container runtime fallback for local Redis bootstrap and other local containerized smoke dependencies.
 - When connecting to local Docker MySQL through a published port, prefer `MYSQL_HOST=127.0.0.1` over `localhost` to avoid misleading failures caused by host resolution differences.
+- When connecting to local Docker Redis through a published port, prefer `REDIS_HOST=127.0.0.1` over `localhost`.
 - Prefer the dedicated session schema `dataagent` for local intelligent-query smoke tests. Do not mix smoke-session data into unrelated business schemas when a dedicated schema can be created.
 - If `dataagent` schema or user is missing on a reused local MySQL volume, initialize it first with the repository-standard credentials:
   - database: `dataagent`
@@ -191,6 +195,15 @@ When working in this repository, optimize for:
   - privileges: `SELECT` on `opendataworks.*`, full privileges on `dataagent.*`
 - For DataAgent full-flow smoke, prefer a dedicated Python `3.10+` virtualenv instead of the host Python when local package versions are uncertain.
 - Standard local intelligent-query smoke sequence:
+  - ensure local container CLI is available for Redis bootstrap:
+    - prefer `docker`
+    - if `docker` is unavailable, use `podman`
+  - if Redis is not already listening on `127.0.0.1:6379`, prefer:
+    - `docker start odw-local-redis`
+    - or `docker run -d --name odw-local-redis -p 6379:6379 redis:7.2-alpine`
+    - if using Podman instead:
+      - `podman start odw-local-redis`
+      - or `podman run -d --name odw-local-redis -p 6379:6379 docker.io/library/redis:7.2-alpine`
   - create or reuse a local Python `3.10+` virtualenv
   - in this repository, prefer reusing `dataagent/dataagent-backend/.venv-py313` when it exists
   - if no `3.10+` virtualenv is available, fall back to `/Applications/Xcode.app/Contents/Developer/usr/bin/python3` only for non-agent tasks after confirming imports succeed there
@@ -202,6 +215,8 @@ When working in this repository, optimize for:
     - `MYSQL_PASSWORD=dataagent123`
     - `MYSQL_DATABASE=opendataworks`
     - `SESSION_MYSQL_DATABASE=dataagent`
+    - `REDIS_HOST=127.0.0.1`
+    - `REDIS_PORT=6379`
   - run `alembic upgrade head` in `dataagent/dataagent-backend`
   - ensure `da_agent_settings` in `dataagent` contains a valid provider selection and runtime DB config before starting services
   - start `uvicorn main:app`
@@ -216,8 +231,11 @@ When working in this repository, optimize for:
   - `dataagent-backend`
 - When switching the DataAgent Python environment or restarting services after fixing dependencies, stop any stale `main.py` processes first. Old backend processes can keep using the wrong interpreter and surface outdated errors such as `claude-agent-sdk 未安装` even after the correct environment has been fixed.
 - Do not ask the user to repeat frontend `nvm`, Python interpreter choice, or Docker MySQL as long as these repository defaults are applicable.
+- Do not ask the user to repeat Docker Redis as long as the repository default `127.0.0.1:6379` assumption is still applicable.
 - If startup fails, report the concrete failed assumption directly, for example:
   - MySQL port unreachable
+  - no usable container CLI for Redis bootstrap (`docker` and `podman` both unavailable)
+  - Redis port unreachable
   - selected Python interpreter missing required packages
   - wrong Python major/minor for `claude-agent-sdk`
   - provider credentials or `da_agent_settings` not configured
@@ -236,6 +254,7 @@ When working in this repository, optimize for:
   - keep any schema or user bootstrap needed for repeatability unless the test explicitly requires cleanup
 - Report the exact environment used in the verification note:
   - MySQL host and schema
+  - Redis host and bootstrap method
   - Python interpreter or virtualenv
   - whether real provider credentials and real model execution were used
   - which smoke scenarios passed or were skipped

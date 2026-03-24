@@ -225,6 +225,8 @@ class _FakeStore:
             "parent_correlation_id": None,
             "content_type": None,
             "usage": None,
+            "blocks": [],
+            "resume_after_seq": 0,
             "show_in_ui": True,
             "error": None,
             "created_at": _now(),
@@ -549,6 +551,8 @@ def test_topics_tasks_and_legacy_routes(monkeypatch):
         assert history.json()["total"] == 2
         assert history.json()["items"][0]["sender_type"] == "user"
         assert history.json()["items"][1]["sender_type"] == "assistant"
+        assert history.json()["items"][1]["blocks"] == []
+        assert history.json()["items"][1]["resume_after_seq"] == 0
 
         created_task = client.post(
             "/api/v1/nl2sql/tasks",
