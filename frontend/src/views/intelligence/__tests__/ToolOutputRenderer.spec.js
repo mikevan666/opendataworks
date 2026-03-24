@@ -155,7 +155,7 @@ describe('ToolOutputRenderer', () => {
       output: '## skill map'
     })
 
-    expect(wrapper.text()).toContain('正在浏览')
+    expect(wrapper.text()).toContain('正在读取')
     expect(wrapper.text()).toContain('/tmp/reference/00-skill-map.md')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('skill map')
@@ -173,7 +173,7 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('已浏览')
+    expect(wrapper.text()).toContain('已读取')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('skill map')
   })
@@ -190,7 +190,7 @@ describe('ToolOutputRenderer', () => {
       output: ''
     })
 
-    expect(wrapper.text()).toContain('正在发起浏览')
+    expect(wrapper.text()).toContain('正在发起读取')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
 
     await wrapper.setProps({
@@ -206,7 +206,7 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('已发起浏览')
+    expect(wrapper.text()).toContain('已发起读取')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(false)
 
     await wrapper.setProps({
@@ -222,8 +222,57 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('正在浏览')
+    expect(wrapper.text()).toContain('正在读取')
     expect(wrapper.find('.shell-trace-panel').exists()).toBe(true)
+  })
+
+  it('classifies ls and glob style tools without falling back to generic tool labels', () => {
+    const lsWrapper = mountRenderer({
+      name: 'LS',
+      status: 'success',
+      _callComplete: true,
+      _runtimeStarted: true,
+      input: {
+        directory: '/tmp/reference'
+      },
+      output: '00-skill-map.md\n10-query-playbooks.md'
+    })
+
+    expect(lsWrapper.text()).toContain('查看目录：/tmp/reference')
+    expect(lsWrapper.text()).toContain('已查看目录')
+
+    const globWrapper = mountRenderer({
+      name: 'Glob',
+      status: 'success',
+      _callComplete: true,
+      _runtimeStarted: true,
+      input: {
+        pattern: '*.md',
+        directory: '/tmp/reference'
+      },
+      output: '00-skill-map.md'
+    })
+
+    expect(globWrapper.text()).toContain('搜索文件：*.md · /tmp/reference')
+    expect(globWrapper.text()).toContain('已搜索')
+    expect(globWrapper.text()).not.toContain('工具调用')
+  })
+
+  it('infers shell traces from command input even when the tool name is generic', () => {
+    const wrapper = mountRenderer({
+      name: 'Tool',
+      status: 'streaming',
+      _callComplete: true,
+      _runtimeStarted: true,
+      input: {
+        command: 'python scripts/run_sql.py --question trend'
+      },
+      output: 'running...'
+    })
+
+    expect(wrapper.text()).toContain('执行命令：python scripts/run_sql.py --question trend')
+    expect(wrapper.text()).toContain('正在运行命令')
+    expect(wrapper.text()).not.toContain('工具调用')
   })
 
   it('renders markdown skill output as a collapsed preview and expands on demand', async () => {
