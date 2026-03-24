@@ -172,7 +172,8 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('问题类型：趋势分析')
     expect(wrapper.text()).toContain('workflow_publish_record')
     expect(wrapper.text()).toContain('opendataworks MySQL')
-    expect(wrapper.text()).toContain('思考过程')
+    expect(wrapper.text()).toContain('深度思考')
+    expect(wrapper.text()).toContain('python scripts/run_sql.py --question trend')
     expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
@@ -180,6 +181,30 @@ describe('NL2SqlChat', () => {
       'task-1',
       expect.objectContaining({ afterSeq: 12 })
     )
+  })
+
+  it('moves the cancel action into the composer while the active task is running', async () => {
+    apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
+    apiMocks.taskApi.cancelTask.mockResolvedValue({
+      task_id: 'task-1',
+      task_status: 'suspended'
+    })
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('.query-process-cancel').exists()).toBe(false)
+
+    const cancelButton = wrapper.find('.query-btn-cancel')
+    expect(cancelButton.exists()).toBe(true)
+    expect(cancelButton.attributes('aria-label')).toBe('取消当前任务')
+
+    await cancelButton.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.taskApi.cancelTask).toHaveBeenCalledWith('task-1')
   })
 
   it('collapses the process panel after the final answer is ready', async () => {
@@ -239,12 +264,12 @@ describe('NL2SqlChat', () => {
 
     expect(wrapper.text()).toContain('最终结果：北区的下单量最高。')
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
-    expect(wrapper.find('.query-process-content').attributes('style')).toContain('display: none')
+    expect(wrapper.find('.query-process-content').exists()).toBe(false)
 
     await wrapper.find('.query-process-summary').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
+    expect(wrapper.find('.query-process-content').exists()).toBe(true)
   })
 
   it('does not inject inline chart tools into the conclusion area', async () => {

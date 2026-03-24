@@ -57,9 +57,7 @@
       @click="showMainToggle ? togglePanel() : null"
     >
       <div class="tool-output-head-content">
-        <div class="tool-output-label" v-if="displayLabel !== 'Tool'">{{ displayLabel }}</div>
-        <div class="tool-output-label" v-else-if="toolName && toolName !== 'Tool'">调用：{{ toolName }}</div>
-        <div class="tool-output-label" v-else>工具调用</div>
+        <div class="tool-output-label">{{ displayLabel }}</div>
 
         <div class="tool-output-meta" v-if="metaItems.length > 0">
           <span v-for="(item, index) in metaItems" :key="index">
@@ -199,6 +197,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { buildChartRenderModel, parseChartSpec, parseMaybeJson } from './chartSpec'
+import { describeToolAction } from './toolPresentation'
 
 use([
   CanvasRenderer,
@@ -330,7 +329,11 @@ const prettyPrint = (value) => {
 const outputPayload = computed(() => normalizeOutput(props.tool?.output) || {})
 const kind = computed(() => String(outputPayload.value.kind || 'raw'))
 const toolName = computed(() => String(props.tool?.name || '').trim())
-const toolNameLower = computed(() => toolName.value.toLowerCase())
+const toolAction = computed(() => describeToolAction({
+  name: toolName.value,
+  input: props.tool?.input
+}))
+const toolNameLower = computed(() => toolAction.value.name.toLowerCase())
 const scriptName = computed(() => String(outputPayload.value.script || '').trim())
 const summaryText = computed(() => String(outputPayload.value.summary || outputPayload.value.description || '').trim())
 const sqlText = computed(() => String(outputPayload.value.sql || '').trim())
@@ -364,60 +367,22 @@ const durationText = computed(() => {
 
 const displayLabel = computed(() => {
   if (outputPayload.value.tool_label) return String(outputPayload.value.tool_label)
-  
+
   const map = {
     sql_execution: '执行查询',
     chart_spec: '生成图表',
     python_execution: '执行代码'
   }
   if (map[kind.value]) return map[kind.value]
-  
-  const tName = String(toolNameLower.value || kind.value || '').toLowerCase()
-  if (tName.includes('read') || tName.includes('view') || tName.includes('list')) return '读取文件'
-  if (tName.includes('search') || tName.includes('find') || tName.includes('grep')) return '搜索结果'
-  if (tName.includes('bash') || tName.includes('shell') || tName.includes('run_command')) return '执行命令'
-  if (tName.includes('replace') || tName.includes('write')) return '修改文件'
-  if (tName.includes('image')) return '生成图片'
-  if (tName.includes('skill') || tName.includes('dataagent-nl2sql')) return '执行技能'
-  
-  return 'Tool'
-})
 
-const parsedInput = computed(() => {
-  const input = props.tool?.input
-  if (isPlainObject(input)) return input
-  if (typeof input === 'string') {
-    const parsed = parseMaybeJson(input)
-    if (isPlainObject(parsed)) return parsed
-    const text = input.trim()
-    return text ? { command: text } : {}
+  if (toolAction.value.kind === 'tool' && toolNameLower.value.includes('image')) {
+    return '生成图片'
   }
-  return {}
+
+  return toolAction.value.label
 })
 
-const shellCommand = computed(() => {
-  const payload = parsedInput.value
-  return String(payload.command || payload.cmd || payload.query || payload.Query || payload.Pattern || payload.pattern || payload.Instruction || '').trim()
-})
-
-const readPath = computed(() => {
-  const payload = parsedInput.value
-  return String(payload.file_path || payload.path || payload.AbsolutePath || payload.SearchPath || payload.SearchDirectory || payload.TargetFile || '').trim()
-})
-
-const shellDescription = computed(() => {
-  const payload = parsedInput.value
-  return String(payload.description || payload.summary || '').trim()
-})
-
-const traceKind = computed(() => {
-  const tName = String(toolNameLower.value || kind.value || '').toLowerCase()
-  if (tName.includes('bash') || tName.includes('shell') || tName.includes('terminal') || tName.includes('run_command')) return 'shell'
-  if (tName.includes('read') || tName.includes('view_file') || tName.includes('list_dir') || tName.includes('find_by_name') || tName.includes('grep_search')) return 'read'
-  if (tName.includes('replace_file') || tName.includes('write_to_file')) return 'edit'
-  if (tName.includes('skill') || tName.includes('dataagent-nl2sql')) return 'skill'
-  return ''
-})
+const traceKind = computed(() => (toolAction.value.isTrace ? toolAction.value.kind : ''))
 
 const showTrace = computed(() => Boolean(traceKind.value))
 const showMainHeader = computed(() => {
@@ -436,7 +401,7 @@ const traceMarkdownSource = computed(() => String(traceOutputText.value || '').t
 const showTraceMarkdown = computed(() => {
   if (!traceOutputText.value) return false
   if (traceKind.value === 'skill') return looksLikeMarkdown(traceMarkdownSource.value)
-  const path = traceCommand.value || readPath.value
+  const path = toolAction.value.path || toolAction.value.directory || traceCommand.value
   if (/\.(md|markdown)$/i.test(String(path || '').trim())) {
     return looksLikeMarkdown(traceMarkdownSource.value) || Boolean(traceMarkdownSource.value)
   }
@@ -460,32 +425,31 @@ const rawMarkdownPreview = computed(() => {
 const renderedRawMarkdown = computed(() => renderMarkdown(normalizedRawText.value))
 const renderedRawMarkdownPreview = computed(() => renderMarkdown(rawMarkdownPreview.value))
 
-const traceTitle = computed(() => {
-  if (traceKind.value === 'read') return 'Read'
-  if (traceKind.value === 'skill') return 'Skill'
-  return 'Shell'
-})
-
-const traceCommand = computed(() => {
-  if (traceKind.value === 'shell') return shellCommand.value
-  if (traceKind.value === 'read') return readPath.value || shellCommand.value
-  if (traceKind.value === 'skill') return shellCommand.value || readPath.value
-  return ''
-})
+const traceCommand = computed(() => toolAction.value.detail)
 
 const traceCommandPrefix = computed(() => (traceKind.value === 'shell' ? '$ ' : ''))
 
 const traceDescription = computed(() => {
-  if (traceKind.value === 'read') return shellDescription.value || '正在读取参考内容'
-  if (traceKind.value === 'skill') return shellDescription.value || '正在准备技能上下文'
-  return shellDescription.value
+  if (traceKind.value === 'read') return toolAction.value.description || '正在读取文件'
+  if (traceKind.value === 'list') return toolAction.value.description || '正在查看目录'
+  if (traceKind.value === 'search') return toolAction.value.description || '正在搜索文件'
+  if (traceKind.value === 'edit') return toolAction.value.description || '正在修改文件'
+  if (traceKind.value === 'skill') return toolAction.value.description || '正在准备技能上下文'
+  if (traceKind.value === 'shell') return toolAction.value.description || '正在执行命令'
+  return toolAction.value.description
 })
 
 const traceSummaryText = computed(() => {
   const detail = traceCommand.value || traceDescription.value
   
   if (traceKind.value === 'read') {
-    return detail ? `浏览文件：${detail}` : '正在浏览读取'
+    return detail ? `读取文件：${detail}` : '正在读取文件'
+  }
+  if (traceKind.value === 'list') {
+    return detail ? `查看目录：${detail}` : '正在查看目录'
+  }
+  if (traceKind.value === 'search') {
+    return detail ? `搜索文件：${detail}` : '正在搜索文件'
   }
   if (traceKind.value === 'edit') {
     return detail ? `修改文件：${detail}` : '正在修改文件'
@@ -494,7 +458,7 @@ const traceSummaryText = computed(() => {
     return detail ? `执行技能：${detail}` : '正在准备技能上下文'
   }
   
-  const leading = detail || (displayLabel.value !== 'Tool' ? displayLabel.value : null) || toolName.value
+  const leading = detail || displayLabel.value || toolName.value
   return leading ? `执行命令：${leading}` : '正在执行命令'
 })
 
@@ -528,11 +492,35 @@ const statusLabel = computed(() => {
   }
 
   if (traceKind.value === 'read') {
-    if (!callComplete) return '正在发起浏览'
-    if (callComplete && !runtimeStarted) return '已发起浏览'
-    if (status === 'pending' || status === 'streaming') return '正在浏览'
-    if (status === 'failed') return '浏览失败'
-    return '已浏览'
+    if (!callComplete) return '正在发起读取'
+    if (callComplete && !runtimeStarted) return '已发起读取'
+    if (status === 'pending' || status === 'streaming') return '正在读取'
+    if (status === 'failed') return '读取失败'
+    return '已读取'
+  }
+
+  if (traceKind.value === 'list') {
+    if (!callComplete) return '正在发起查看目录'
+    if (callComplete && !runtimeStarted) return '已发起查看目录'
+    if (status === 'pending' || status === 'streaming') return '正在查看目录'
+    if (status === 'failed') return '查看目录失败'
+    return '已查看目录'
+  }
+
+  if (traceKind.value === 'search') {
+    if (!callComplete) return '正在发起搜索'
+    if (callComplete && !runtimeStarted) return '已发起搜索'
+    if (status === 'pending' || status === 'streaming') return '正在搜索'
+    if (status === 'failed') return '搜索失败'
+    return '已搜索'
+  }
+
+  if (traceKind.value === 'edit') {
+    if (!callComplete) return '正在发起修改'
+    if (callComplete && !runtimeStarted) return '已发起修改'
+    if (status === 'pending' || status === 'streaming') return '正在修改'
+    if (status === 'failed') return '修改失败'
+    return '已修改'
   }
 
   if (traceKind.value === 'skill') {
@@ -611,7 +599,7 @@ const isFlat = computed(() => kind.value === 'sql_execution')
 const tracePanelAvailable = computed(() => {
   if (!showTrace.value) return false
   if (traceOutputText.value) return true
-  if (traceKind.value === 'read') return false
+  if (['read', 'list', 'search'].includes(traceKind.value)) return false
   return Boolean(traceCommand.value || traceDescription.value)
 })
 
@@ -656,8 +644,10 @@ const toolInstanceKey = computed(() => {
   return [
     toolName.value,
     kind.value,
-    shellCommand.value,
-    readPath.value,
+    toolAction.value.command,
+    toolAction.value.path,
+    toolAction.value.directory,
+    toolAction.value.pattern,
     scriptName.value,
     summaryText.value
   ].filter(Boolean).join('|')

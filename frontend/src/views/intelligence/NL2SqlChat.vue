@@ -89,14 +89,6 @@
                       <span v-if="processSummaryPreview(msg)" class="query-process-summary-preview">{{ processSummaryPreview(msg) }}</span>
                       <svg class="query-process-chevron" :class="{ open: isProcessPanelExpanded(msg) }" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    <button
-                      v-if="msg.task_id && isActiveTaskStatus(msg.status)"
-                      type="button"
-                      class="query-process-cancel"
-                      @click="cancelTask(msg)"
-                    >
-                      取消
-                    </button>
                   </div>
 
                   <div v-if="isProcessPanelExpanded(msg)" class="query-process-content">
@@ -192,9 +184,46 @@
               @keydown.ctrl.enter.prevent="handleSend"
               @keydown.meta.enter.prevent="handleSend"
             />
-            <button class="query-btn-send" :disabled="!inputText.trim() || activeTopicSubmitting || !selectedProvider || !selectedModel" @click="handleSend">
-              发送
-            </button>
+            <div class="query-composer-actions">
+              <button
+                type="button"
+                class="query-composer-action"
+                :class="composerActionMode === 'cancel' ? 'query-btn-cancel' : 'query-btn-send'"
+                :disabled="composerActionDisabled"
+                :aria-label="composerActionTitle"
+                :title="composerActionTitle"
+                @click="handleComposerAction"
+              >
+                <svg
+                  v-if="composerActionMode === 'cancel'"
+                  class="query-composer-action-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 9l6 6" />
+                  <path d="M15 9l-6 6" />
+                </svg>
+                <svg
+                  v-else
+                  class="query-composer-action-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h12" />
+                  <path d="M13 6l6 6-6 6" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -209,11 +238,11 @@ import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { stripChartSpecsFromText } from './chartSpec'
+import { describeToolAction } from './toolPresentation'
 import {
   activeStreamingBlock as activeStreamingMessageBlock,
   createAssistantMessageState,
   hydrateAssistantMessageState,
-  parseMaybeJson,
   processAssistantStreamEvent
 } from './messageStream'
 
@@ -250,6 +279,9 @@ const suggestions = [
 
 const activeTopic = computed(() => topics.value.find((topic) => topic.topic_id === activeTopicId.value) || null)
 const activeMessages = computed(() => activeTopic.value?.messages || [])
+const activeCancelableMessage = computed(() => [...activeMessages.value]
+  .reverse()
+  .find((msg) => msg?.role === 'assistant' && msg?.task_id && isActiveTaskStatus(msg?.status)) || null)
 const filteredTopics = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase()
   if (!keyword) return topics.value
@@ -302,6 +334,20 @@ const clearTopicSubmitting = (key) => {
 }
 
 const activeTopicSubmitting = computed(() => isTopicSubmitting(activeTopicId.value))
+const composerActionMode = computed(() => (activeCancelableMessage.value ? 'cancel' : 'send'))
+const composerActionTitle = computed(() => (composerActionMode.value === 'cancel' ? '取消当前任务' : '发送消息'))
+const canSendMessage = computed(() => (
+  Boolean(inputText.value.trim())
+  && !activeTopicSubmitting.value
+  && !activeCancelableMessage.value
+  && Boolean(selectedProvider.value)
+  && Boolean(selectedModel.value)
+))
+const composerActionDisabled = computed(() => (
+  composerActionMode.value === 'cancel'
+    ? !activeCancelableMessage.value
+    : !canSendMessage.value
+))
 
 const truncate = (value, max) => {
   const text = String(value || '新话题')
@@ -420,47 +466,54 @@ const toUiTaskStatus = (status) => {
 
 const isActiveTaskStatus = (status) => ['queued', 'running', 'streaming'].includes(String(status || '').trim())
 
-const parseToolInput = (value) => {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value
-  if (typeof value === 'string') {
-    const parsed = parseMaybeJson(value)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-    const text = value.trim()
-    return text ? { command: text } : {}
-  }
-  return {}
-}
-
 const describeToolActivity = (tool) => {
-  const input = parseToolInput(tool?.input)
-  const name = String(tool?.name || '').trim()
-  const lowerName = name.toLowerCase()
-  const preview = String(input.description || input.summary || input.command || '').trim()
+  const action = describeToolAction(tool)
 
-  if (['bash', 'shell', 'terminal'].includes(lowerName)) {
+  if (action.kind === 'shell') {
     return {
-      text: '正在运行命令',
-      preview: preview || '等待脚本输出'
+      text: '正在执行命令',
+      preview: action.preview || '等待命令输出'
     }
   }
 
-  if (['read', 'read_file', 'readfile'].includes(lowerName)) {
+  if (action.kind === 'read') {
     return {
-      text: '正在浏览',
-      preview: preview || '正在读取参考内容'
+      text: '正在读取文件',
+      preview: action.preview || '等待文件内容'
     }
   }
 
-  if (lowerName === 'skill') {
+  if (action.kind === 'list') {
     return {
-      text: '正在加载技能',
-      preview: preview || '正在准备技能上下文'
+      text: '正在查看目录',
+      preview: action.preview || '等待目录结果'
+    }
+  }
+
+  if (action.kind === 'search') {
+    return {
+      text: '正在搜索文件',
+      preview: action.preview || '等待搜索结果'
+    }
+  }
+
+  if (action.kind === 'edit') {
+    return {
+      text: '正在修改文件',
+      preview: action.preview || '等待修改结果'
+    }
+  }
+
+  if (action.kind === 'skill') {
+    return {
+      text: '正在执行技能',
+      preview: action.preview || '正在准备技能上下文'
     }
   }
 
   return {
-    text: `正在执行 ${name || '工具'}`,
-    preview
+    text: action.label || `正在执行 ${action.name || '工具'}`,
+    preview: action.preview
   }
 }
 
@@ -683,6 +736,16 @@ const cancelTask = async (msg) => {
   }
 }
 
+const handleComposerAction = () => {
+  if (composerActionMode.value === 'cancel') {
+    if (activeCancelableMessage.value) {
+      void cancelTask(activeCancelableMessage.value)
+    }
+    return
+  }
+  void handleSend()
+}
+
 const loadSettings = async () => {
   try {
     const payload = await adminApi.getSettings()
@@ -770,7 +833,7 @@ const handleSelectTopic = async (topicId) => {
 
 const handleSend = async () => {
   const text = inputText.value.trim()
-  if (!text || isTopicSubmitting(activeTopicId.value) || !selectedProvider.value || !selectedModel.value) return
+  if (!text || isTopicSubmitting(activeTopicId.value) || activeCancelableMessage.value || !selectedProvider.value || !selectedModel.value) return
 
   inputText.value = ''
   autoScroll.value = true
@@ -1326,24 +1389,6 @@ onBeforeUnmount(() => {
 
 .query-process-chevron.open {
   transform: rotate(-180deg);
-}
-
-.query-process-cancel {
-  flex-shrink: 0;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid #E5EAF1;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #595959;
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color 0.18s ease, color 0.18s ease;
-}
-
-.query-process-cancel:hover {
-  border-color: #4F81FF;
-  color: #1F1F1F;
 }
 
 .query-process-content {
@@ -1960,29 +2005,61 @@ onBeforeUnmount(() => {
   color: var(--text-soft);
 }
 
-.query-btn-send {
-  min-width: 84px;
-  height: 42px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 999px;
-  background: #4F81FF;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
-  box-shadow: 0 4px 16px rgba(79, 129, 255, 0.2);
+.query-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
-.query-btn-send:disabled {
+.query-composer-action {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.query-composer-action:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.query-composer-action:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.query-composer-action-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.query-btn-send {
+  background: #4F81FF;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(79, 129, 255, 0.2);
 }
 
 .query-btn-send:not(:disabled):hover {
   background: #3D6FE3;
-  transform: translateY(-1px);
+}
+
+.query-btn-cancel {
+  background: #ffffff;
+  color: #D64545;
+  border: 1px solid rgba(214, 69, 69, 0.18);
+  box-shadow: 0 4px 16px rgba(214, 69, 69, 0.08);
+}
+
+.query-btn-cancel:not(:disabled):hover {
+  background: #FFF5F5;
+  border-color: rgba(214, 69, 69, 0.3);
 }
 
 @keyframes query-cursor-blink {
@@ -2076,12 +2153,7 @@ onBeforeUnmount(() => {
   }
 
   .query-composer-input-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .query-btn-send {
-    width: 100%;
+    align-items: flex-end;
   }
 }
 </style>
