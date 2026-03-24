@@ -115,6 +115,7 @@ describe('NL2SqlChat', () => {
       makeTopicSummary('topic-1', '流式话题')
     ])
     apiMocks.topicApi.getTopic.mockImplementation(async (topicId) => makeTopicDetail(topicId, topicId === 'topic-1' ? '流式话题' : '新话题'))
+    apiMocks.topicApi.updateTopic.mockImplementation(async (topicId, data) => makeTopicDetail(topicId, data?.title || '新话题'))
     apiMocks.topicApi.getTopicMessages.mockResolvedValue({
       topic_id: 'topic-1',
       page: 1,
@@ -160,6 +161,43 @@ describe('NL2SqlChat', () => {
       topic_id: 'topic-1',
       task_status: 'finished'
     })
+  })
+
+  it('formats sidebar timestamps in Asia/Shanghai for backend naive datetimes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-10T04:00:00Z'))
+
+    apiMocks.topicApi.listTopics.mockResolvedValue([
+      {
+        ...makeTopicSummary('topic-1', '流式话题'),
+        created_at: '2026-03-10T10:00:00',
+        updated_at: '2026-03-10T10:00:00'
+      }
+    ])
+    apiMocks.topicApi.getTopic.mockResolvedValue({
+      ...makeTopicDetail('topic-1', '流式话题'),
+      created_at: '2026-03-10T10:00:00',
+      updated_at: '2026-03-10T10:00:00'
+    })
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 0,
+      items: []
+    })
+
+    try {
+      const wrapper = shallowMount(NL2SqlChat)
+
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.find('.query-session-meta').text()).toBe('10:00')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps streamed main text visible while tools are still running', async () => {
@@ -382,5 +420,42 @@ describe('NL2SqlChat', () => {
 
     await flushPromises()
     await flushPromises()
+  })
+
+  it('persists the first real question as the title for a newly created placeholder topic', async () => {
+    apiMocks.topicApi.listTopics.mockResolvedValue([])
+    apiMocks.topicApi.getTopic.mockImplementation(async (topicId) => makeTopicDetail(topicId, '新话题'))
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-new',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 0,
+      items: []
+    })
+    apiMocks.taskApi.deliverMessage.mockResolvedValue({
+      accepted: true,
+      topic_id: 'topic-new',
+      task_id: 'task-new',
+      task_status: 'waiting',
+      user_message_id: 'u-new',
+      assistant_message_id: 'a-new'
+    })
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    await wrapper.find('.query-textarea').setValue('这是一个新的会话标题')
+    await wrapper.find('.query-btn-send').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(apiMocks.topicApi.updateTopic).toHaveBeenCalledWith(
+      'topic-new',
+      { title: '这是一个新的会话标题' }
+    )
+    expect(wrapper.text()).toContain('这是一个新的会话标题')
   })
 })
