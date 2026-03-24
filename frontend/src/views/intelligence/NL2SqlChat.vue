@@ -38,7 +38,6 @@
         <div class="query-messages-inner">
           <div class="query-main-head">
             <div>
-              <p class="query-main-kicker">数据分析助手</p>
               <h3>{{ activeTopic ? truncate(activeTopic.title, 48) : '开始一次新的数据分析' }}</h3>
               <p class="query-main-subtitle">围绕数据查询与分析开展连续对话。</p>
             </div>
@@ -354,14 +353,45 @@ const truncate = (value, max) => {
   return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
-const formatTime = (value) => {
-  if (!value) return ''
-  const date = new Date(value)
-  const now = new Date()
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+const deriveTopicTitle = (value, max = 30) => {
+  const text = String(value || '').trim()
+  if (!text) return '新话题'
+  return text.length > max ? `${text.slice(0, max)}...` : text
+}
+
+const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
+
+const parseDisplayDate = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return null
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(text)) {
+    return new Date(`${text}+08:00`)
   }
-  return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) {
+    return new Date(text.replace(' ', 'T') + '+08:00')
+  }
+
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const formatInShanghai = (date, options) => new Intl.DateTimeFormat('zh-CN', {
+  timeZone: DISPLAY_TIME_ZONE,
+  ...options
+}).format(date)
+
+const formatTime = (value) => {
+  const date = parseDisplayDate(value)
+  if (!date) return ''
+  const now = new Date()
+  const dateKey = formatInShanghai(date, { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const nowKey = formatInShanghai(now, { year: 'numeric', month: '2-digit', day: '2-digit' })
+  if (dateKey === nowKey) {
+    return formatInShanghai(date, { hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  return formatInShanghai(date, { month: '2-digit', day: '2-digit' })
 }
 
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -831,6 +861,27 @@ const handleSelectTopic = async (topicId) => {
   scrollToBottom(true)
 }
 
+const maybePersistTopicTitle = async (topic, text) => {
+  if (!topic) return
+  const currentTitle = String(topic.title || '').trim()
+  if (currentTitle && currentTitle !== '新话题') return
+
+  const nextTitle = deriveTopicTitle(text)
+  topic.title = nextTitle
+
+  try {
+    const updated = await topicApi.updateTopic(String(topic.topic_id || ''), { title: nextTitle })
+    if (updated?.title) {
+      topic.title = String(updated.title)
+    }
+    if (updated?.updated_at) {
+      topic.updated_at = String(updated.updated_at)
+    }
+  } catch (error) {
+    console.warn('persist topic title failed', error)
+  }
+}
+
 const handleSend = async () => {
   const text = inputText.value.trim()
   if (!text || isTopicSubmitting(activeTopicId.value) || activeCancelableMessage.value || !selectedProvider.value || !selectedModel.value) return
@@ -846,7 +897,7 @@ const handleSend = async () => {
 
   try {
     if (!activeTopicId.value) {
-      const title = text.length > 20 ? `${text.slice(0, 20)}...` : text
+      const title = deriveTopicTitle(text, 20)
       const created = normalizeTopicSummary(await topicApi.createTopic(title))
       topics.value.unshift(created)
       hydratedIds.add(created.topic_id)
@@ -899,9 +950,7 @@ const handleSend = async () => {
 
     topic.updated_at = new Date().toISOString()
     topic.message_count = topic.messages.length
-    if (topic.title === '新话题') {
-      topic.title = text.length > 30 ? `${text.slice(0, 30)}...` : text
-    }
+    await maybePersistTopicTitle(topic, text)
     sortTopics()
     triggerRef(topics)
     scrollToBottom(true)
@@ -1149,15 +1198,6 @@ onBeforeUnmount(() => {
   padding-bottom: 20px;
   margin-bottom: 18px;
   border-bottom: 1px dashed var(--line);
-}
-
-.query-main-kicker {
-  margin: 0 0 6px;
-  color: #4F81FF;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .query-main-head h3 {
