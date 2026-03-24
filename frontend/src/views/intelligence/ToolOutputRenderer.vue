@@ -1,5 +1,5 @@
 <template>
-  <div class="tool-output" :class="{ failed: hasError, 'tool-output-shell': showTrace }">
+  <div class="tool-output" :class="{ failed: hasError, 'tool-output-shell': showTrace, 'tool-output-chart-direct': isDirectChart, 'tool-output-flat': isFlat }">
     <div v-if="showTrace" class="shell-trace">
       <button
         v-if="traceSummaryInteractive"
@@ -13,7 +13,7 @@
         <span class="shell-trace-summary-status" :class="`is-${traceStatusTone}`">
           {{ statusLabel }}
         </span>
-        <span class="shell-trace-summary-chevron" :class="{ open: panelOpen }">⌄</span>
+        <svg class="shell-trace-chevron-icon" :class="{ open: panelOpen }" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
 
       <div v-else class="shell-trace-summary shell-trace-summary-static">
@@ -26,7 +26,6 @@
       </div>
 
       <div v-if="tracePanelVisible" class="tool-output-panel shell-trace-panel">
-        <div class="shell-trace-panel-title">{{ traceTitle }}</div>
         <div class="tool-output-body-scroll">
           <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
           <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
@@ -48,41 +47,69 @@
           </template>
           <div v-else class="shell-trace-empty">无输出</div>
         </div>
-        <div class="shell-trace-footer">
-          <span class="shell-trace-footer-label">状态</span>
-          <span class="shell-trace-footer-value" :class="`is-${traceStatusTone}`">{{ statusLabel }}</span>
-        </div>
       </div>
     </div>
 
-    <div v-if="showMainHeader" class="tool-output-head">
-      <div>
-        <div class="tool-output-label">{{ displayLabel }}</div>
-        <div class="tool-output-meta">
-          <span>{{ statusLabel }}</span>
-          <span v-if="toolName">· {{ toolName }}</span>
-          <span v-if="kind === 'sql_execution' && rowCountText">· {{ rowCountText }}</span>
-          <span v-if="kind === 'sql_execution' && durationText">· {{ durationText }}</span>
+    <div
+      v-if="showMainHeader"
+      class="tool-output-head"
+      :class="{ 'is-interactive': showMainToggle }"
+      @click="showMainToggle ? togglePanel() : null"
+    >
+      <div class="tool-output-head-content">
+        <div class="tool-output-label" v-if="displayLabel !== 'Tool'">{{ displayLabel }}</div>
+        <div class="tool-output-label" v-else-if="toolName && toolName !== 'Tool'">调用：{{ toolName }}</div>
+        <div class="tool-output-label" v-else>工具调用</div>
+
+        <div class="tool-output-meta" v-if="metaItems.length > 0">
+          <span v-for="(item, index) in metaItems" :key="index">
+            <template v-if="index > 0"> · </template>
+            <span :class="{ 'is-failed': hasError && item === statusLabel }">{{ item }}</span>
+          </span>
         </div>
       </div>
-      <div v-if="scriptName" class="tool-output-chip">{{ scriptName }}</div>
+      <div class="tool-output-head-right">
+        <div v-if="scriptName" class="tool-output-chip">{{ scriptName }}</div>
+        <svg v-if="showMainToggle" class="tool-output-head-chevron" :class="{ open: panelOpen }" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
     </div>
 
     <div v-if="summaryText && showMainHeader" class="tool-output-summary">{{ summaryText }}</div>
 
     <div v-if="errorText && showMainHeader" class="tool-output-error">{{ errorText }}</div>
 
-    <button
-      v-if="showMainToggle"
-      type="button"
-      class="tool-output-toggle"
-      @click="togglePanel"
-    >
-      <span>{{ panelOpen ? '收起输出' : '展开输出' }}</span>
-      <span class="tool-output-toggle-chevron" :class="{ open: panelOpen }">⌄</span>
-    </button>
+    <!-- Direct chart rendering (no panel wrapper) -->
+    <template v-if="isDirectChart">
+      <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
+      <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
 
-    <div v-if="mainPanelVisible" class="tool-output-panel">
+      <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
+        <table class="tool-table">
+          <thead>
+            <tr>
+              <th v-for="column in chartColumns" :key="column">{{ column }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, rowIndex) in chartRows" :key="rowIndex">
+              <td v-for="column in chartColumns" :key="column">{{ row[column] }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div
+        v-else-if="chartRenderState === 'renderable' && chartOption"
+        ref="chartCanvasRef"
+        class="tool-chart"
+      />
+      <div v-else-if="chartRenderState === 'empty'" class="tool-output-empty">图表暂无可渲染数据</div>
+      <div v-else-if="chartRenderState !== 'invalid' && chartRenderState !== 'error'" class="tool-output-empty">图表数据为空</div>
+
+      <pre v-if="showChartRawText" class="tool-code tool-code-light"><code>{{ normalizedRawText }}</code></pre>
+    </template>
+
+    <div v-if="mainPanelVisible && !isDirectChart" class="tool-output-panel">
       <div class="tool-output-body-scroll">
         <template v-if="kind === 'sql_execution'">
           <pre v-if="sqlText" class="tool-code"><code>{{ sqlText }}</code></pre>
@@ -337,10 +364,23 @@ const durationText = computed(() => {
 
 const displayLabel = computed(() => {
   if (outputPayload.value.tool_label) return String(outputPayload.value.tool_label)
-  if (kind.value === 'sql_execution') return 'SQL 执行'
-  if (kind.value === 'python_execution') return 'Python 执行'
-  if (kind.value === 'chart_spec') return '图表渲染'
-  return toolName.value || '工具输出'
+  
+  const map = {
+    sql_execution: '执行查询',
+    chart_spec: '生成图表',
+    python_execution: '执行代码'
+  }
+  if (map[kind.value]) return map[kind.value]
+  
+  const tName = String(toolNameLower.value || kind.value || '').toLowerCase()
+  if (tName.includes('read') || tName.includes('view') || tName.includes('list')) return '读取文件'
+  if (tName.includes('search') || tName.includes('find') || tName.includes('grep')) return '搜索结果'
+  if (tName.includes('bash') || tName.includes('shell') || tName.includes('run_command')) return '执行命令'
+  if (tName.includes('replace') || tName.includes('write')) return '修改文件'
+  if (tName.includes('image')) return '生成图片'
+  if (tName.includes('skill') || tName.includes('dataagent-nl2sql')) return '执行技能'
+  
+  return 'Tool'
 })
 
 const parsedInput = computed(() => {
@@ -357,12 +397,12 @@ const parsedInput = computed(() => {
 
 const shellCommand = computed(() => {
   const payload = parsedInput.value
-  return String(payload.command || payload.cmd || '').trim()
+  return String(payload.command || payload.cmd || payload.query || payload.Query || payload.Pattern || payload.pattern || payload.Instruction || '').trim()
 })
 
 const readPath = computed(() => {
   const payload = parsedInput.value
-  return String(payload.file_path || payload.path || '').trim()
+  return String(payload.file_path || payload.path || payload.AbsolutePath || payload.SearchPath || payload.SearchDirectory || payload.TargetFile || '').trim()
 })
 
 const shellDescription = computed(() => {
@@ -371,17 +411,19 @@ const shellDescription = computed(() => {
 })
 
 const traceKind = computed(() => {
-  if (['bash', 'shell', 'terminal'].includes(toolNameLower.value)) return 'shell'
-  if (['read', 'read_file', 'readfile'].includes(toolNameLower.value)) return 'read'
-  if (['skill', 'launch_skill'].includes(toolNameLower.value)) return 'skill'
+  const tName = String(toolNameLower.value || kind.value || '').toLowerCase()
+  if (tName.includes('bash') || tName.includes('shell') || tName.includes('terminal') || tName.includes('run_command')) return 'shell'
+  if (tName.includes('read') || tName.includes('view_file') || tName.includes('list_dir') || tName.includes('find_by_name') || tName.includes('grep_search')) return 'read'
+  if (tName.includes('replace_file') || tName.includes('write_to_file')) return 'edit'
+  if (tName.includes('skill') || tName.includes('dataagent-nl2sql')) return 'skill'
   return ''
 })
 
 const showTrace = computed(() => Boolean(traceKind.value))
 const showMainHeader = computed(() => {
-  if (!showTrace.value) return true
-  if (kind.value === 'chart_spec') return false
-  return ['sql_execution', 'python_execution'].includes(kind.value)
+  if (showTrace.value) return false
+  if (isDirectChart.value) return false
+  return true
 })
 
 const traceOutputText = computed(() => {
@@ -426,7 +468,7 @@ const traceTitle = computed(() => {
 
 const traceCommand = computed(() => {
   if (traceKind.value === 'shell') return shellCommand.value
-  if (traceKind.value === 'read') return readPath.value
+  if (traceKind.value === 'read') return readPath.value || shellCommand.value
   if (traceKind.value === 'skill') return shellCommand.value || readPath.value
   return ''
 })
@@ -440,14 +482,20 @@ const traceDescription = computed(() => {
 })
 
 const traceSummaryText = computed(() => {
+  const detail = traceCommand.value || traceDescription.value
+  
   if (traceKind.value === 'read') {
-    return traceCommand.value || traceDescription.value || '读取参考内容'
+    return detail ? `浏览文件：${detail}` : '正在浏览读取'
+  }
+  if (traceKind.value === 'edit') {
+    return detail ? `修改文件：${detail}` : '正在修改文件'
   }
   if (traceKind.value === 'skill') {
-    return traceDescription.value || traceCommand.value || '加载技能'
+    return detail ? `执行技能：${detail}` : '正在准备技能上下文'
   }
-  const leading = traceDescription.value || traceCommand.value || displayLabel.value
-  return leading || 'Shell 执行'
+  
+  const leading = detail || (displayLabel.value !== 'Tool' ? displayLabel.value : null) || toolName.value
+  return leading ? `执行命令：${leading}` : '正在执行命令'
 })
 
 const traceStatusTone = computed(() => {
@@ -509,13 +557,56 @@ const chartColumns = computed(() => Array.isArray(chartRenderModel.value?.column
 const chartRows = computed(() => Array.isArray(chartRenderModel.value?.rows) ? chartRenderModel.value.rows : [])
 const chartOption = computed(() => {
   if (kind.value !== 'chart_spec') return null
-  return chartRenderModel.value?.kind === 'echarts' ? chartRenderModel.value.option : null
+  const baseOption = chartRenderModel.value?.kind === 'echarts' ? chartRenderModel.value.option : null
+  if (!baseOption) return null
+  
+  try {
+    const opt = JSON.parse(JSON.stringify(baseOption))
+    
+    // Clean up LLM-generated title artifacts
+    if (opt.title) {
+      const cleanTitle = (t) => {
+        if (t.text) {
+          t.text = t.text.replace(/[\(（]?，?共?返回\d+(行数据|条数据|条结果)的?[\)）]?/g, '')
+        }
+        if (t.subtext && (t.subtext.includes('基于') || t.subtext.includes('绘制'))) {
+          delete t.subtext
+        }
+      }
+      if (Array.isArray(opt.title)) opt.title.forEach(cleanTitle)
+      else cleanTitle(opt.title)
+    }
+    
+    // Ensure legend is visible at the bottom
+    if (!opt.legend) {
+      opt.legend = { show: true, bottom: 0 }
+    } else {
+      opt.legend.show = true
+      if (opt.legend.bottom === undefined) opt.legend.bottom = 0
+    }
+    
+    // Reduce bottom whitespace
+    if (!opt.grid) opt.grid = {}
+    if (opt.grid.bottom === undefined) opt.grid.bottom = 35
+    
+    return opt
+  } catch (e) {
+    return baseOption
+  }
 })
 const showChartRawText = computed(() => {
   if (kind.value !== 'chart_spec') return false
   return ['invalid', 'error'].includes(chartRenderState.value) && Boolean(normalizedRawText.value)
 })
 const showRawPayload = computed(() => Boolean(normalizedRawText.value) && !showTrace.value)
+
+const isDirectChart = computed(() => {
+  if (kind.value !== 'chart_spec') return false
+  if (showTrace.value) return false
+  return true
+})
+
+const isFlat = computed(() => kind.value === 'sql_execution')
 
 const tracePanelAvailable = computed(() => {
   if (!showTrace.value) return false
@@ -533,9 +624,31 @@ const mainPanelAvailable = computed(() => {
 
 const hasExpandablePanel = computed(() => tracePanelAvailable.value || mainPanelAvailable.value)
 const traceSummaryInteractive = computed(() => showTrace.value && hasExpandablePanel.value)
-const showMainToggle = computed(() => !showTrace.value && hasExpandablePanel.value)
+const showMainToggle = computed(() => !showTrace.value && !isDirectChart.value && hasExpandablePanel.value)
 const tracePanelVisible = computed(() => showTrace.value && tracePanelAvailable.value && panelOpen.value)
 const mainPanelVisible = computed(() => mainPanelAvailable.value && panelOpen.value)
+
+const metaItems = computed(() => {
+  const items = []
+  
+  if (traceStatusTone.value !== 'success') {
+    items.push(statusLabel.value)
+  }
+  
+  if (toolName.value && toolName.value !== 'Tool' && toolName.value !== displayLabel.value) {
+    items.push(toolName.value)
+  }
+  
+  if (kind.value === 'sql_execution' && rowCountText.value) {
+    items.push(rowCountText.value)
+  }
+  
+  if (kind.value === 'sql_execution' && durationText.value) {
+    items.push(durationText.value)
+  }
+  
+  return items
+})
 
 const toolInstanceKey = computed(() => {
   const stableId = String(props.tool?.id || '').trim()
@@ -582,9 +695,9 @@ const refreshChart = async () => {
 }
 
 watch(
-  () => [chartRenderState.value, chartOption.value, props.tool?.id, mainPanelVisible.value],
+  () => [chartRenderState.value, chartOption.value, props.tool?.id, mainPanelVisible.value, isDirectChart.value],
   () => {
-    if (chartRenderState.value === 'renderable' && chartOption.value && mainPanelVisible.value) {
+    if (chartRenderState.value === 'renderable' && chartOption.value && (mainPanelVisible.value || isDirectChart.value)) {
       refreshChart()
       return
     }
@@ -609,8 +722,8 @@ const togglePanel = () => {
 }
 
 onMounted(() => {
-  panelOpen.value = shouldAutoOpenPanel()
-  if (chartRenderState.value === 'renderable' && chartOption.value && mainPanelVisible.value) {
+  panelOpen.value = isDirectChart.value ? true : shouldAutoOpenPanel()
+  if (chartRenderState.value === 'renderable' && chartOption.value && (mainPanelVisible.value || isDirectChart.value)) {
     refreshChart()
   }
 
@@ -654,10 +767,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .tool-output {
-  padding: 16px 18px;
-  border: 1px solid #dfe8f1;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  padding: 14px 16px;
+  border: 1px solid #eff1f5;
+  border-radius: 14px;
+  background: #ffffff;
 }
 
 .tool-output-shell {
@@ -667,12 +780,28 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.tool-output.failed {
-  border-color: rgba(190, 24, 93, 0.2);
-  background: linear-gradient(180deg, #fff8fb 0%, #fff 100%);
+.tool-output-chart-direct {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
-.tool-output-shell.failed {
+.tool-output-flat {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tool-output.failed {
+  border-color: rgba(190, 24, 93, 0.15);
+  background: #fff8fb;
+}
+
+.tool-output-shell.failed,
+.tool-output-chart-direct.failed {
   background: transparent;
 }
 
@@ -727,21 +856,23 @@ onBeforeUnmount(() => {
   color: #9f1239;
 }
 
-.shell-trace-summary-chevron {
-  color: #9a9a9a;
-  font-size: 14px;
+.shell-trace-chevron-icon {
+  width: 14px;
+  height: 14px;
+  color: #A0AABF;
+  flex-shrink: 0;
   transition: transform 0.18s ease;
 }
 
-.shell-trace-summary-chevron.open {
+.shell-trace-chevron-icon.open {
   transform: rotate(180deg);
 }
 
 .tool-output-panel {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid #dbe3ec;
-  border-radius: 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #eff1f5;
+  border-radius: 12px;
   background: #ffffff;
 }
 
@@ -751,15 +882,9 @@ onBeforeUnmount(() => {
 }
 
 .shell-trace-panel {
-  margin-top: 8px;
-  border: 1px solid #d9d9d9;
-  background: linear-gradient(180deg, #f3f3f3 0%, #ececec 100%);
-}
-
-.shell-trace-panel-title {
-  color: #8a8a8a;
-  font-size: 12px;
-  font-weight: 600;
+  margin-top: 6px;
+  border: 1px solid #E5EAF1;
+  background: #F9FAFC;
 }
 
 .shell-trace-command,
@@ -868,59 +993,46 @@ onBeforeUnmount(() => {
   color: #1d3f5e;
 }
 
-.tool-output-toggle {
-  margin-top: 12px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: #31567a;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
+.tool-output-head {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.tool-output-toggle:hover {
-  color: #1d3f5e;
+.tool-output-head.is-interactive {
+  cursor: pointer;
+  user-select: none;
 }
 
-.tool-output-toggle-chevron {
-  font-size: 14px;
+.tool-output-head-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.tool-output-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-output-head-chevron {
+  width: 14px;
+  height: 14px;
+  color: #A0AABF;
+  flex-shrink: 0;
   transition: transform 0.18s ease;
 }
 
-.tool-output-toggle-chevron.open {
-  transform: rotate(180deg);
+.tool-output-head-chevron.open {
+  transform: rotate(-180deg);
 }
 
-.shell-trace-footer {
-  margin-top: 10px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.shell-trace-footer-label {
-  color: #a0a0a0;
-}
-
-.shell-trace-footer-value {
-  color: #7a7a7a;
-  font-weight: 600;
-}
-
-.shell-trace-footer-value.is-failed {
-  color: #9f1239;
-}
-
-.tool-output-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+.tool-output-status-check {
+  width: 14px;
+  height: 14px;
+  color: #4F81FF;
+  flex-shrink: 0;
 }
 
 .tool-output-label {
@@ -1012,11 +1124,15 @@ onBeforeUnmount(() => {
 
 .tool-chart {
   display: block;
-  margin-top: 14px;
-  min-height: 320px;
-  height: 320px;
+  margin-top: 8px;
+  min-height: 340px;
+  height: 340px;
   width: 100%;
   min-width: 0;
+  border-radius: 14px;
+  background: #F9FAFC;
+  border: 1px solid #EEF1F5;
+  padding: 8px;
 }
 
 .tool-output-empty {

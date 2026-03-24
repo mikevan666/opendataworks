@@ -84,8 +84,8 @@ describe('ToolOutputRenderer', () => {
       }
     })
 
-    expect(wrapper.find('.tool-output-panel').exists()).toBe(true)
     expect(wrapper.find('.tool-chart').exists()).toBe(true)
+    expect(wrapper.find('.tool-output-chart-direct').exists()).toBe(true)
   })
 
   it('shows explicit invalid-spec feedback and raw payloads', () => {
@@ -120,7 +120,6 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.text()).toContain('生成占比图表')
-    expect(wrapper.text()).toContain('Shell')
     expect(wrapper.text()).toContain('$ python scripts/build_chart_spec.py --chart-type pie')
     expect(wrapper.text()).toContain('processing...')
     expect(wrapper.text()).toContain('正在运行命令')
@@ -295,7 +294,7 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.find('.tool-output-panel').exists()).toBe(false)
-    expect(wrapper.find('.tool-output-toggle').exists()).toBe(true)
+    expect(wrapper.find('.tool-output-head.is-interactive').exists()).toBe(true)
   })
 
   it('strips numbered arrow prefixes in the raw text branch', async () => {
@@ -307,7 +306,7 @@ describe('ToolOutputRenderer', () => {
     })
 
     expect(wrapper.find('.tool-output-panel').exists()).toBe(false)
-    await wrapper.find('.tool-output-toggle').trigger('click')
+    await wrapper.find('.tool-output-head.is-interactive').trigger('click')
 
     expect(wrapper.find('.tool-output-body-scroll').exists()).toBe(true)
     expect(wrapper.text()).toContain('alpha')
