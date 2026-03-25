@@ -85,7 +85,7 @@
                         <span v-if="isActiveTaskStatus(msg.status)" class="query-process-badge-dot" />
                         深度思考
                       </span>
-                      <span v-if="processSummaryPreview(msg)" class="query-process-summary-preview">{{ processSummaryPreview(msg) }}</span>
+                      <span v-if="!isProcessPanelExpanded(msg) && processSummaryPreview(msg)" class="query-process-summary-preview">{{ processSummaryPreview(msg) }}</span>
                       <svg class="query-process-chevron" :class="{ open: isProcessPanelExpanded(msg) }" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                   </div>
@@ -187,7 +187,10 @@
               <button
                 type="button"
                 class="query-composer-action"
-                :class="composerActionMode === 'cancel' ? 'query-btn-cancel' : 'query-btn-send'"
+                :class="[
+                  composerActionMode === 'cancel' ? 'query-btn-cancel' : 'query-btn-send',
+                  { 'query-composer-action-labeled': composerActionMode === 'cancel' }
+                ]"
                 :disabled="composerActionDisabled"
                 :aria-label="composerActionTitle"
                 :title="composerActionTitle"
@@ -204,8 +207,7 @@
                   stroke-linejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M9 9l6 6" />
-                  <path d="M15 9l-6 6" />
+                  <rect x="8" y="8" width="8" height="8" rx="1.5" />
                 </svg>
                 <svg
                   v-else
@@ -221,6 +223,7 @@
                   <path d="M5 12h12" />
                   <path d="M13 6l6 6-6 6" />
                 </svg>
+                <span v-if="composerActionMode === 'cancel'" class="query-composer-action-text">停止回答</span>
               </button>
             </div>
           </div>
@@ -239,7 +242,6 @@ import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { stripChartSpecsFromText } from './chartSpec'
 import { describeToolAction } from './toolPresentation'
 import {
-  activeStreamingBlock as activeStreamingMessageBlock,
   createAssistantMessageState,
   hydrateAssistantMessageState,
   processAssistantStreamEvent
@@ -414,9 +416,39 @@ const thinkingPreview = (block) => {
   return preview.length > 38 ? `${preview.slice(0, 38)}...` : preview
 }
 
+const hasMeaningfulToolPayload = (value) => {
+  if (value == null) return false
+  if (typeof value === 'string') return Boolean(value.trim())
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulToolPayload(item))
+  if (typeof value === 'object') {
+    return Object.values(value).some((item) => hasMeaningfulToolPayload(item))
+  }
+  return true
+}
+
+const shouldRenderToolBlock = (tool) => {
+  if (!tool || typeof tool !== 'object') return false
+
+  const action = describeToolAction(tool)
+  if (!action.isTrace) return true
+
+  const detail = String(
+    action.preview
+    || action.command
+    || action.path
+    || action.directory
+    || action.pattern
+    || action.description
+    || ''
+  ).trim()
+
+  return Boolean(detail || hasMeaningfulToolPayload(tool.output))
+}
+
 const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.renderBlocks : []).filter((block) => {
   if (!block || typeof block !== 'object') return false
   if (block.kind === 'tool') {
+    if (!shouldRenderToolBlock(block.tool)) return false
     const name = String(block.tool?.name || '').toLowerCase()
     if (name === 'glob' && String(block.tool?.status || '') === 'success') return false
     return true
@@ -557,7 +589,12 @@ const streamingActivity = (msg) => {
       preview: ''
     }
   }
-  const activeBlock = activeStreamingMessageBlock(msg)
+  const activeBlock = [...renderBlocksForMessage(msg)].reverse().find((block) => {
+    if (block?.kind === 'tool' && block.tool) {
+      return ['pending', 'streaming'].includes(String(block.tool.status || '').trim())
+    }
+    return ['pending', 'streaming'].includes(String(block?.status || '').trim())
+  }) || null
   if (activeBlock?.kind === 'tool' && activeBlock.tool) {
     return {
       kind: 'executing',
@@ -1027,6 +1064,7 @@ onBeforeUnmount(() => {
   --accent: #4F81FF;
   --accent-soft: rgba(79, 129, 255, 0.10);
   --primary: #4F81FF;
+  --content-max-width: clamp(860px, 82%, 1180px);
   height: 100%;
   min-height: 0;
   display: grid;
@@ -1185,7 +1223,8 @@ onBeforeUnmount(() => {
 }
 
 .query-messages-inner {
-  max-width: 860px;
+  width: 100%;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   padding: 28px 26px 36px;
 }
@@ -1433,7 +1472,12 @@ onBeforeUnmount(() => {
 
 .query-process-content {
   margin-top: 12px;
-  padding: 4px 0 4px 18px;
+  max-height: min(420px, 52vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 4px 12px 4px 18px;
   border-left: 3px solid #eff1f5;
 }
 
@@ -1981,7 +2025,8 @@ onBeforeUnmount(() => {
 }
 
 .query-composer {
-  max-width: 860px;
+  width: 100%;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   border: 1px solid #eff1f5;
   border-radius: 20px;
@@ -2053,8 +2098,9 @@ onBeforeUnmount(() => {
 }
 
 .query-composer-action {
-  width: 44px;
+  min-width: 44px;
   height: 44px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2078,6 +2124,19 @@ onBeforeUnmount(() => {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+}
+
+.query-composer-action-labeled {
+  width: auto;
+  gap: 8px;
+  padding: 0 16px;
+}
+
+.query-composer-action-text {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .query-btn-send {
