@@ -66,9 +66,14 @@ artifacts/
 
 # Playwright MCP
 .playwright-mcp/
+.playwright-cli/
 
 # Test outputs
 integration-test-results/
 
 # Additional Maven module
 backend-agent-api/target/
+
+# DataAgent local Python caches
+dataagent/**/__pycache__/
+dataagent/**/*.pyc
