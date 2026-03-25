@@ -30,6 +30,29 @@ def skill_root_dir() -> Path:
 def metadata_cli_bin() -> str:
     return str(skill_root_dir() / "bin" / "odw-cli")
 
+
+def metadata_cli_command(subcommand: str, **options: Any) -> list[str]:
+    cli_path = Path(metadata_cli_bin())
+    if not cli_path.is_file():
+        raise RuntimeError(
+            f"metadata cli 不存在: {cli_path}。请先由用户自行安装到该路径后再重试。"
+        )
+
+    # 部署时 bind mount 可能丢失执行位，退回 sh 直读脚本即可继续运行。
+    command = [str(cli_path)] if os.access(cli_path, os.X_OK) else ["sh", str(cli_path)]
+    command.append(str(subcommand).strip())
+
+    for key, value in options.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        command.extend([f"--{str(key).replace('_', '-')}", text])
+
+    return command
+
+
 def serializable_value(value: Any) -> Any:
     if value is None or isinstance(value, (int, float, str, bool)):
         return value
@@ -69,14 +92,7 @@ def ensure_read_only(sql: str):
 
 
 def call_metadata_cli(subcommand: str, **options: Any) -> Any:
-    command = [metadata_cli_bin(), str(subcommand).strip()]
-    for key, value in options.items():
-        if value is None:
-            continue
-        text = str(value).strip()
-        if not text:
-            continue
-        command.extend([f"--{str(key).replace('_', '-')}", text])
+    command = metadata_cli_command(subcommand, **options)
 
     try:
         completed = subprocess.run(
@@ -85,10 +101,6 @@ def call_metadata_cli(subcommand: str, **options: Any) -> Any:
             capture_output=True,
             text=True,
         )
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"metadata cli 不存在: {metadata_cli_bin()}。请先由用户自行安装到该路径后再重试。"
-        ) from exc
     except PermissionError as exc:
         raise RuntimeError(
             f"metadata cli 不可执行: {metadata_cli_bin()}。请先由用户修正该路径下文件权限后再重试。"

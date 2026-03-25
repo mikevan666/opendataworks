@@ -20,7 +20,8 @@
 - 数据源账号密码只在脚本内部使用，不要回写到最终回答。
 - 实际执行时只使用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`，不要自己拼 `/app/scripts/...` 或 `scripts/<name>.py`。
 - 默认运行时下，`inspect_metadata.py`、`resolve_datasource.py`、`query_opendataworks_metadata.py` 会优先通过 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 调 backend agent API 获取动态 metadata。
-- 执行 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在且可执行。
+- 执行 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在。
+- 部署时如果 bind mount 丢了执行位，运行时会自动退回 `sh "${DATAAGENT_SKILL_ROOT}/bin/odw-cli" ...`；但宿主机仍建议保留 `+x`。
 - 如果该固定路径缺少 CLI，必须先由用户自行安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，然后再执行 metadata 相关脚本。
 - `inspect_metadata.py` 只返回托管业务表命中的客观候选，不负责判断“哪张表最好”。
 - 平台核心表结构已在本页给出，字段明确时可直接写 SQL。

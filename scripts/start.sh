@@ -17,6 +17,57 @@ ENV_EXAMPLE="$DEPLOY_DIR/.env.example"
 # shellcheck source=/dev/null
 source "$LIB_DIR/container-runtime.sh"
 
+read_env_value() {
+    local key="$1"
+    local env_file="$2"
+
+    if [ ! -f "$env_file" ]; then
+        return 0
+    fi
+
+    local line
+    line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+    printf '%s' "${line#*=}"
+}
+
+resolve_dataagent_skills_dir() {
+    local configured
+    configured="$(read_env_value "DATAAGENT_SKILLS_DIR" "$ENV_FILE")"
+    if [ -z "$configured" ]; then
+        configured="../dataagent/.claude/skills"
+    fi
+
+    if [[ "$configured" = /* ]]; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+
+    local absolute_path
+    absolute_path="$(cd "$DEPLOY_DIR" && python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$configured")"
+    printf '%s\n' "$absolute_path"
+}
+
+ensure_dataagent_cli_executable() {
+    local skills_dir
+    skills_dir="$(resolve_dataagent_skills_dir)"
+    local cli_path="$skills_dir/dataagent-nl2sql/bin/odw-cli"
+
+    if [ ! -f "$cli_path" ]; then
+        return 0
+    fi
+
+    if [ -x "$cli_path" ]; then
+        return 0
+    fi
+
+    if chmod +x "$cli_path" 2>/dev/null; then
+        echo "🔧 已修复 DataAgent runtime CLI 执行权限: $cli_path"
+    else
+        echo "⚠️  警告: 无法自动修复 DataAgent runtime CLI 执行权限: $cli_path"
+        echo "   智能问数 metadata 链路会退回 sh 执行，但建议仍在宿主机保留 +x 权限。"
+    fi
+}
+
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "❌ 错误: 未找到 $COMPOSE_FILE"
     exit 1
@@ -68,6 +119,8 @@ fi
 
 echo "🚀 启动 OpenDataWorks 服务..."
 echo ""
+
+ensure_dataagent_cli_executable
 
 # 启动服务
 pushd "$DEPLOY_DIR" >/dev/null

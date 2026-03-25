@@ -24,7 +24,7 @@ Convert Chinese natural-language data questions into read-only SQL, execute agai
 5. **ALWAYS** include a LIMIT clause on SELECT queries (default 100).
 6. **ALWAYS** ask the user to clarify before guessing when terminology, target table, time range, or comparison dimension is ambiguous.
 7. **NEVER** run `pip install`, `uv add`, `which python`, `python --version`, or any environment probing commands.
-8. **ALWAYS** verify `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` exists before calling any metadata script — if missing, stop and tell the user to install it.
+8. **ALWAYS** verify `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` exists before calling any metadata script — if missing, stop and tell the user to install it. A missing execute bit is tolerated at runtime via `sh`.
 9. **ALWAYS** respond in Chinese: conclusion first, then evidence. Never echo back raw tool output verbatim.
 10. **ALWAYS** stop after the first correct `sql_execution` or `chart_spec` — do not re-execute equivalent SQL or continue reading assets.
 
