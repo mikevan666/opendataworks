@@ -31,6 +31,22 @@ def _sha256(content: str) -> str:
     return hashlib.sha256((content or "").encode("utf-8")).hexdigest()
 
 
+def _normalize_provider_settings_blob(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        normalized: dict[str, Any] = {}
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+            provider_id = str(entry.get("provider_id") or "").strip()
+            if not provider_id:
+                continue
+            normalized[provider_id] = dict(entry)
+        return normalized
+    return {}
+
+
 def _content_type_for_path(relative_path: str) -> str:
     suffix = Path(relative_path).suffix.lower()
     if suffix == ".json":
@@ -439,11 +455,12 @@ class SkillAdminStore:
             "provider_validation_message",
             "provider_validated_at",
             "provider_settings",
+            "providers",
         }
         for key in extra_keys:
             if key in data:
-                if key == "provider_settings":
-                    normalized[key] = data.get(key) or {}
+                if key in {"provider_settings", "providers"}:
+                    normalized["provider_settings"] = _normalize_provider_settings_blob(data.get(key))
                 else:
                     normalized[key] = str(data.get(key) or "")
         return normalized
@@ -482,10 +499,11 @@ class SkillAdminStore:
                         "provider_validation_message",
                         "provider_validated_at",
                         "provider_settings",
+                        "providers",
                     }:
                         if key in payload:
-                            if key == "provider_settings":
-                                normalized[key] = payload.get(key) or {}
+                            if key in {"provider_settings", "providers"}:
+                                normalized["provider_settings"] = _normalize_provider_settings_blob(payload.get(key))
                             else:
                                 normalized[key] = str(payload.get(key) or "")
             except Exception:
