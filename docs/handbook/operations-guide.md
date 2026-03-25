@@ -90,7 +90,7 @@ server {
 | 组件 | 文件 | 说明 |
 | --- | --- | --- |
 | Backend | `application.yml` | DB、Dolphin/Dinky、日志、CORS |
-| Frontend | `frontend/nginx.conf` | 反向代理 `/api/` 至 `backend:8080/api/`，并代理 `/api/v1/dataagent/`、`/api/v1/nl2sql/` 至 `dataagent-backend:8900` |
+| Frontend | `frontend/nginx.conf` | 反向代理 `/api/` 至 `backend:8080/api/`，并代理 `/api/v1/dataagent/`、`/api/v1/nl2sql-admin/`、`/api/v1/nl2sql/` 至 `dataagent-backend:8900` |
 | DataAgent Backend | `dataagent/dataagent-backend` | 智能问数 API、Skills 管理、NL2SQL 会话服务 |
 | Compose | `deploy/docker-compose.prod.yml` | 镜像/tag/端口/卷，主前端统一承载智能问数入口 |
 
