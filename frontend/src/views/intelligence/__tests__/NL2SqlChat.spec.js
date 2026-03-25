@@ -211,14 +211,74 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('workflow_publish_record')
     expect(wrapper.text()).toContain('opendataworks MySQL')
     expect(wrapper.text()).toContain('深度思考')
-    expect(wrapper.text()).toContain('python scripts/run_sql.py --question trend')
     expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
+    expect(wrapper.find('.query-process-summary-preview').exists()).toBe(false)
     expect(apiMocks.taskApi.streamTaskEvents).toHaveBeenCalledWith(
       'task-1',
       expect.objectContaining({ afterSeq: 12 })
     )
+  })
+
+  it('hides empty trace placeholders and only keeps meaningful tool blocks', async () => {
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
+        {
+          message_id: 'a1',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'running',
+          content: '',
+          resume_after_seq: 12,
+          blocks: [
+            {
+              block_id: 'tool-empty-read',
+              type: 'tool',
+              status: 'streaming',
+              tool_id: 'tool-empty-read',
+              tool_name: 'Read'
+            },
+            {
+              block_id: 'tool-empty-bash',
+              type: 'tool',
+              status: 'streaming',
+              tool_id: 'tool-empty-bash',
+              tool_name: 'Bash'
+            },
+            {
+              block_id: 'tool-real-read',
+              type: 'tool',
+              status: 'streaming',
+              tool_id: 'tool-real-read',
+              tool_name: 'Read',
+              input: {
+                file_path: '/tmp/reference/30-tool-recipes.md'
+              },
+              output: '## tool recipes'
+            }
+          ],
+          created_at: '2026-03-10T02:00:00Z'
+        }
+      ]
+    })
+    apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('读取文件：正在读取文件')
+    expect(wrapper.text()).not.toContain('执行命令：正在执行命令')
+    expect(wrapper.findAll('tool-output-renderer-stub')).toHaveLength(1)
   })
 
   it('moves the cancel action into the composer while the active task is running', async () => {
@@ -238,11 +298,47 @@ describe('NL2SqlChat', () => {
     const cancelButton = wrapper.find('.query-btn-cancel')
     expect(cancelButton.exists()).toBe(true)
     expect(cancelButton.attributes('aria-label')).toBe('取消当前任务')
+    expect(cancelButton.text()).toContain('停止回答')
 
     await cancelButton.trigger('click')
     await flushPromises()
 
     expect(apiMocks.taskApi.cancelTask).toHaveBeenCalledWith('task-1')
+  })
+
+  it('shows a visible stop-answer button after a newly sent question enters the running state', async () => {
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 0,
+      items: []
+    })
+    apiMocks.taskApi.deliverMessage.mockResolvedValue({
+      accepted: true,
+      topic_id: 'topic-1',
+      task_id: 'task-new',
+      task_status: 'waiting',
+      user_message_id: 'u-new',
+      assistant_message_id: 'a-new'
+    })
+    apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
+
+    const wrapper = shallowMount(NL2SqlChat)
+
+    await flushPromises()
+    await flushPromises()
+
+    await wrapper.find('.query-textarea').setValue('最近 30 天工作流发布次数趋势')
+    await wrapper.find('.query-btn-send').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    const cancelButton = wrapper.find('.query-btn-cancel')
+    expect(cancelButton.exists()).toBe(true)
+    expect(cancelButton.text()).toContain('停止回答')
+    expect(cancelButton.attributes('aria-label')).toBe('取消当前任务')
   })
 
   it('collapses the process panel after the final answer is ready', async () => {
