@@ -30,6 +30,60 @@ read_env_value() {
     printf '%s' "${line#*=}"
 }
 
+normalize_path() {
+    local path="$1"
+    local is_absolute=false
+    local -a parts=()
+    local -a normalized=()
+    local part
+    local joined=""
+    local i
+
+    if [[ "$path" = /* ]]; then
+        is_absolute=true
+        path="${path#/}"
+    fi
+
+    IFS='/' read -r -a parts <<< "$path"
+    for part in "${parts[@]}"; do
+        case "$part" in
+            ""|".")
+                continue
+                ;;
+            "..")
+                if [ "${#normalized[@]}" -gt 0 ]; then
+                    unset 'normalized[${#normalized[@]}-1]'
+                fi
+                ;;
+            *)
+                normalized+=("$part")
+                ;;
+        esac
+    done
+
+    if [ "${#normalized[@]}" -gt 0 ]; then
+        joined="${normalized[0]}"
+        for ((i = 1; i < ${#normalized[@]}; i++)); do
+            joined+="/${normalized[i]}"
+        done
+    fi
+
+    if [ "$is_absolute" = true ]; then
+        if [ -n "$joined" ]; then
+            printf '/%s\n' "$joined"
+        else
+            printf '/\n'
+        fi
+        return 0
+    fi
+
+    if [ -n "$joined" ]; then
+        printf '%s\n' "$joined"
+    else
+        printf '.\n'
+    fi
+}
+
 resolve_dataagent_skills_dir() {
     local configured
     configured="$(read_env_value "DATAAGENT_SKILLS_DIR" "$ENV_FILE")"
@@ -43,7 +97,7 @@ resolve_dataagent_skills_dir() {
     fi
 
     local absolute_path
-    absolute_path="$(cd "$DEPLOY_DIR" && python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$configured")"
+    absolute_path="$(normalize_path "$DEPLOY_DIR/$configured")"
     printf '%s\n' "$absolute_path"
 }
 
