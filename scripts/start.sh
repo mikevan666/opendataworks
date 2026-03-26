@@ -104,6 +104,23 @@ resolve_dataagent_skills_dir() {
 ensure_dataagent_cli_executable() {
     local skills_dir
     skills_dir="$(resolve_dataagent_skills_dir)"
+
+    if [ ! -d "$skills_dir" ]; then
+        return 0
+    fi
+
+    # 统一 skills 目录 owner 为容器运行时用户，避免 bin/ 等子目录残留 root:root
+    local runtime_uid
+    local runtime_gid
+    runtime_uid="$(read_env_value "DATAAGENT_RUNTIME_UID" "$ENV_FILE")"
+    runtime_gid="$(read_env_value "DATAAGENT_RUNTIME_GID" "$ENV_FILE")"
+    runtime_uid="${runtime_uid:-1000}"
+    runtime_gid="${runtime_gid:-1000}"
+    chown -R "${runtime_uid}:${runtime_gid}" "$skills_dir" 2>/dev/null || true
+
+    # 确保目录可遍历、文件可读
+    chmod -R a+rX "$skills_dir" 2>/dev/null || true
+
     local cli_path="$skills_dir/dataagent-nl2sql/bin/odw-cli"
 
     if [ ! -f "$cli_path" ]; then
