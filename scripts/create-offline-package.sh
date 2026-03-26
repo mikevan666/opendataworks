@@ -141,6 +141,12 @@ if [[ -d "$REPO_ROOT/dataagent/.claude/skills" ]]; then
     tar -C "$REPO_ROOT/dataagent/.claude/skills" -cf - . | tar -C "$PACKAGED_DATAAGENT_RUNTIME_DIR/skills" -xf -
 fi
 
+# 离线部署包必须保留 odw-cli 的执行权限，否则容器内 bind mount 后会报 permission denied
+if [[ -f "$PACKAGED_DATAAGENT_RUNTIME_DIR/skills/dataagent-nl2sql/bin/odw-cli" ]]; then
+    chmod +x "$PACKAGED_DATAAGENT_RUNTIME_DIR/skills/dataagent-nl2sql/bin/odw-cli"
+    log "Ensured odw-cli execute permission in offline package"
+fi
+
 # 4. 清理旧的 tar 包（如果不知何故被复制了）
 rm -f "$DEPLOY_IMAGE_DIR/"*.tar 2>/dev/null || true
 

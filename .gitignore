@@ -37,6 +37,7 @@ dolphinscheduler-service/*.egg-info/
 # Editor
 .vscode/
 .codex/
+/.claude/
 *.swp
 *.swo
 *~
