@@ -40,7 +40,14 @@ vi.mock('echarts/renderers', () => ({
 import ToolOutputRenderer from '../ToolOutputRenderer.vue'
 
 const mountRenderer = (tool) => shallowMount(ToolOutputRenderer, {
-  props: { tool }
+  props: { tool },
+  global: {
+    stubs: {
+      ElScrollbar: {
+        template: '<div class="el-scrollbar-stub"><slot /></div>'
+      }
+    }
+  }
 })
 
 describe('ToolOutputRenderer', () => {
@@ -273,6 +280,24 @@ describe('ToolOutputRenderer', () => {
     expect(wrapper.text()).toContain('执行命令：python scripts/run_sql.py --question trend')
     expect(wrapper.text()).toContain('正在运行命令')
     expect(wrapper.text()).not.toContain('工具调用')
+  })
+
+  it('uses the bootstrap skill label on the concrete follow-up tool', () => {
+    const wrapper = mountRenderer({
+      name: 'Bash',
+      status: 'streaming',
+      _callComplete: true,
+      _runtimeStarted: true,
+      _skillBootstrapName: 'dataagent-nl2sql',
+      input: {
+        command: 'python scripts/run_sql.py --question trend'
+      },
+      output: 'running...'
+    })
+
+    expect(wrapper.text()).toContain('加载技能（dataagent-nl2sql）')
+    expect(wrapper.text()).toContain('正在运行命令')
+    expect(wrapper.text()).toContain('$ python scripts/run_sql.py --question trend')
   })
 
   it('renders markdown skill output as a collapsed preview and expands on demand', async () => {

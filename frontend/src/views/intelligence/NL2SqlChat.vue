@@ -18,23 +18,25 @@
         >
       </div>
 
-      <div class="query-session-list">
-        <button
-          v-for="topic in filteredTopics"
-          :key="topic.topic_id"
-          class="query-session-item"
-          :class="{ active: topic.topic_id === activeTopicId }"
-          @click="handleSelectTopic(topic.topic_id)"
-        >
-          <div class="query-session-title">{{ truncate(topic.title, 26) }}</div>
-          <div class="query-session-meta">{{ formatTime(topic.updated_at || topic.created_at) }}</div>
-        </button>
-        <div v-if="!filteredTopics.length" class="query-empty-sessions">暂无话题</div>
-      </div>
+      <el-scrollbar class="query-session-scroll">
+        <div class="query-session-list">
+          <button
+            v-for="topic in filteredTopics"
+            :key="topic.topic_id"
+            class="query-session-item"
+            :class="{ active: topic.topic_id === activeTopicId }"
+            @click="handleSelectTopic(topic.topic_id)"
+          >
+            <div class="query-session-title">{{ truncate(topic.title, 26) }}</div>
+            <div class="query-session-meta">{{ formatTime(topic.updated_at || topic.created_at) }}</div>
+          </button>
+          <div v-if="!filteredTopics.length" class="query-empty-sessions">暂无话题</div>
+        </div>
+      </el-scrollbar>
     </aside>
 
     <main class="query-main">
-      <div ref="messagesRef" class="query-messages" @scroll="handleScroll">
+      <el-scrollbar ref="messagesScrollbarRef" class="query-messages" @scroll="handleScroll">
         <div class="query-messages-inner">
           <div class="query-main-head">
             <div>
@@ -90,26 +92,32 @@
                     </button>
                   </div>
 
-                  <div v-if="isProcessPanelExpanded(msg)" class="query-process-content">
-                    <div v-if="processPlaceholder(msg)" class="query-process-placeholder">
-                      <span class="query-process-placeholder-text">{{ processPlaceholder(msg)?.text }}</span>
-                      <span v-if="processPlaceholder(msg)?.preview" class="query-process-placeholder-preview">{{ processPlaceholder(msg)?.preview }}</span>
-                      <span class="query-loading-dots">
-                        <span>.</span>
-                        <span>.</span>
-                        <span>.</span>
-                      </span>
-                    </div>
-
-                    <div v-for="block in processBlocksForMessage(msg)" :key="block.id" class="query-step-row">
-                      <div v-if="block.kind === 'thinking' && block.text" class="query-process-thought">
-                        <div class="query-process-thought-content" v-html="renderMarkdown(block.text)"></div>
-                        <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
+                  <el-scrollbar
+                    v-if="isProcessPanelExpanded(msg)"
+                    class="query-process-content"
+                    max-height="min(420px, 52vh)"
+                  >
+                    <div class="query-process-content-inner">
+                      <div v-if="processPlaceholder(msg)" class="query-process-placeholder">
+                        <span class="query-process-placeholder-text">{{ processPlaceholder(msg)?.text }}</span>
+                        <span v-if="processPlaceholder(msg)?.preview" class="query-process-placeholder-preview">{{ processPlaceholder(msg)?.preview }}</span>
+                        <span class="query-loading-dots">
+                          <span>.</span>
+                          <span>.</span>
+                          <span>.</span>
+                        </span>
                       </div>
 
-                      <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
+                      <div v-for="block in processBlocksForMessage(msg)" :key="block.id" class="query-step-row">
+                        <div v-if="block.kind === 'thinking' && block.text" class="query-process-thought">
+                          <div class="query-process-thought-content" v-html="renderMarkdown(block.text)"></div>
+                          <span v-if="msg.status === 'streaming' && block.status === 'streaming'" class="query-cursor">|</span>
+                        </div>
+
+                        <ToolOutputRenderer v-else-if="block.kind === 'tool' && block.tool" :tool="block.tool" />
+                      </div>
                     </div>
-                  </div>
+                  </el-scrollbar>
                 </div>
 
                 <div v-for="block in finalBlocksForMessage(msg)" :key="block.id" class="query-step-row">
@@ -148,7 +156,7 @@
             </div>
           </template>
         </div>
-      </div>
+      </el-scrollbar>
 
       <div class="query-composer-wrap">
         <div class="query-composer">
@@ -240,7 +248,7 @@ import { marked } from 'marked'
 import { createNl2SqlApiClient } from '@/api/nl2sql'
 import ToolOutputRenderer from './ToolOutputRenderer.vue'
 import { stripChartSpecsFromText } from './chartSpec'
-import { describeToolAction } from './toolPresentation'
+import { describeToolAction, extractToolSkillName, formatSkillBootstrapLabel, isSkillBootstrapPlaceholder } from './toolPresentation'
 import {
   createAssistantMessageState,
   hydrateAssistantMessageState,
@@ -256,7 +264,7 @@ const topics = ref([])
 const activeTopicId = ref('')
 const inputText = ref('')
 const searchKeyword = ref('')
-const messagesRef = ref(null)
+const messagesScrollbarRef = ref(null)
 const autoScroll = ref(true)
 const hydratedIds = new Set()
 const taskSubscriptions = new Map()
@@ -456,7 +464,39 @@ const renderBlocksForMessage = (msg) => (Array.isArray(msg?.renderBlocks) ? msg.
   return ['thinking', 'main_text', 'error'].includes(String(block.kind || ''))
 })
 
-const processBlocksForMessage = (msg) => renderBlocksForMessage(msg)
+const markFollowupToolWithSkillContext = (blocks) => {
+  let pendingSkillName = ''
+
+  return blocks.reduce((result, block, index) => {
+    if (block?.kind !== 'tool' || !block.tool) {
+      result.push(block)
+      return result
+    }
+
+    if (isSkillBootstrapPlaceholder(block.tool)) {
+      const hasFollowingConcreteTool = blocks.slice(index + 1).some((nextBlock) => (
+        nextBlock?.kind === 'tool'
+        && nextBlock.tool
+        && describeToolAction(nextBlock.tool).kind !== 'skill'
+      ))
+
+      if (hasFollowingConcreteTool) {
+        pendingSkillName = extractToolSkillName(block.tool) || pendingSkillName
+        return result
+      }
+    }
+
+    if (pendingSkillName && describeToolAction(block.tool).kind !== 'skill') {
+      block.tool._skillBootstrapName = pendingSkillName
+      pendingSkillName = ''
+    }
+
+    result.push(block)
+    return result
+  }, [])
+}
+
+const processBlocksForMessage = (msg) => markFollowupToolWithSkillContext(renderBlocksForMessage(msg))
   .filter((block) => ['thinking', 'tool'].includes(block.kind))
 
 const finalBlocksForMessage = (msg) => renderBlocksForMessage(msg)
@@ -529,6 +569,14 @@ const toUiTaskStatus = (status) => {
 const isActiveTaskStatus = (status) => ['queued', 'running', 'streaming'].includes(String(status || '').trim())
 
 const describeToolActivity = (tool) => {
+  const bootstrapSkillName = String(tool?._skillBootstrapName || '').trim()
+  if (bootstrapSkillName) {
+    return {
+      text: '正在加载技能',
+      preview: formatSkillBootstrapLabel(bootstrapSkillName)
+    }
+  }
+
   const action = describeToolAction(tool)
 
   if (action.kind === 'shell') {
@@ -1009,21 +1057,44 @@ const handleSuggestion = (value) => {
   void handleSend()
 }
 
-const isNearBottom = () => {
-  const element = messagesRef.value
-  if (!element) return true
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 60
+const getMessagesScrollWrap = () => {
+  const scrollbar = messagesScrollbarRef.value
+  if (!scrollbar) return null
+  if (scrollbar.wrapRef) return scrollbar.wrapRef
+  if (scrollbar.$el && typeof scrollbar.$el.querySelector === 'function') {
+    return scrollbar.$el.querySelector('.el-scrollbar__wrap') || scrollbar.$el
+  }
+  if (typeof scrollbar.querySelector === 'function') {
+    return scrollbar.querySelector('.el-scrollbar__wrap') || scrollbar
+  }
+  return null
 }
 
-const handleScroll = () => {
-  autoScroll.value = isNearBottom()
+const isNearBottom = (scrollTop) => {
+  const element = getMessagesScrollWrap()
+  if (!element) return true
+  const currentScrollTop = Number.isFinite(scrollTop) ? scrollTop : element.scrollTop
+  return element.scrollHeight - currentScrollTop - element.clientHeight < 60
+}
+
+const handleScroll = ({ scrollTop } = {}) => {
+  autoScroll.value = isNearBottom(scrollTop)
 }
 
 const scrollToBottom = (force = false) => {
   if (!force && !autoScroll.value) return
   nextTick(() => {
-    const element = messagesRef.value
-    if (element) element.scrollTop = element.scrollHeight
+    const scrollbar = messagesScrollbarRef.value
+    if (scrollbar?.update) {
+      scrollbar.update()
+    }
+    const element = getMessagesScrollWrap()
+    if (!element) return
+    if (scrollbar?.setScrollTop) {
+      scrollbar.setScrollTop(element.scrollHeight)
+      return
+    }
+    element.scrollTop = element.scrollHeight
   })
 }
 
@@ -1153,12 +1224,18 @@ onBeforeUnmount(() => {
   background: #ffffff;
 }
 
-.query-session-list {
+.query-session-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 4px;
   margin-top: 2px;
+}
+
+.query-session-scroll :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden;
+}
+
+.query-session-list {
+  padding: 0 4px;
 }
 
 .query-session-item {
@@ -1219,7 +1296,10 @@ onBeforeUnmount(() => {
 .query-messages {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+}
+
+.query-messages :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
 }
 
 .query-messages-inner {
@@ -1472,11 +1552,14 @@ onBeforeUnmount(() => {
 
 .query-process-content {
   margin-top: 12px;
-  max-height: min(420px, 52vh);
-  overflow-y: auto;
+}
+
+.query-process-content :deep(.el-scrollbar__wrap) {
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+}
+
+.query-process-content-inner {
   padding: 4px 12px 4px 18px;
   border-left: 3px solid #eff1f5;
 }
@@ -1620,6 +1703,10 @@ onBeforeUnmount(() => {
 
 .query-process-content :deep(.tool-output-body-scroll) {
   max-height: 200px;
+}
+
+.query-process-content :deep(.tool-output-body-scroll .el-scrollbar__wrap) {
+  max-height: 200px !important;
 }
 
 .query-process-content :deep(.tool-chart) {
