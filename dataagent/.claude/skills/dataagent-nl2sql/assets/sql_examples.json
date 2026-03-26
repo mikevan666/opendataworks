@@ -71,13 +71,13 @@
     },
     {
       "scene_key": "diagnose-table-lineage",
-      "title": "dwd_tech_dev_inspection_rule_cnt_di 上下游血缘定位",
+      "title": "某张表上下游血缘定位",
       "engine": "mysql",
       "scenario": "诊断",
-      "question": "查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘",
-      "sql": "SELECT dl.lineage_type,\n       ut.db_name AS upstream_db,\n       ut.table_name AS upstream_table,\n       dt.db_name AS downstream_db,\n       dt.table_name AS downstream_table\nFROM opendataworks.data_lineage dl\nLEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0\nLEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0\nWHERE (ut.table_name = 'dwd_tech_dev_inspection_rule_cnt_di' OR dt.table_name = 'dwd_tech_dev_inspection_rule_cnt_di')\nORDER BY dl.id DESC\nLIMIT 100;",
+      "question": "查看某张表的上下游血缘",
+      "sql": "SELECT dl.lineage_type,\n       ut.db_name AS upstream_db,\n       ut.table_name AS upstream_table,\n       dt.db_name AS downstream_db,\n       dt.table_name AS downstream_table\nFROM opendataworks.data_lineage dl\nLEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0\nLEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0\nWHERE (ut.table_name = 'your_table' OR dt.table_name = 'your_table')\nORDER BY dl.id DESC\nLIMIT 100;",
       "notes": [
-        "如果用户换成其他表名，按同样模板替换表名即可。",
+        "把 `your_table` 替换成用户给出的真实表名即可。",
         "平台核心表 SQL 也要保留 schema 前缀。",
         "血缘定位默认输出表格，不强制出图。"
       ],
@@ -87,21 +87,20 @@
       ]
     },
     {
-      "scene_key": "detail-latest-snapshot-by-env",
-      "title": "按环境查询最新 ds 快照",
+      "scene_key": "detail-latest-df-snapshot",
+      "title": "按最新 ds 查询 df 快照表明细",
       "engine": "doris",
       "scenario": "明细查询",
-      "question": "查询 PROD 环境最新一天的组件接口明细",
-      "sql": "SELECT component_name,\n       interface_name,\n       env_name,\n       ds\nFROM <db_name>.<table_df>\nWHERE ds = (SELECT MAX(ds) FROM <db_name>.<table_df>)\n  AND env_name = 'PROD'\nORDER BY component_name, interface_name\nLIMIT 100;",
+      "question": "查询某张 df 快照表最新一天的明细",
+      "sql": "SELECT *\nFROM <db_name>.<table_df>\nWHERE ds = (SELECT MAX(ds) FROM <db_name>.<table_df>)\nLIMIT 100;",
       "notes": [
         "Doris `df` 表默认按每日全量快照理解，常规问数优先只查最新 `ds`。",
-        "业务环境默认优先使用字段 `env_name`，常见值为大写 `PROD` / `SIM`。",
-        "如果用户说的是数据中心名称或 CFC 环境名称，需要改用对应字段，不能直接套用 `env_name`。"
+        "真正落地时应结合 metadata 把 `SELECT *` 缩成最小必要字段。",
+        "如果用户明确要求历史区间，再改成按 `ds` 过滤区间。"
       ],
       "related_terms": [
         "DF快照表",
-        "环境名称",
-        "接口名称"
+        "SQL Schema 限定"
       ]
     },
     {
@@ -109,17 +108,16 @@
       "title": "按时间范围查询 di 增量明细",
       "engine": "doris",
       "scenario": "明细查询",
-      "question": "查询 2026-03-01 到 2026-03-13 的组件接口调用明细",
-      "sql": "SELECT component_name,\n       interface_name,\n       env_name,\n       ds\nFROM <db_name>.<table_di>\nWHERE ds BETWEEN '2026-03-01' AND '2026-03-13'\nORDER BY ds DESC, component_name, interface_name\nLIMIT 100;",
+      "question": "查询某张 di 增量表在指定时间范围内的明细",
+      "sql": "SELECT *\nFROM <db_name>.<table_di>\nWHERE ds BETWEEN '2026-03-01' AND '2026-03-13'\nLIMIT 100;",
       "notes": [
         "Doris `di` 表默认按每日增量表理解，必须带时间范围过滤。",
         "日期字段通常优先使用 `ds`。",
-        "如果用户没有给时间范围，应先追问，而不是只查最新 `ds`。"
+        "真正落地时应结合 metadata 把 `SELECT *` 缩成最小必要字段。"
       ],
       "related_terms": [
         "DI增量表",
-        "环境名称",
-        "接口名称"
+        "SQL Schema 限定"
       ]
     }
   ]

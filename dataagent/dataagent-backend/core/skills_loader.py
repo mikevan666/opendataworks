@@ -89,9 +89,23 @@ def _resolve_root_dir(raw: str) -> Path:
     return (base / path).resolve()
 
 
-def resolve_skills_root_dir() -> Path:
+def resolve_builtin_skill_root_dir() -> Path:
     cfg = get_settings()
     return _resolve_root_dir(cfg.skills_output_dir)
+
+
+def resolve_skills_root_dir() -> Path:
+    return resolve_builtin_skill_root_dir()
+
+
+def resolve_skill_discovery_root_dir() -> Path:
+    builtin_root = resolve_builtin_skill_root_dir()
+    discovery_root = builtin_root.parent
+    if discovery_root.name == "skills" and discovery_root.parent.name == ".claude":
+        return discovery_root
+    raise SkillsLoadError(
+        f"builtin skills_output_dir must resolve under '.claude/skills', current={builtin_root}"
+    )
 
 
 def resolve_agent_project_cwd() -> Path:
@@ -99,13 +113,8 @@ def resolve_agent_project_cwd() -> Path:
     Claude Agent SDK 官方技能发现依赖 cwd 下的 .claude/skills 目录。
     优先返回可发现该目录的项目根。
     """
-    skills_root = resolve_skills_root_dir()
-    for parent in [skills_root, *skills_root.parents]:
-        if (parent / ".claude" / "skills").exists():
-            return parent
-    raise SkillsLoadError(
-        f"skills_output_dir must be under '.claude/skills', current={skills_root}"
-    )
+    discovery_root = resolve_skill_discovery_root_dir()
+    return discovery_root.parent.parent
 
 
 def _read_json(path: Path) -> dict[str, Any]:

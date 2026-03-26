@@ -177,7 +177,7 @@ def _remove_legacy_files(paths: list[Path]):
 def _default_skill_md() -> str:
     return """---
 name: dataagent-nl2sql
-description: Use this skill for Chinese data questions, statistics, comparison, trend analysis, term explanation, SQL examples, and chart-oriented answer planning across MySQL and Doris datasources.
+description: Use this built-in skill for Chinese OpenDataWorks intelligent-query and NL2SQL work across MySQL and Doris: platform metadata, workflow, lineage, datasource routing, generic table discovery, read-only SQL execution, term explanation, and chart-oriented answers. Prefer platform terms and generic data-platform rules; do not assume tenant-specific business defaults.
 ---
 
 # DataAgent NL2SQL Skill
@@ -246,7 +246,7 @@ def _default_reference_datasource() -> str:
 先结论：所有问数只允许单源路由。
 
 - 平台元数据查询走 MySQL
-- 业务事实与汇总查询由 `resolve_datasource.py` 判断 MySQL 或 Doris
+- 托管数据表的事实与汇总查询由 `resolve_datasource.py` 判断 MySQL 或 Doris
 - 不做跨源联查
 """
 
@@ -254,7 +254,7 @@ def _default_reference_datasource() -> str:
 def _default_reference_term_index() -> str:
     return """# 术语索引
 
-先结论：遇到术语、别名、口径不清时先看本页；仍不清晰再下钻 `assets/term_explanations.json`。
+先结论：遇到平台术语、库表别名或通用口径不清时先看本页；仍不清晰再下钻 `assets/term_explanations.json`。
 """
 
 

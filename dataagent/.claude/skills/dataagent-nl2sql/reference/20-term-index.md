@@ -1,17 +1,8 @@
 # 术语索引
 
-先结论：遇到业务术语、别名、口径不清的问题，先看本页；仍不明确时，再下钻到对应资产或追问用户。
+先结论：遇到平台术语、库表别名或通用口径不清的问题，先看本页；仍不明确时，再下钻到对应资产或追问用户。
 
 ## 术语解释资产
-
-### CFC环境名称
-- 别名：配置中心环境、cfc env、cfc环境
-- 解释：CFC 环境名称指组件依赖的配置中心环境，常见值如 `prod`、`sim`、`oasj`，通常为小写。它与业务环境 `env_name` 以及数据中心名称都不同。
-- 易混术语：环境名称、数据中心名称
-- 推荐追问：请确认你要过滤的是 CFC 环境，还是业务 `env_name`，还是数据中心名称。
-- 相关指标：无
-- 相关表：无
-- 来源：`assets/term_explanations.json`
 
 ### DF快照表
 - 别名：df表、快照表、每日全量快照表
@@ -36,7 +27,7 @@
 - 解释：doris_database_users 按 cluster_id + database_name 保存数据库级只读账号和读写账号，供查询脚本在运行时路由使用。
 - 易混术语：Doris 集群、数据库路由
 - 推荐追问：请提供明确的 database_name；若同一数据库在多个集群出现，需要进一步确认 cluster_id。
-- 相关指标：发布记录数
+- 相关指标：无
 - 相关表：doris_cluster、doris_database_users
 - 来源：`assets/term_explanations.json`
 
@@ -67,24 +58,6 @@
 - 相关表：workflow_publish_record、data_workflow
 - 来源：`assets/term_explanations.json`
 
-### 接口名称
-- 别名：API名称、服务接口、接口
-- 解释：接口名称通常是组件或微服务中的接口。只给接口名时容易重名，最好同时给出组件名称和环境条件。
-- 易混术语：组件名称、方法名
-- 推荐追问：请确认接口属于哪个组件或微服务，以及所在环境；否则同名接口可能不唯一。
-- 相关指标：无
-- 相关表：无
-- 来源：`assets/term_explanations.json`
-
-### 数据中心名称
-- 别名：机房、DC、data center
-- 解释：数据中心名称表示部署或所属机房维度，常见值如 `tz`、`simcx`。它不是业务 `env_name`，也不是 CFC 环境名称。
-- 易混术语：环境名称、CFC环境名称
-- 推荐追问：请确认你要按数据中心过滤，还是按业务环境 `env_name` / CFC 环境过滤。
-- 相关指标：无
-- 相关表：无
-- 来源：`assets/term_explanations.json`
-
 ### 数据层级
 - 别名：表层级、层级、ODS/DWD/DIM/DWS/ADS
 - 解释：数据层级描述表在数仓中的分层位置。OpenDataWorks 当前使用 ODS、DWD、DIM、DWS、ADS 五类层级保存到 data_table.layer。
@@ -92,24 +65,6 @@
 - 推荐追问：请确认你想看的是 layer 分布，还是 business_domain / data_domain 维度。
 - 相关指标：数据表数量
 - 相关表：data_table
-- 来源：`assets/term_explanations.json`
-
-### 环境名称
-- 别名：业务环境、env_name、环境
-- 解释：业务语境中的环境名称通常指字段 `env_name`，常见值为大写 `PROD` / `SIM`。这和数据中心名称、CFC 环境名称不是一回事。
-- 易混术语：数据中心名称、CFC环境名称
-- 推荐追问：请确认你说的环境是业务 `env_name`，还是数据中心名称，还是 CFC 环境名称。
-- 相关指标：无
-- 相关表：无
-- 来源：`assets/term_explanations.json`
-
-### 组件名称
-- 别名：服务名称、组件
-- 解释：组件名称通常在同一环境中唯一。定位组件时，优先同时给出组件名称和环境，避免跨环境同名误判。
-- 易混术语：接口名称、应用名称
-- 推荐追问：请提供组件名称，以及它所在的业务环境 / 数据中心 / CFC 环境中的哪一种限定。
-- 相关指标：无
-- 相关表：无
 - 来源：`assets/term_explanations.json`
 
 ### 血缘关系
@@ -121,7 +76,7 @@
 - 相关表：data_lineage、data_table
 - 来源：`assets/term_explanations.json`
 
-## 业务概念补充
+## 平台概念补充
 
 ### 任务数量
 - 说明：当前平台中满足过滤条件的任务数量。

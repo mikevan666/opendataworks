@@ -17,7 +17,7 @@ import anyio
 
 from config import get_settings
 from core.skill_admin_service import resolve_runtime_provider_selection
-from core.skills_loader import resolve_agent_project_cwd, resolve_skills_root_dir
+from core.skills_loader import resolve_agent_project_cwd, resolve_builtin_skill_root_dir
 from core.stream_events import EventSequencer
 
 logger = logging.getLogger(__name__)
@@ -705,11 +705,12 @@ def _build_system_prompt(database_hint: str | None) -> str:
     python_bin = str(Path(sys.executable).absolute())
     lines = [
         "你是 DataAgent 智能问数助手。",
-        "- 数据问题统一通过 dataagent-nl2sql skill 处理。",
+        "- 数据问题优先通过当前内置通用问数 skill 处理。",
         (
             f"- 需要查元数据、数据源、SQL 或 Python 时，遵循 skill 内定义的命令模板。"
             f"运行时只提供通用入口：`{python_bin}` / `$DATAAGENT_PYTHON_BIN` 和 `$DATAAGENT_SKILL_ROOT`。"
         ),
+        "- 当前内置 skill 只提供 OpenDataWorks 平台术语、平台表和数据中台通用规则；不要臆造租户业务术语、业务环境默认值或隐藏口径。",
         "- 不要自己发明部署绝对路径、脚本名或命令格式；路径和参数以 skill 文档为准。",
         "- 阅读深度、执行顺序、是否先追问以及何时收口，都以当前 skill 文档和真实工具结果为准；不要把某个 skill 的局部流程提升成全局规则。",
         "- 遇到关键信息不明确时，优先依据当前 skill 和工具结果确认；仍无法确认再做最小追问。只允许只读执行。",
@@ -882,7 +883,7 @@ def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base
 def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput | None = None) -> dict[str, str]:
     python_bin = Path(sys.executable).absolute()
     python_dir = str(python_bin.parent)
-    skills_root = resolve_skills_root_dir()
+    skills_root = resolve_builtin_skill_root_dir()
     existing_path = str(os.getenv("PATH") or "").strip()
     runtime_path = python_dir if not existing_path else f"{python_dir}:{existing_path}"
     # Preserve the current process environment so skill-private env vars can be

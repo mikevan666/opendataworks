@@ -7,7 +7,7 @@
 - 需要确认平台核心表的关键字段
 - 需要确认上下游血缘或任务关系
 - 需要确认目标数据库落在 MySQL 还是 Doris
-- 需要解释为什么平台核心表可直接走 MySQL，而托管业务表必须先 metadata 再 datasource 再 SQL
+- 需要解释为什么平台核心表可直接走 MySQL，而托管数据表必须先 metadata 再 datasource 再 SQL
 
 ## 推荐脚本入口
 
@@ -23,7 +23,7 @@
 - 执行 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在。
 - 部署时如果 bind mount 丢了执行位，运行时会自动退回 `sh "${DATAAGENT_SKILL_ROOT}/bin/odw-cli" ...`；但宿主机仍建议保留 `+x`。
 - 如果该固定路径缺少 CLI，必须先由用户自行安装到 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，然后再执行 metadata 相关脚本。
-- `inspect_metadata.py` 只返回托管业务表命中的客观候选，不负责判断“哪张表最好”。
+- `inspect_metadata.py` 只返回托管数据表命中的客观候选，不负责判断“哪张表最好”。
 - 平台核心表结构已在本页给出，字段明确时可直接写 SQL。
 - `resolve_datasource.py` 只负责确认引擎与数据源元信息。
 - `run_sql.py` 会在执行前再次解析数据源，因此不要把 datasource 结果当成最终凭证输出。
@@ -114,11 +114,11 @@ LIMIT 100;
 诊断类硬规则：
 
 - 用户已经给出明确表名时，直接执行这条 SQL 模板或等价脚本，不要搜索仓库里的 lineage/血缘代码实现。
-- 如果是 `dwd_order` 这类具体表名，优先直接把表名填入 SQL，再执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"`。
+- 如果是用户已经明确给出的具体表名，优先直接把表名填入 SQL，再执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"`。
 - 只要第一次血缘 SQL 已返回非空结果，就直接总结；即使 `downstream_table` 或 `upstream_table` 有空值，也不要因为补空列再继续追加第二条 SQL。
 - 只有同名表不唯一或用户没给出表名时，才退回 metadata 检索和追问。
 
-### 某个业务数据库对应的 Doris 只读账号
+### 某个数据库对应的 Doris 只读账号
 
 ```sql
 SELECT du.database_name,

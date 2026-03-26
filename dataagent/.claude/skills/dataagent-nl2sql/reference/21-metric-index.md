@@ -47,7 +47,7 @@
 - 默认时间字段：`created_at`
 - 来源：`assets/metrics.json`
 
-## 业务规则补充
+## 通用规则补充
 
 ### Doris 增量表
 - 同义词：di表、增量表、每日增量
@@ -82,11 +82,6 @@
 ### 数据层级
 - 同义词：层级、表层级、ODS/DWD/DIM/DWS/ADS
 - 规则：涉及层级分布或层级对比时，默认使用 data_table.layer，并排除 deleted=1 的记录；若用户强调“有效表”，再额外过滤 status='active'。
-- 来源：`assets/business_rules.json`
-
-### 环境名称
-- 同义词：环境、业务环境、env
-- 规则：业务语境中的“环境名称”默认优先映射字段 `env_name`，常见值为大写 `PROD` / `SIM`；必须与数据中心名称（如 `tz`、`simcx`）和 CFC 环境名称（如 `prod`、`sim`、`oasj`）区分。
 - 来源：`assets/business_rules.json`
 
 ### 趋势分析

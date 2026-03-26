@@ -10,7 +10,7 @@
       </el-col>
       <el-col :xs="24" :md="8">
         <el-card shadow="never" class="summary-card">
-          <div class="summary-label">Skills 目录</div>
+          <div class="summary-label">内置 Skill 目录</div>
           <div class="summary-value path">{{ settingsMeta.skills_root_dir || '-' }}</div>
         </el-card>
       </el-col>
@@ -245,11 +245,11 @@
         </div>
 
         <div class="form-section">
-          <div class="section-title">数据源说明与 Skills</div>
-          <div class="section-subtitle">MySQL / Doris 连接信息不在此页维护，统一从 opendataworks 平台数据源表读取。</div>
+          <div class="section-title">数据源说明与内置 Skill</div>
+          <div class="section-subtitle">MySQL / Doris 连接信息不在此页维护；这里配置的是 DataAgent 当前使用的内置 skill 目录。</div>
           <el-row :gutter="16">
             <el-col :xs="24" :md="12">
-              <el-form-item label="Skills 输出目录" prop="skills_output_dir">
+              <el-form-item label="内置 Skill 输出目录" prop="skills_output_dir">
                 <el-input v-model="form.skills_output_dir" placeholder="../.claude/skills/dataagent-nl2sql" />
               </el-form-item>
             </el-col>
@@ -261,9 +261,10 @@
           </el-row>
           <div class="datasource-notes">
             <div class="datasource-note-title">执行与推理约束</div>
-            <div class="datasource-note-item">业务表与数据库归属优先从 `opendataworks.data_table` 判断。</div>
+            <div class="datasource-note-item">托管数据表与数据库归属优先从 `opendataworks.data_table` 判断。</div>
             <div class="datasource-note-item">数据源主机、端口、类型、用户名从 `opendataworks.doris_cluster` 查询。</div>
             <div class="datasource-note-item">若需要库级只读账号，再查询 `opendataworks.doris_database_users`。</div>
+            <div class="datasource-note-item">仓库根目录的本地扩展 skill 不在此页管理，也不会自动进入当前运行时。</div>
           </div>
         </div>
       </el-form>

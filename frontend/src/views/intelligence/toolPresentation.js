@@ -63,8 +63,6 @@ export const extractToolSkillName = (tool = {}) => {
   const match = output.match(SKILL_LAUNCH_OUTPUT_RE)
   if (match?.[1]) return String(match[1]).trim()
 
-  const name = String(tool?.name || tool?.toolName || '').trim()
-  if (name && name.toLowerCase() !== 'skill') return name
   return ''
 }
 
@@ -86,6 +84,7 @@ export const describeToolAction = (tool = {}) => {
   const name = String(tool?.name || tool?.toolName || '').trim()
   const lowerName = name.toLowerCase()
   const input = parseToolInput(tool?.input)
+  const skillName = extractToolSkillName(tool)
 
   const command = firstFilled(
     input.command,
@@ -133,7 +132,7 @@ export const describeToolAction = (tool = {}) => {
   )
 
   let kind = 'tool'
-  if (lowerName.includes('skill') || lowerName.includes('dataagent-nl2sql')) {
+  if (lowerName.includes('skill') || skillName) {
     kind = 'skill'
   } else if (
     lowerName.includes('bash')
@@ -201,7 +200,7 @@ export const describeToolAction = (tool = {}) => {
   } else if (kind === 'edit') {
     detail = firstFilled(path, directory, description, command)
   } else if (kind === 'skill') {
-    detail = firstFilled(description, command, path, directory, name)
+    detail = firstFilled(skillName, description, command, path, directory, name)
   } else {
     detail = firstFilled(description, command, path, directory, pattern, name)
   }

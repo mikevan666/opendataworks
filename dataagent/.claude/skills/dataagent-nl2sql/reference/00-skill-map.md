@@ -11,7 +11,7 @@
 | 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
 | 占比 | `10-query-playbooks.md`、`20-term-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
 | 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `run_sql.py`，托管业务表走 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py` | 表格 |
+| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `run_sql.py`，托管数据表走 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py` | 表格 |
 | 术语解释 | `20-term-index.md` | 无，必要时回看资产 | 中文解释 |
 | SQL 示例 | `22-sql-example-index.md` | 无，必要时回看资产 | SQL 模板示例 |
 
@@ -44,12 +44,12 @@
 ## 先追问的情形
 
 - 数据层级、发布状态、任务依赖、Doris 只读账号口径不清
-- 用户说“环境名称”但未说明是业务 `env_name`、数据中心名称还是 CFC 环境名称
 - 用户命中 Doris `di` 增量表，但没有给时间范围
 - 对比维度没说清
 - 趋势指标没说清
 - 同名表可能存在于多个数据库
 - 时间范围与时间粒度不清
+- 问题依赖当前内置 skill 没定义的租户业务术语、业务对象或默认过滤
 
 ## 何时下钻资产
 
@@ -60,6 +60,6 @@
 ## 何时执行脚本
 
 - 平台核心表问题且字段已清楚：可直接 `run_sql.py`
-- 托管业务表、字段或库表不清：先 `inspect_metadata.py`
+- 托管数据表、字段或库表不清：先 `inspect_metadata.py`
 - 引擎不清：再 `resolve_datasource.py`
 - 结果结构适合图表：再 `build_chart_spec.py`

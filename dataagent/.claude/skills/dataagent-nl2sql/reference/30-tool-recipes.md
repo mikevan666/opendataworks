@@ -18,13 +18,13 @@
 
 ## inspect_metadata.py
 
-- 用途：定位托管业务表的数据库、表、字段、血缘
+- 用途：定位托管数据表的数据库、表、字段、血缘
 - 返回原则：
   - 只返回匹配到的客观候选，不做推荐、打分或排序
   - 由模型根据场景、字段和 reference 规则自己决定用哪张表
 - 适用场景：
   - 用户没有给出明确表名
-  - 需要确认托管业务表中的指标字段和维度字段
+  - 需要确认托管数据表中的指标字段和维度字段
   - 需要判断候选数据库
 - 不适用场景：
   - 问题已经明确指向 `data_table`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这些平台核心表
@@ -34,9 +34,9 @@
   - `--keyword`
 - 命令模板：
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --keyword "工作流发布"`
-  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database doris_ods --table dwd_tech_ops_cmp_performance_10m_di`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database doris_ods --table some_table_di`
 - 典型顺序：
-  - 托管业务表场景的第一脚本
+  - 托管数据表场景的第一脚本
 
 ## resolve_datasource.py
 
@@ -72,11 +72,10 @@
   - 数据库清楚
 - SQL 编写规则：
   - 平台核心表统一写 `opendataworks.<table>`
-  - 托管业务表统一写 `<db_name>.<table>`
+  - 托管数据表统一写 `<db_name>.<table>`
   - `mysql` / `doris` 只放在 `--engine`，不要写进 SQL schema
   - 对 Doris `df` 快照表，未指定历史区间时默认加最新 `ds` 过滤
   - 对 Doris `di` 增量表，必须显式加时间范围过滤，优先使用 `ds >= ... AND ds <= ...`
-  - 业务环境默认优先过滤 `env_name` 的大写值；如果用户说的是数据中心或 CFC 环境，必须先改用对应字段
 - 命令模板：
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM opendataworks.data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT * FROM doris_ods.some_table_df WHERE ds = (SELECT MAX(ds) FROM doris_ods.some_table_df) LIMIT 100"`
@@ -124,17 +123,17 @@
 
 ## 推荐脚本序列
 
-- 统计：平台核心表可直接 `run_sql.py`；托管业务表用 `inspect_metadata.py` -> `run_sql.py`
-- 对比：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type bar`；托管业务表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type bar`
-- 趋势：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type line`；托管业务表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type line`
-- 占比：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type pie`；托管业务表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type pie`
-- 明细：平台核心表可直接 `run_sql.py`；托管业务表用 `inspect_metadata.py` -> `run_sql.py`
-- 诊断：平台核心表可直接 `run_sql.py`；托管业务表用 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
+- 统计：平台核心表可直接 `run_sql.py`；托管数据表用 `inspect_metadata.py` -> `run_sql.py`
+- 对比：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type bar`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type bar`
+- 趋势：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type line`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type line`
+- 占比：平台核心表可直接 `run_sql.py` -> `build_chart_spec.py --chart-type pie`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type pie`
+- 明细：平台核心表可直接 `run_sql.py`；托管数据表用 `inspect_metadata.py` -> `run_sql.py`
+- 诊断：平台核心表可直接 `run_sql.py`；托管数据表用 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
 - 工作流发布趋势快路径：`21-metric-index.md` -> `22-sql-example-index.md` -> `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<按 created_at 按天聚合 workflow_publish_record 的 SQL>"` -> `build_chart_spec.py --chart-type line`；首个有效结果返回后直接总结
 
 ## 诊断直达规则
 
-- 对 `dwd_order`、`workflow_publish_record` 这类已经给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
+- 对 `workflow_publish_record` 或任意已给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
 - 这类问题的第一动作应是直接执行平台表 SQL，或用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/query_opendataworks_metadata.py" --kind lineage` / `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"` 查询 `data_lineage + data_table`。
 - 如果第一次血缘 SQL 已返回非空结果，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
 - 只有表名不唯一、数据库不清或字段不清时，才允许退回 `inspect_metadata.py` 或追问。
