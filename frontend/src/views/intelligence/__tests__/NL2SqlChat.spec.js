@@ -127,6 +127,7 @@ describe('NL2SqlChat', () => {
         {
           provider_id: 'anyrouter',
           display_name: 'AnyRouter',
+          enabled: true,
           models: ['claude-opus-4-6'],
           default_model: 'claude-opus-4-6',
           supports_partial_messages: true
@@ -221,6 +222,31 @@ describe('NL2SqlChat', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('shows empty config state when admin settings has no enabled provider', async () => {
+    apiMocks.adminApi.getSettings.mockResolvedValue({
+      provider_id: '',
+      model: '',
+      providers: [
+        {
+          provider_id: 'openrouter',
+          display_name: 'OpenRouter',
+          enabled: false,
+          models: [],
+          default_model: 'anthropic/claude-sonnet-4.5',
+          supports_partial_messages: true
+        }
+      ]
+    })
+
+    const wrapper = mountChat()
+
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('.query-config-empty').exists()).toBe(true)
+    expect(wrapper.find('.query-model-badge').text()).toContain('未配置')
   })
 
   it('keeps streamed main text visible while tools are still running', async () => {

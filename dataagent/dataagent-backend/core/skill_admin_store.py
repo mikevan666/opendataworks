@@ -431,8 +431,8 @@ class SkillAdminStore:
     def _normalize_settings_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = dict(payload or {})
         normalized = {
-            "provider_id": str(data.get("provider_id") or "openrouter").strip() or "openrouter",
-            "model": str(data.get("model") or "anthropic/claude-sonnet-4.5").strip() or "anthropic/claude-sonnet-4.5",
+            "provider_id": str(data.get("provider_id") or "").strip(),
+            "model": str(data.get("model") or "").strip(),
             "anthropic_api_key": str(data.get("anthropic_api_key") or ""),
             "anthropic_auth_token": str(data.get("anthropic_auth_token") or ""),
             "anthropic_base_url": str(data.get("anthropic_base_url") or ""),
@@ -469,8 +469,8 @@ class SkillAdminStore:
         if not row:
             return {}
         normalized = {
-            "provider_id": str(row.get("provider_id") or "openrouter"),
-            "model": str(row.get("model_name") or "anthropic/claude-sonnet-4.5"),
+            "provider_id": str(row.get("provider_id") or ""),
+            "model": str(row.get("model_name") or ""),
             "anthropic_api_key": str(row.get("anthropic_api_key") or ""),
             "anthropic_auth_token": str(row.get("anthropic_auth_token") or ""),
             "anthropic_base_url": str(row.get("anthropic_base_url") or ""),
