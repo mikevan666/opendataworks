@@ -503,7 +503,7 @@ const applySettings = (payload) => {
   providers.value = Array.isArray(payload?.providers) ? payload.providers : []
   resetProviderDrafts(providers.value)
 
-  form.provider_id = payload?.provider_id || validatedProviders.value[0]?.provider_id || providers.value[0]?.provider_id || ''
+  form.provider_id = payload?.provider_id || validatedProviders.value[0]?.provider_id || ''
   form.model = payload?.model || ''
   form.skills_output_dir = payload?.skills_output_dir || ''
 
@@ -583,7 +583,7 @@ const saveSettings = async () => {
   saving.value = true
   try {
     const payload = await dataagentApi.updateSettings({
-      provider_id: form.provider_id || selectedProviderId.value || providers.value[0]?.provider_id || 'openrouter',
+      provider_id: form.provider_id || '',
       model: form.model || '',
       skills_output_dir: form.skills_output_dir,
       providers: providers.value.map(buildProviderPayload)
@@ -597,6 +597,7 @@ const saveSettings = async () => {
 
 watch(validatedProviders, (list) => {
   if (!list.length) {
+    form.provider_id = ''
     form.model = ''
     return
   }

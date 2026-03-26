@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # ---- LLM Provider / Model ----
-    llm_provider: str = "openrouter"  # anthropic | openrouter | anyrouter | anthropic_compatible
-    claude_model: str = "anthropic/claude-sonnet-4.5"
+    llm_provider: str = ""  # anthropic | openrouter | anyrouter | anthropic_compatible
+    claude_model: str = ""
     claude_max_tokens: int = 4096
     agent_timeout_seconds: int = 180
     agent_max_turns: int = 20

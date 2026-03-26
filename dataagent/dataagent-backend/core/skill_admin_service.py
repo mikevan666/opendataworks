@@ -15,10 +15,10 @@ from core.skills_sync import ensure_static_skills_bundle
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_PROVIDERS = {"anthropic", "openrouter", "anyrouter", "anthropic_compatible"}
+SUPPORTED_PROVIDERS = ("anthropic", "openrouter", "anyrouter", "anthropic_compatible")
+SUPPORTED_PROVIDER_SET = set(SUPPORTED_PROVIDERS)
 MANAGED_FILE_SUFFIXES = {".json", ".md", ".markdown", ".py"}
 DEFAULT_PROVIDER_ID = "openrouter"
-DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
 
 PROVIDER_DEFINITIONS: dict[str, dict[str, Any]] = {
     "anthropic": {
@@ -123,9 +123,11 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _normalize_provider_id(provider_id: str | None) -> str:
+def _normalize_provider_id(provider_id: str | None, *, allow_empty: bool = False) -> str:
     value = str(provider_id or "").strip().lower()
-    return value if value in SUPPORTED_PROVIDERS else DEFAULT_PROVIDER_ID
+    if value in SUPPORTED_PROVIDER_SET:
+        return value
+    return "" if allow_empty else DEFAULT_PROVIDER_ID
 
 
 def _string_list(values: Any) -> list[str]:
@@ -168,13 +170,17 @@ def _coerce_provider_settings(raw: Any) -> dict[str, dict[str, Any]]:
         for entry in raw:
             if not isinstance(entry, dict):
                 continue
-            provider_id = _normalize_provider_id(entry.get("provider_id"))
+            provider_id = _normalize_provider_id(entry.get("provider_id"), allow_empty=True)
+            if not provider_id:
+                continue
             items[provider_id] = dict(entry)
         return items
     if isinstance(raw, dict):
         items = {}
         for provider_id, entry in raw.items():
-            normalized_id = _normalize_provider_id(provider_id)
+            normalized_id = _normalize_provider_id(provider_id, allow_empty=True)
+            if not normalized_id:
+                continue
             if isinstance(entry, dict):
                 items[normalized_id] = dict(entry)
         return items
@@ -183,23 +189,33 @@ def _coerce_provider_settings(raw: Any) -> dict[str, dict[str, Any]]:
 
 def _legacy_provider_settings(payload: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     data = dict(payload or {})
-    provider_id = _normalize_provider_id(data.get("provider_id"))
+    provider_id = _normalize_provider_id(data.get("provider_id"), allow_empty=True)
     model = str(data.get("model") or "").strip()
     api_key = str(data.get("anthropic_api_key") or "").strip()
     auth_token = str(data.get("anthropic_auth_token") or "").strip()
     base_url = str(data.get("anthropic_base_url") or "").strip()
 
     legacy = {pid: _default_provider_settings(pid) for pid in SUPPORTED_PROVIDERS}
-    target = legacy[provider_id]
-    if api_key:
-        target["api_key"] = api_key
-    if auth_token:
-        target["auth_token"] = auth_token
-    if base_url:
-        target["base_url"] = base_url
-    if model:
-        target["enabled_models"] = [model]
+    if provider_id:
+        target = legacy[provider_id]
+        if api_key:
+            target["api_key"] = api_key
+        if auth_token:
+            target["auth_token"] = auth_token
+        if base_url:
+            target["base_url"] = base_url
+        if model:
+            target["enabled_models"] = [model]
     return legacy
+
+
+def _enabled_provider_ids(provider_settings: dict[str, dict[str, Any]]) -> list[str]:
+    enabled: list[str] = []
+    for provider_id in SUPPORTED_PROVIDERS:
+        entry = provider_settings.get(provider_id)
+        if entry and bool(entry.get("enabled")):
+            enabled.append(provider_id)
+    return enabled
 
 
 def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previous: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -330,28 +346,32 @@ def _merge_settings_payload(current: dict[str, Any] | None, patch: dict[str, Any
         legacy_payload=base | update,
     )
 
-    provider_id = _normalize_provider_id(base.get("provider_id"))
-    provider_profile = provider_settings.get(provider_id) or _default_provider_settings(provider_id)
-    preferred_model = str(base.get("model") or "").strip()
-    if preferred_model and preferred_model not in provider_profile["supported_models"]:
+    provider_id = _normalize_provider_id(base.get("provider_id"), allow_empty=True)
+    if not provider_id:
+        enabled_provider_ids = _enabled_provider_ids(provider_settings)
+        provider_id = enabled_provider_ids[0] if enabled_provider_ids else ""
+
+    provider_profile = provider_settings.get(provider_id) if provider_id else None
+    preferred_model = str(base.get("model") or "").strip() if provider_profile else ""
+    if provider_profile and preferred_model and preferred_model not in provider_profile["supported_models"]:
         provider_profile["custom_models"] = _string_list(provider_profile["custom_models"] + [preferred_model])
         provider_settings[provider_id] = _normalize_provider_entry(provider_id, provider_profile)
         provider_profile = provider_settings[provider_id]
 
-    enabled_models = list(provider_profile.get("enabled_models") or [])
+    enabled_models = list(provider_profile.get("enabled_models") or []) if provider_profile else []
     model = preferred_model or (enabled_models[0] if enabled_models else "")
-    if model and model not in provider_profile["supported_models"]:
+    if provider_profile and model and model not in provider_profile["supported_models"]:
         model = ""
-    if not model:
-        model = enabled_models[0] if enabled_models else str(_provider_definition(provider_id).get("default_model") or DEFAULT_MODEL)
+    if not model and enabled_models:
+        model = enabled_models[0]
 
-    runtime_provider = provider_settings.get(provider_id) or _default_provider_settings(provider_id)
+    runtime_provider = provider_settings.get(provider_id) if provider_id else {}
     flattened = {
         "provider_id": provider_id,
         "model": model,
-        "anthropic_api_key": str(runtime_provider.get("api_key") or ""),
-        "anthropic_auth_token": str(runtime_provider.get("auth_token") or ""),
-        "anthropic_base_url": str(runtime_provider.get("base_url") or ""),
+        "anthropic_api_key": str(runtime_provider.get("api_key") or base.get("anthropic_api_key") or ""),
+        "anthropic_auth_token": str(runtime_provider.get("auth_token") or base.get("anthropic_auth_token") or ""),
+        "anthropic_base_url": str(runtime_provider.get("base_url") or base.get("anthropic_base_url") or ""),
         "mysql_host": str(base.get("mysql_host") or ""),
         "mysql_port": int(base.get("mysql_port") or 3306),
         "mysql_user": str(base.get("mysql_user") or ""),
@@ -405,7 +425,7 @@ def runtime_patch_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def validate_settings_payload(payload: dict[str, Any]):
     provider_id = str(payload.get("provider_id") or "").strip().lower()
-    if provider_id and provider_id not in SUPPORTED_PROVIDERS:
+    if provider_id and provider_id not in SUPPORTED_PROVIDER_SET:
         raise ValueError("provider_id must be one of anthropic/openrouter/anyrouter/anthropic_compatible")
 
     raw_skills_dir = str(payload.get("skills_output_dir") or "").replace("\\", "/")
@@ -482,7 +502,7 @@ def list_provider_configs(*, payload: dict[str, Any] | None = None, enabled_only
 def resolved_chat_settings_payload() -> dict[str, Any]:
     resolved = current_settings_payload()
     providers = list_provider_configs(payload=resolved, enabled_only=True)
-    default_provider_id = _normalize_provider_id(resolved.get("provider_id"))
+    default_provider_id = _normalize_provider_id(resolved.get("provider_id"), allow_empty=True)
     if not any(item["provider_id"] == default_provider_id for item in providers):
         default_provider_id = providers[0]["provider_id"] if providers else ""
 
@@ -510,8 +530,13 @@ def resolved_chat_settings_payload() -> dict[str, Any]:
 
 def resolve_runtime_provider_selection(provider_id: str | None, model: str | None) -> dict[str, Any]:
     resolved = current_settings_payload()
-    normalized_provider_id = _normalize_provider_id(provider_id or resolved.get("provider_id"))
     provider_settings = _coerce_provider_settings(resolved.get("provider_settings"))
+    normalized_provider_id = _normalize_provider_id(provider_id or resolved.get("provider_id"), allow_empty=True)
+    if not normalized_provider_id:
+        enabled_provider_ids = _enabled_provider_ids(provider_settings)
+        normalized_provider_id = enabled_provider_ids[0] if enabled_provider_ids else ""
+    if not normalized_provider_id:
+        raise ValueError("尚未配置可用大模型供应商")
     provider = _normalize_provider_entry(normalized_provider_id, provider_settings.get(normalized_provider_id) or {})
 
     if not provider.get("enabled"):

@@ -271,8 +271,8 @@ const taskSubscriptions = new Map()
 const pendingSubmitKeys = ref(new Set())
 
 const settings = reactive({
-  default_provider_id: 'openrouter',
-  default_model: 'anthropic/claude-sonnet-4.5',
+  default_provider_id: '',
+  default_model: '',
   providers: []
 })
 
@@ -864,12 +864,22 @@ const handleComposerAction = () => {
 const loadSettings = async () => {
   try {
     const payload = await adminApi.getSettings()
-    settings.default_provider_id = payload?.provider_id || payload?.default_provider_id || settings.default_provider_id
-    settings.default_model = payload?.model || payload?.default_model || settings.default_model
-    settings.providers = Array.isArray(payload?.providers) ? payload.providers : []
-    selectedProvider.value = settings.default_provider_id || settings.providers[0]?.provider_id || ''
-    const provider = settings.providers.find((item) => item.provider_id === selectedProvider.value)
-    selectedModel.value = provider?.default_model || settings.default_model || ''
+    const enabledProviders = Array.isArray(payload?.providers)
+      ? payload.providers.filter((item) => item?.enabled && Array.isArray(item?.models) && item.models.length)
+      : []
+    settings.providers = enabledProviders
+    const preferredProviderId = payload?.provider_id || payload?.default_provider_id || ''
+    const resolvedProvider = enabledProviders.find((item) => item.provider_id === preferredProviderId) || enabledProviders[0] || null
+    settings.default_provider_id = resolvedProvider?.provider_id || ''
+
+    const preferredModel = payload?.model || payload?.default_model || ''
+    const providerModels = Array.isArray(resolvedProvider?.models) ? resolvedProvider.models : []
+    settings.default_model = providerModels.includes(preferredModel)
+      ? preferredModel
+      : (resolvedProvider?.default_model || providerModels[0] || '')
+
+    selectedProvider.value = settings.default_provider_id
+    selectedModel.value = settings.default_model
   } catch (error) {
     console.warn('load settings failed', error)
   }
