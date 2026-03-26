@@ -47,12 +47,35 @@ vi.mock('@/api/nl2sql', () => ({
 vi.mock('element-plus', () => ({
   ElMessage: {
     error: vi.fn()
+  },
+  ElScrollbar: {
+    name: 'ElScrollbar',
+    template: '<div class="el-scrollbar-stub"><slot /></div>'
   }
 }))
 
 vi.mock('element-plus/theme-chalk/el-message.css', () => ({}))
 
 import NL2SqlChat from '../NL2SqlChat.vue'
+
+const mountChat = () => shallowMount(NL2SqlChat, {
+  global: {
+    stubs: {
+      ElScrollbar: {
+        template: '<div class="el-scrollbar-stub"><slot /></div>'
+      },
+      ToolOutputRenderer: {
+        props: {
+          tool: {
+            type: Object,
+            default: () => ({})
+          }
+        },
+        template: '<div class="tool-output-renderer-stub" :data-skill-name="tool?._skillBootstrapName || \'\'" :data-tool-name="tool?.name || \'\'"></div>'
+      }
+    }
+  }
+})
 
 const deferred = () => {
   let resolve
@@ -189,7 +212,7 @@ describe('NL2SqlChat', () => {
     })
 
     try {
-      const wrapper = shallowMount(NL2SqlChat)
+      const wrapper = mountChat()
 
       await flushPromises()
       await flushPromises()
@@ -202,7 +225,7 @@ describe('NL2SqlChat', () => {
 
   it('keeps streamed main text visible while tools are still running', async () => {
     apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -211,7 +234,7 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('workflow_publish_record')
     expect(wrapper.text()).toContain('opendataworks MySQL')
     expect(wrapper.text()).toContain('深度思考')
-    expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(true)
+    expect(wrapper.find('.tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)
     expect(wrapper.find('.query-process-content').attributes('style') || '').not.toContain('display: none')
     expect(wrapper.find('.query-process-summary-preview').exists()).toBe(false)
@@ -271,14 +294,77 @@ describe('NL2SqlChat', () => {
     })
     apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('读取文件：正在读取文件')
     expect(wrapper.text()).not.toContain('执行命令：正在执行命令')
-    expect(wrapper.findAll('tool-output-renderer-stub')).toHaveLength(1)
+    expect(wrapper.findAll('.tool-output-renderer-stub')).toHaveLength(1)
+  })
+
+  it('hides redundant skill bootstrap blocks once the concrete tool output is present', async () => {
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
+        {
+          message_id: 'a1',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'finished',
+          content: '最近 30 天累计发布 4 次。',
+          blocks: [
+            {
+              block_id: 'tool-skill',
+              type: 'tool',
+              status: 'success',
+              tool_id: 'tool-skill-1',
+              tool_name: 'Skill',
+              input: {
+                skill: 'dataagent-nl2sql'
+              },
+              output: 'Launching skill: dataagent-nl2sql'
+            },
+            {
+              block_id: 'tool-bash',
+              type: 'tool',
+              status: 'success',
+              tool_id: 'tool-bash-1',
+              tool_name: 'Bash',
+              input: {
+                command: 'python scripts/run_sql.py --question trend'
+              },
+              output: '2026-03-10,3\n2026-03-11,1'
+            },
+            {
+              block_id: 'main-1',
+              type: 'main_text',
+              status: 'success',
+              text: '最近 30 天累计发布 4 次。'
+            }
+          ],
+          created_at: '2026-03-10T02:00:00Z'
+        }
+      ]
+    })
+
+    const wrapper = mountChat()
+
+    await flushPromises()
+    await flushPromises()
+    await wrapper.find('.query-process-summary').trigger('click')
+    await flushPromises()
+
+    const toolBlocks = wrapper.findAll('.tool-output-renderer-stub')
+    expect(toolBlocks).toHaveLength(1)
+    expect(toolBlocks[0].attributes('data-skill-name')).toBe('dataagent-nl2sql')
   })
 
   it('moves the cancel action into the composer while the active task is running', async () => {
@@ -288,7 +374,7 @@ describe('NL2SqlChat', () => {
       task_status: 'suspended'
     })
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -325,7 +411,7 @@ describe('NL2SqlChat', () => {
     })
     apiMocks.taskApi.streamTaskEvents.mockImplementation(() => new Promise(() => {}))
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -391,7 +477,7 @@ describe('NL2SqlChat', () => {
       ]
     })
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -440,7 +526,7 @@ describe('NL2SqlChat', () => {
       ]
     })
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -448,7 +534,7 @@ describe('NL2SqlChat', () => {
     expect(wrapper.text()).toContain('最近 30 天共发布 4 次。')
     expect(wrapper.text()).not.toContain('<chart_spec>')
     expect(wrapper.text()).not.toContain('发布趋势')
-    expect(wrapper.find('tool-output-renderer-stub').exists()).toBe(false)
+    expect(wrapper.find('.tool-output-renderer-stub').exists()).toBe(false)
   })
 
   it('allows another topic to submit while the current topic is still awaiting acceptance', async () => {
@@ -477,7 +563,7 @@ describe('NL2SqlChat', () => {
       task_status: 'finished'
     })
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()
@@ -538,7 +624,7 @@ describe('NL2SqlChat', () => {
       assistant_message_id: 'a-new'
     })
 
-    const wrapper = shallowMount(NL2SqlChat)
+    const wrapper = mountChat()
 
     await flushPromises()
     await flushPromises()

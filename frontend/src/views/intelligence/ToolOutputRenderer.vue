@@ -26,7 +26,7 @@
       </div>
 
       <div v-if="tracePanelVisible" class="tool-output-panel shell-trace-panel">
-        <div class="tool-output-body-scroll">
+        <el-scrollbar class="tool-output-body-scroll" max-height="360px">
           <pre v-if="traceCommand" class="shell-trace-command"><code>{{ traceCommandPrefix }}{{ traceCommand }}</code></pre>
           <div v-if="traceDescription && traceDescription !== traceCommand" class="shell-trace-description">
             {{ traceDescription }}
@@ -46,7 +46,7 @@
             <pre v-else class="shell-trace-output"><code>{{ traceOutputText }}</code></pre>
           </template>
           <div v-else class="shell-trace-empty">无输出</div>
-        </div>
+        </el-scrollbar>
       </div>
     </div>
 
@@ -81,7 +81,7 @@
       <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
       <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
 
-      <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
+      <el-scrollbar v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
         <table class="tool-table">
           <thead>
             <tr>
@@ -94,7 +94,7 @@
             </tr>
           </tbody>
         </table>
-      </div>
+      </el-scrollbar>
 
       <div
         v-else-if="chartRenderState === 'renderable' && chartOption"
@@ -108,11 +108,11 @@
     </template>
 
     <div v-if="mainPanelVisible && !isDirectChart" class="tool-output-panel">
-      <div class="tool-output-body-scroll">
+      <el-scrollbar class="tool-output-body-scroll" max-height="360px">
         <template v-if="kind === 'sql_execution'">
           <pre v-if="sqlText" class="tool-code"><code>{{ sqlText }}</code></pre>
 
-          <div v-if="columns.length && rows.length" class="tool-table-wrap">
+          <el-scrollbar v-if="columns.length && rows.length" class="tool-table-wrap">
             <table class="tool-table">
               <thead>
                 <tr>
@@ -125,7 +125,7 @@
                 </tr>
               </tbody>
             </table>
-          </div>
+          </el-scrollbar>
           <div v-else-if="!errorText" class="tool-output-empty">无数据</div>
         </template>
 
@@ -133,7 +133,7 @@
           <div v-if="chartRenderState === 'invalid'" class="tool-output-error">{{ chartRenderError }}</div>
           <div v-else-if="chartRenderState === 'error' && !errorText" class="tool-output-error">{{ chartRenderError }}</div>
 
-          <div v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
+          <el-scrollbar v-if="chartRenderState === 'renderable' && chartRenderKind === 'table'" class="tool-table-wrap">
             <table class="tool-table">
               <thead>
                 <tr>
@@ -146,7 +146,7 @@
                 </tr>
               </tbody>
             </table>
-          </div>
+          </el-scrollbar>
 
           <div
             v-else-if="chartRenderState === 'renderable' && chartOption"
@@ -178,7 +178,7 @@
           </div>
           <pre v-else class="tool-code tool-code-light"><code>{{ normalizedRawText }}</code></pre>
         </template>
-      </div>
+      </el-scrollbar>
     </div>
   </div>
 </template>
@@ -197,7 +197,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { buildChartRenderModel, parseChartSpec, parseMaybeJson } from './chartSpec'
-import { describeToolAction } from './toolPresentation'
+import { describeToolAction, formatSkillBootstrapLabel } from './toolPresentation'
 
 use([
   CanvasRenderer,
@@ -334,6 +334,10 @@ const toolAction = computed(() => describeToolAction({
   input: props.tool?.input
 }))
 const toolNameLower = computed(() => toolAction.value.name.toLowerCase())
+const bootstrapSkillName = computed(() => String(props.tool?._skillBootstrapName || '').trim())
+const bootstrapSkillLabel = computed(() => (
+  bootstrapSkillName.value ? formatSkillBootstrapLabel(bootstrapSkillName.value) : ''
+))
 const scriptName = computed(() => String(outputPayload.value.script || '').trim())
 const summaryText = computed(() => String(outputPayload.value.summary || outputPayload.value.description || '').trim())
 const sqlText = computed(() => String(outputPayload.value.sql || '').trim())
@@ -430,6 +434,7 @@ const traceCommand = computed(() => toolAction.value.detail)
 const traceCommandPrefix = computed(() => (traceKind.value === 'shell' ? '$ ' : ''))
 
 const traceDescription = computed(() => {
+  if (bootstrapSkillLabel.value) return bootstrapSkillLabel.value
   if (traceKind.value === 'read') return toolAction.value.description || '正在读取文件'
   if (traceKind.value === 'list') return toolAction.value.description || '正在查看目录'
   if (traceKind.value === 'search') return toolAction.value.description || '正在搜索文件'
@@ -440,6 +445,7 @@ const traceDescription = computed(() => {
 })
 
 const traceSummaryText = computed(() => {
+  if (bootstrapSkillLabel.value) return bootstrapSkillLabel.value
   const detail = traceCommand.value || traceDescription.value
   
   if (traceKind.value === 'read') {
@@ -868,7 +874,10 @@ onBeforeUnmount(() => {
 
 .tool-output-body-scroll {
   max-height: 360px;
-  overflow: auto;
+}
+
+.tool-output-body-scroll :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
 }
 
 .shell-trace-panel {
@@ -885,7 +894,7 @@ onBeforeUnmount(() => {
   color: #3f3f3f;
   font-size: 12px;
   line-height: 1.7;
-  overflow: auto;
+  overflow: visible;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
@@ -959,7 +968,7 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   background: #102033;
   color: #edf5ff;
-  overflow: auto;
+  overflow: visible;
 }
 
 .tool-markdown-body :deep(pre code) {
@@ -1071,7 +1080,7 @@ onBeforeUnmount(() => {
   color: #edf5ff;
   font-size: 12px;
   line-height: 1.7;
-  overflow: auto;
+  overflow: visible;
 }
 
 .tool-code-light {
@@ -1081,10 +1090,13 @@ onBeforeUnmount(() => {
 
 .tool-table-wrap {
   margin-top: 14px;
-  overflow: auto;
   border: 1px solid #e1e8f0;
   border-radius: 14px;
   background: #fff;
+}
+
+.tool-table-wrap :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
 }
 
 .tool-table {

@@ -46,6 +46,42 @@ const buildSearchDetail = ({ pattern, directory, path, description }) => {
   return firstFilled(pattern, directory, path, description)
 }
 
+const SKILL_LAUNCH_OUTPUT_RE = /^Launching skill(?::\s*(.+))?$/i
+
+export const extractToolSkillName = (tool = {}) => {
+  const input = parseToolInput(tool?.input)
+  const fromInput = firstFilled(
+    input.skill,
+    input.skill_name,
+    input.skillName,
+    input.skill_id,
+    input.skillId
+  )
+  if (fromInput) return fromInput
+
+  const output = String(tool?.output || '').trim()
+  const match = output.match(SKILL_LAUNCH_OUTPUT_RE)
+  if (match?.[1]) return String(match[1]).trim()
+
+  const name = String(tool?.name || tool?.toolName || '').trim()
+  if (name && name.toLowerCase() !== 'skill') return name
+  return ''
+}
+
+export const isSkillBootstrapPlaceholder = (tool = {}) => {
+  const action = describeToolAction(tool)
+  if (action.kind !== 'skill') return false
+
+  const output = String(tool?.output || '').trim()
+  if (!output) return true
+  return SKILL_LAUNCH_OUTPUT_RE.test(output)
+}
+
+export const formatSkillBootstrapLabel = (skillName) => {
+  const value = String(skillName || '').trim()
+  return value ? `加载技能（${value}）` : '加载技能'
+}
+
 export const describeToolAction = (tool = {}) => {
   const name = String(tool?.name || tool?.toolName || '').trim()
   const lowerName = name.toLowerCase()
