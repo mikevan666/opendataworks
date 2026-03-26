@@ -1,8 +1,8 @@
 # 场景 Playbooks
 
-先结论：本技能优先覆盖统计、对比、趋势、占比、明细、诊断六类问题。对于 `opendataworks` 平台核心表问题，字段已清楚时可以直接走 MySQL；对于托管业务表问题，再走 metadata -> datasource -> SQL。
+先结论：本技能优先覆盖统计、对比、趋势、占比、明细、诊断六类问题。对于 `opendataworks` 平台核心表问题，字段已清楚时可以直接走 MySQL；对于托管数据表问题，再走 metadata -> datasource -> SQL。
 
-## 托管业务表补充规则
+## 托管数据表通用规则
 
 - 一旦 metadata 确认 `db_name`，SQL 统一写成 `<db_name>.<table_name>`；不要只写裸表名。
 - `doris` / `mysql` 是引擎类型，不是 schema 名；不要把引擎名误写到 `FROM doris.xxx` 这种 SQL 里。
@@ -10,7 +10,7 @@
 - 非归因分析、非历史回溯、非用户显式指定历史区间时，`df` 快照表优先只查最新 `ds`。
 - 若 Doris 表名体现 `di` 增量含义，默认视为按 `ds` 存储的每日增量表。
 - `di` 增量表必须按时间范围查询；若用户未给范围，先追问，不要只查最新 `ds`，也不要扫全量历史。
-- 用户说“环境名称”时，默认优先理解为业务字段 `env_name`，常见值 `PROD` / `SIM`；若用户其实在说数据中心名称或 CFC 环境名称，必须先澄清。
+- 如果问题依赖当前内置 skill 没定义的租户业务术语、业务对象或默认过滤，先追问，不要内置猜测。
 
 ## 统计
 
@@ -22,13 +22,13 @@
 - 推荐顺序：
   1. `21-metric-index.md`
   2. 平台核心表已明确时直接 `run_sql.py`
-  3. 托管业务表场景才用 `inspect_metadata.py`
+  3. 托管数据表场景才用 `inspect_metadata.py`
 - 默认输出：表格
 - 追问条件：
   - 指标口径不清
   - 时间范围不清
   - 命中 Doris `di` 增量表，但用户没有给时间范围
-  - 用户说“环境名称”但未说明是 `env_name`、数据中心名称还是 CFC 环境名称
+  - 问题依赖当前内置 skill 没定义的租户业务口径
 
 ## 对比
 
@@ -41,7 +41,7 @@
   1. `21-metric-index.md`
   2. `20-term-index.md`
   3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管业务表场景才用 `inspect_metadata.py`
+  4. 托管数据表场景才用 `inspect_metadata.py`
   5. `build_chart_spec.py --chart-type bar`
 - 默认图表：条形图
 - 回退输出：表格
@@ -57,18 +57,18 @@
   1. `21-metric-index.md`
   2. `22-sql-example-index.md`
   3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管业务表场景才用 `inspect_metadata.py`
+  4. 托管数据表场景才用 `inspect_metadata.py`
   5. `build_chart_spec.py --chart-type line`
 - 第一条脚本动作：
   - 平台核心表场景：直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT ..."`
-  - 托管业务表场景：先 `inspect_metadata.py`
+  - 托管数据表场景：先 `inspect_metadata.py`
 - 选表规则：
   - 平台核心表问题优先直接用已知表结构，不要先兜圈读资产。
-  - 托管业务表候选由模型根据字段与 reference 自己判断，不依赖脚本推荐。
-  - 若时间字段不唯一，优先使用业务记录时间或 `created_at`，仍不明确就追问。
+  - 托管数据表候选由模型根据字段与 reference 自己判断，不依赖脚本推荐。
+  - 若时间字段不唯一，优先使用 `created_at`、`ds` 或明确的业务记录时间；仍不明确就追问。
 - 数据源规则：
   - 平台核心表固定走 `opendataworks` MySQL。
-  - 托管业务表若已确定 `db_name`，再调用 `resolve_datasource.py`；成功一次后不要重复调用。
+  - 托管数据表若已确定 `db_name`，再调用 `resolve_datasource.py`；成功一次后不要重复调用。
 - 快路径示例：
   - `最近 30 天工作流发布次数趋势` 命中 `workflow_publish_record` 时，固定按 `21-metric-index.md` -> `22-sql-example-index.md` -> `run_sql.py` -> `build_chart_spec.py --chart-type line` 执行。
   - 默认使用 `workflow_publish_record.created_at` 按天聚合发布记录数；第一次返回口径正确的 `sql_execution` 和 `chart_spec` 后就直接总结，不再重复执行等价 SQL。
@@ -96,7 +96,7 @@
   1. `20-term-index.md`
   2. `21-metric-index.md`
   3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管业务表场景才用 `inspect_metadata.py`
+  4. 托管数据表场景才用 `inspect_metadata.py`
   5. `build_chart_spec.py --chart-type pie`
 - 默认图表：饼图
 - 回退条件：
@@ -114,7 +114,7 @@
   1. `20-term-index.md`
   2. `30-tool-recipes.md`
   3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管业务表场景才用 `inspect_metadata.py`
+  4. 托管数据表场景才用 `inspect_metadata.py`
 - 默认输出：表格
 - 约束：
   - 必须带 LIMIT
@@ -127,19 +127,19 @@
 - 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群
 - 先确认：
   - 目标表或目标数据库
-  - 是否需要补充 db_name
+  - 是否需要补充 `db_name`
   - 是否要看表级血缘还是任务级关系
 - 推荐顺序：
   1. `20-term-index.md`
   2. `40-runtime-metadata.md`
   3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管业务表场景才用 `inspect_metadata.py`
+  4. 托管数据表场景才用 `inspect_metadata.py`
   5. 必要时 `resolve_datasource.py`
 - 默认输出：表格 + 诊断结论
 - 强约束：
   - 用户已给出具体表名时，不要在仓库代码、测试文件或参考文档中搜索 lineage/血缘实现。
-  - 直接执行 `data_lineage + data_table` 的查询脚本；只有表名不唯一时才追问。
-  - 若用户问题里提到“环境”，先判断它是 `env_name`、数据中心名称还是 CFC 环境名称，不要直接混入同一个过滤条件。
+  - 直接执行 `data_lineage + data_table` 的查询脚本；只有表名不唯一或数据库不清时才追问。
+  - 第一次血缘 SQL 已返回非空结果时，直接基于结果总结；不要继续追加等价 SQL。
 
 ## 术语解释
 

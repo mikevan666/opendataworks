@@ -96,9 +96,7 @@
         "数据库路由"
       ],
       "ask_back": "请提供明确的 database_name；若同一数据库在多个集群出现，需要进一步确认 cluster_id。",
-      "related_metrics": [
-        "发布记录数"
-      ],
+      "related_metrics": [],
       "related_tables": [
         "doris_cluster",
         "doris_database_users"
@@ -162,85 +160,6 @@
         "data_table",
         "data_field"
       ]
-    },
-    {
-      "term": "环境名称",
-      "aliases": [
-        "业务环境",
-        "env_name",
-        "环境"
-      ],
-      "explanation": "业务语境中的环境名称通常指字段 `env_name`，常见值为大写 `PROD` / `SIM`。这和数据中心名称、CFC 环境名称不是一回事。",
-      "ambiguous_terms": [
-        "数据中心名称",
-        "CFC环境名称"
-      ],
-      "ask_back": "请确认你说的环境是业务 `env_name`，还是数据中心名称，还是 CFC 环境名称。",
-      "related_metrics": [],
-      "related_tables": []
-    },
-    {
-      "term": "数据中心名称",
-      "aliases": [
-        "机房",
-        "DC",
-        "data center"
-      ],
-      "explanation": "数据中心名称表示部署或所属机房维度，常见值如 `tz`、`simcx`。它不是业务 `env_name`，也不是 CFC 环境名称。",
-      "ambiguous_terms": [
-        "环境名称",
-        "CFC环境名称"
-      ],
-      "ask_back": "请确认你要按数据中心过滤，还是按业务环境 `env_name` / CFC 环境过滤。",
-      "related_metrics": [],
-      "related_tables": []
-    },
-    {
-      "term": "CFC环境名称",
-      "aliases": [
-        "配置中心环境",
-        "cfc env",
-        "cfc环境"
-      ],
-      "explanation": "CFC 环境名称指组件依赖的配置中心环境，常见值如 `prod`、`sim`、`oasj`，通常为小写。它与业务环境 `env_name` 以及数据中心名称都不同。",
-      "ambiguous_terms": [
-        "环境名称",
-        "数据中心名称"
-      ],
-      "ask_back": "请确认你要过滤的是 CFC 环境，还是业务 `env_name`，还是数据中心名称。",
-      "related_metrics": [],
-      "related_tables": []
-    },
-    {
-      "term": "组件名称",
-      "aliases": [
-        "服务名称",
-        "组件"
-      ],
-      "explanation": "组件名称通常在同一环境中唯一。定位组件时，优先同时给出组件名称和环境，避免跨环境同名误判。",
-      "ambiguous_terms": [
-        "接口名称",
-        "应用名称"
-      ],
-      "ask_back": "请提供组件名称，以及它所在的业务环境 / 数据中心 / CFC 环境中的哪一种限定。",
-      "related_metrics": [],
-      "related_tables": []
-    },
-    {
-      "term": "接口名称",
-      "aliases": [
-        "API名称",
-        "服务接口",
-        "接口"
-      ],
-      "explanation": "接口名称通常是组件或微服务中的接口。只给接口名时容易重名，最好同时给出组件名称和环境条件。",
-      "ambiguous_terms": [
-        "组件名称",
-        "方法名"
-      ],
-      "ask_back": "请确认接口属于哪个组件或微服务，以及所在环境；否则同名接口可能不唯一。",
-      "related_metrics": [],
-      "related_tables": []
     }
   ]
 }

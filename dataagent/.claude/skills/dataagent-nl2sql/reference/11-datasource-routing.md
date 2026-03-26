@@ -1,11 +1,11 @@
 # 数据源路由
 
-先结论：所有问数只允许单源路由。问题明确指向 `opendataworks` 平台核心表时直接走 MySQL；托管业务表先用元数据判断库表归属，再决定落到 MySQL 还是 Doris。
+先结论：所有问数只允许单源路由。问题明确指向 `opendataworks` 平台核心表时直接走 MySQL；托管数据表先用元数据判断库表归属，再决定落到 MySQL 还是 Doris。
 
 ## 路由规则
 
 - `data_table`、`data_field`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这类平台核心表查询走 MySQL
-- 业务事实表、汇总表先通过 metadata 定位数据库，再由 `resolve_datasource.py` 判断引擎
+- 托管数据表、事实表、汇总表先通过 metadata 定位数据库，再由 `resolve_datasource.py` 判断引擎
 - 若 `resolve_datasource.py` 返回 `mysql`，则按 MySQL 语法和能力执行
 - 若返回 `doris`，则按 Doris 语法和能力执行
 - metadata 返回的 `db_name` / schema 才是 SQL 的库名前缀；`mysql` / `doris` 只是引擎类型，不是 schema
@@ -17,7 +17,7 @@
 
 - 查询平台元数据与治理表
 - 查询维表或轻量明细表
-- 业务库明确位于 MySQL
+- 数据库明确位于 MySQL
 
 ## 选择 Doris 的典型情况
 
@@ -31,8 +31,8 @@
 - 用户问题同时命中多个数据库
 - 候选表分布在不同引擎
 - 同一指标在多张表中都有口径实现
-- 用户只说“环境名称”，但可能是在说业务 `env_name`、数据中心名称或 CFC 环境名称
 - 用户命中 Doris `di` 增量表，但没有提供时间范围
+- 问题依赖当前内置 skill 未定义的租户业务术语、对象或默认过滤
 
 ## 禁止事项
 

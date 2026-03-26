@@ -3,7 +3,7 @@
     <el-row :gutter="16" class="summary-row">
       <el-col :xs="24" :md="8">
         <el-card shadow="never" class="summary-card">
-          <div class="summary-label">Skills 根目录</div>
+          <div class="summary-label">内置 Skill 根目录</div>
           <div class="summary-value path">{{ settings.skills_root_dir || '-' }}</div>
         </el-card>
       </el-col>
@@ -23,10 +23,10 @@
         <el-card shadow="never" class="summary-card sync-card">
           <div>
             <div class="summary-label">刷新索引</div>
-            <div class="summary-subtext">重新扫描 Skills 目录并刷新运行时，不再从数据库导出 metadata 文件。</div>
+            <div class="summary-subtext">重新扫描内置 skill 目录并刷新运行时，不再从数据库导出 metadata 文件。</div>
           </div>
           <el-button type="warning" @click="triggerSync" :loading="syncLoading">
-            刷新 Skills
+            刷新内置 Skill
           </el-button>
         </el-card>
       </el-col>
@@ -41,7 +41,7 @@
       @close="syncResult = null"
     >
       <template #title>
-        刷新完成：共处理 {{ syncResult.document_count }} 个文件，变更 {{ syncResult.changed_documents?.length || 0 }} 个，
+        内置 Skill 刷新完成：共处理 {{ syncResult.document_count }} 个文件，变更 {{ syncResult.changed_documents?.length || 0 }} 个，
         新收录 {{ syncResult.imported_documents?.length || 0 }} 个。
       </template>
     </el-alert>
@@ -51,8 +51,8 @@
         <template #header>
           <div class="card-header">
             <div>
-              <div class="card-title">技能文件</div>
-              <div class="card-subtitle">支持前端编辑、版本比对和回滚。</div>
+              <div class="card-title">内置 Skill 文件</div>
+              <div class="card-subtitle">仅管理当前内置 skill，支持前端编辑、版本比对和回滚。</div>
             </div>
             <div class="actions">
               <el-input
@@ -426,8 +426,8 @@ const confirmRollback = async (version) => {
 const triggerSync = async () => {
   try {
     await ElMessageBox.confirm(
-      '确认重新扫描 Skills 目录并刷新 DataAgent 运行时吗？',
-      '刷新 Skills',
+      '确认重新扫描内置 Skill 目录并刷新 DataAgent 运行时吗？',
+      '刷新内置 Skill',
       {
         type: 'warning',
         confirmButtonText: '开始刷新',
@@ -445,7 +445,7 @@ const triggerSync = async () => {
     if (selectedDocumentId.value) {
       await loadDocument(selectedDocumentId.value)
     }
-    ElMessage.success('技能文件刷新完成')
+    ElMessage.success('内置 Skill 文件刷新完成')
   } finally {
     syncLoading.value = false
   }

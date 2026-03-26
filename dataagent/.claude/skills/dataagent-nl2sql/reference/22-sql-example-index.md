@@ -34,27 +34,27 @@
 ### 按时间范围查询 di 增量明细
 - 场景：明细查询
 - 引擎：`doris`
-- 问题：查询 2026-03-01 到 2026-03-13 的组件接口调用明细
-- SQL 摘要：`SELECT component_name,`
-- 注意事项：Doris `di` 表默认按每日增量表理解，必须带时间范围过滤。、日期字段通常优先使用 `ds`。、如果用户没有给时间范围，应先追问，而不是只查最新 `ds`。
-- 相关术语：DI增量表、环境名称、接口名称
+- 问题：查询某张 di 增量表在指定时间范围内的明细
+- SQL 摘要：`SELECT *`
+- 注意事项：Doris `di` 表默认按每日增量表理解，必须带时间范围过滤。、日期字段通常优先使用 `ds`。、真正落地时应结合 metadata 把 `SELECT *` 缩成最小必要字段。
+- 相关术语：DI增量表、SQL Schema 限定
 - 来源：`assets/sql_examples.json`
 
-### 按环境查询最新 ds 快照
+### 按最新 ds 查询 df 快照表明细
 - 场景：明细查询
 - 引擎：`doris`
-- 问题：查询 PROD 环境最新一天的组件接口明细
-- SQL 摘要：`SELECT component_name,`
-- 注意事项：Doris `df` 表默认按每日全量快照理解，常规问数优先只查最新 `ds`。、业务环境默认优先使用字段 `env_name`，常见值为大写 `PROD` / `SIM`。、如果用户说的是数据中心名称或 CFC 环境名称，需要改用对应字段，不能直接套用 `env_name`。
-- 相关术语：DF快照表、环境名称、接口名称
+- 问题：查询某张 df 快照表最新一天的明细
+- SQL 摘要：`SELECT *`
+- 注意事项：Doris `df` 表默认按每日全量快照理解，常规问数优先只查最新 `ds`。、真正落地时应结合 metadata 把 `SELECT *` 缩成最小必要字段。、如果用户明确要求历史区间，再改成按 `ds` 过滤区间。
+- 相关术语：DF快照表、SQL Schema 限定
 - 来源：`assets/sql_examples.json`
 
-### dwd_tech_dev_inspection_rule_cnt_di 上下游血缘定位
+### 某张表上下游血缘定位
 - 场景：诊断
 - 引擎：`mysql`
-- 问题：查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘
+- 问题：查看某张表的上下游血缘
 - SQL 摘要：`SELECT dl.lineage_type,`
-- 注意事项：如果用户换成其他表名，按同样模板替换表名即可。、平台核心表 SQL 也要保留 schema 前缀。、血缘定位默认输出表格，不强制出图。
+- 注意事项：把 `your_table` 替换成用户给出的真实表名即可。、平台核心表 SQL 也要保留 schema 前缀。、血缘定位默认输出表格，不强制出图。
 - 相关术语：血缘关系、上下游血缘
 - 来源：`assets/sql_examples.json`
 
@@ -84,17 +84,17 @@
 - 答案摘要：使用 workflow_publish_record.operation 作为分类维度、COUNT(id) 作为指标；类别较少时输出饼图，否则回退为条形图或表格。
 - 来源：`assets/few_shots.json`
 
-### 查看 dwd_tech_dev_inspection_rule_cnt_di 的上下游血缘
+### 查看某张表的上下游血缘
 - 标签：诊断、血缘关系、表格
-- 答案摘要：已给出明确表名时，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL，默认输出表格和简短诊断结论，不要搜索仓库代码或文档实现。
+- 答案摘要：已给出明确表名时，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL；若同名表可能存在于多个数据库，再补充 db_name，不要搜索仓库代码或文档实现。
 - 来源：`assets/few_shots.json`
 
-### 查询 PROD 环境最新一天的组件接口明细
-- 标签：明细查询、Doris、快照表、环境名称
-- 答案摘要：先确认业务表的 `db_name` 和表名；若命中 Doris `df` 快照表，默认用 `<db_name>.<table>` 并按 `MAX(ds)` 过滤最新分区，业务环境默认映射 `env_name='PROD'`，不要与数据中心名称或 CFC 环境混用。
+### 查询某张 df 快照表最新一天的明细
+- 标签：明细查询、Doris、快照表、ds
+- 答案摘要：先确认目标表的 `db_name` 和表名；若命中 Doris `df` 快照表，默认用 `<db_name>.<table>` 并按 `MAX(ds)` 过滤最新分区。若用户明确要求历史区间，再改成按 `ds` 查询历史。
 - 来源：`assets/few_shots.json`
 
-### 查询 2026-03-01 到 2026-03-13 的组件接口调用明细
+### 查询某张 di 增量表在指定时间范围内的明细
 - 标签：明细查询、Doris、增量表、时间范围
 - 答案摘要：若命中 Doris `di` 增量表，必须按时间范围查询，优先使用 `ds BETWEEN 起始日期 AND 结束日期`；如果用户没给时间范围，先追问，不要退化成只查最新 `ds`。
 - 来源：`assets/few_shots.json`
