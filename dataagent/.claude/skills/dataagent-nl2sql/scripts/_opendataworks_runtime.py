@@ -93,6 +93,7 @@ def ensure_read_only(sql: str):
 
 def call_metadata_cli(subcommand: str, **options: Any) -> Any:
     command = metadata_cli_command(subcommand, **options)
+    cli_path = metadata_cli_bin()
 
     try:
         completed = subprocess.run(
@@ -102,9 +103,18 @@ def call_metadata_cli(subcommand: str, **options: Any) -> Any:
             text=True,
         )
     except PermissionError as exc:
-        raise RuntimeError(
-            f"metadata cli 不可执行: {metadata_cli_bin()}。请先由用户修正该路径下文件权限后再重试。"
-        ) from exc
+        # 离线部署包常见场景是文件保留了 +x，但挂载介质本身是 noexec；
+        # 这种情况下直接 exec 会被拒绝，退回 sh 解释执行仍可继续工作。
+        if command[:1] == ["sh"]:
+            raise RuntimeError(
+                f"metadata cli 不可执行: {cli_path}。请先由用户修正该路径下文件权限后再重试。"
+            ) from exc
+        completed = subprocess.run(
+            ["sh", cli_path, *command[1:]],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()

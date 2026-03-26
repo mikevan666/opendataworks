@@ -113,6 +113,28 @@ def test_call_metadata_cli_non_executable_bin_falls_back_to_sh(monkeypatch):
     assert captured["command"][3:] == ["--keyword", "工作流"]
 
 
+def test_call_metadata_cli_permission_denied_falls_back_to_sh(monkeypatch):
+    runtime = _load_runtime_module()
+    cli_path = Path(runtime.metadata_cli_bin())
+    captured = {"calls": 0}
+
+    def fake_run(command, check, capture_output, text):
+        captured["calls"] += 1
+        captured["command"] = command
+        if captured["calls"] == 1:
+            raise PermissionError("Permission denied")
+        return SimpleNamespace(returncode=0, stdout='{"kind":"ok"}', stderr="")
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+
+    payload = runtime.call_metadata_cli("inspect", keyword="工作流")
+
+    assert payload == {"kind": "ok"}
+    assert captured["calls"] == 2
+    assert captured["command"][:3] == ["sh", str(cli_path), "inspect"]
+    assert captured["command"][3:] == ["--keyword", "工作流"]
+
+
 def test_call_metadata_cli_missing_binary_requires_user_install(monkeypatch):
     runtime = _load_runtime_module()
     missing_path = SKILL_SCRIPTS_ROOT.parent / "bin" / "missing-odw-cli"
