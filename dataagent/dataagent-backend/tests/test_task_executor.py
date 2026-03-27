@@ -20,9 +20,15 @@ class ClaudeAgentOptions:
         self.kwargs = kwargs
 
 
+class QueryCapture:
+    last_prompt = None
+    last_options = None
+
+
 class StreamEvent:
-    def __init__(self, event):
+    def __init__(self, event, *, session_id=""):
         self.event = event
+        self.session_id = session_id
 
 
 class UserMessage:
@@ -37,10 +43,11 @@ class AssistantMessage:
 
 
 class ResultMessage:
-    def __init__(self, subtype="success", result=None, *, is_error=False):
+    def __init__(self, subtype="success", result=None, *, is_error=False, session_id=""):
         self.subtype = subtype
         self.result = result
         self.is_error = is_error
+        self.session_id = session_id
 
 
 class ThinkingBlock:
@@ -77,6 +84,8 @@ class ToolResultBlock:
 
 def _install_fake_sdk(monkeypatch, messages, *, final_exception=None):
     async def fake_query(*, prompt, options):
+        QueryCapture.last_prompt = prompt
+        QueryCapture.last_options = options
         for message in messages:
             yield message
         if final_exception is not None:
@@ -89,12 +98,13 @@ def _install_fake_sdk(monkeypatch, messages, *, final_exception=None):
     )
 
 
-def _build_input():
+def _build_input(*, history=None, resume_session_id=None):
     return task_executor.TaskExecutionInput(
         task_id="task-1",
         topic_id="topic-1",
         question="最近 30 天工作流发布次数趋势",
-        history=[],
+        history=history or [],
+        resume_session_id=resume_session_id,
         provider_id="openrouter",
         model="anthropic/claude-sonnet-4.5",
         database_hint=None,
@@ -141,7 +151,7 @@ def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch
             ),
             StreamEvent({"type": "content_block_stop", "index": 2}),
             StreamEvent({"type": "message_stop"}),
-            ResultMessage("success"),
+            ResultMessage("success", session_id="sdk-session-1"),
         ],
     )
     monkeypatch.setattr(
@@ -168,6 +178,7 @@ def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch
     assert result.task_status == "finished"
     assert result.content == "最终回答"
     assert result.usage == {"input_tokens": 10, "output_tokens": 5}
+    assert result.session_id == "sdk-session-1"
     assert ClaudeAgentOptions.last_kwargs["include_partial_messages"] is True
     assert ClaudeAgentOptions.last_kwargs["env"]["DISABLE_PROMPT_CACHING"] == ""
 
@@ -236,7 +247,7 @@ def test_execute_task_stream_buffers_partial_text_until_turn_end(monkeypatch, tm
             ),
             StreamEvent({"type": "content_block_stop", "index": 2}),
             StreamEvent({"type": "message_stop"}),
-            ResultMessage("success"),
+            ResultMessage("success", session_id="sdk-session-2"),
         ],
     )
     monkeypatch.setattr(
@@ -262,6 +273,7 @@ def test_execute_task_stream_buffers_partial_text_until_turn_end(monkeypatch, tm
 
     assert result.task_status == "finished"
     assert result.content == "最近 30 天累计发布 4 次。"
+    assert result.session_id == "sdk-session-2"
 
     chunks = [record for record in emitted if record.get("record_type") == "chunk"]
     assert [(item["metadata"]["content_type"], item["delta"]["status"]) for item in chunks] == [
@@ -604,3 +616,45 @@ def test_execute_task_stream_surfaces_provider_error_instead_of_exit_code(monkey
     assert error_events[-1]["data"]["error"]["message"] == provider_error
     assert error_events[-1]["data"]["error"]["code"] == "error_api"
     assert [record for record in emitted if record.get("record_type") == "chunk"] == []
+
+
+def test_execute_task_stream_resumes_sdk_session_without_replaying_history(monkeypatch, tmp_path: Path):
+    QueryCapture.last_prompt = None
+    QueryCapture.last_options = None
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            ResultMessage("success", session_id="sdk-session-continued"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+            "supports_partial_messages": True,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+
+    async def _run():
+        return await task_executor.execute_task_stream(
+            _build_input(
+                history=[
+                    {"role": "user", "content": "上一轮问题"},
+                    {"role": "assistant", "content": "上一轮回答"},
+                ],
+                resume_session_id="sdk-session-continued",
+            ),
+            emit=lambda record: None,
+        )
+
+    result = asyncio.run(_run())
+
+    assert QueryCapture.last_prompt == "最近 30 天工作流发布次数趋势"
+    assert ClaudeAgentOptions.last_kwargs["resume"] == "sdk-session-continued"
+    assert result.session_id == "sdk-session-continued"

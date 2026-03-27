@@ -424,6 +424,35 @@ const thinkingPreview = (block) => {
   return preview.length > 38 ? `${preview.slice(0, 38)}...` : preview
 }
 
+const normalizeInlinePreview = (value) => String(value || '')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const truncatePreviewEnd = (value, max) => {
+  const text = normalizeInlinePreview(value)
+  if (!text) return ''
+  if (text.length <= max) return text
+  return `${text.slice(0, Math.max(0, max - 3))}...`
+}
+
+const truncatePreviewMiddle = (value, max) => {
+  const text = normalizeInlinePreview(value)
+  if (!text) return ''
+  if (text.length <= max) return text
+  if (max <= 8) return truncatePreviewEnd(text, max)
+  const head = Math.ceil((max - 3) * 0.62)
+  const tail = Math.max(3, max - 3 - head)
+  return `${text.slice(0, head)}...${text.slice(-tail)}`
+}
+
+const compactProcessPreview = (value, kind = '') => {
+  const text = normalizeInlinePreview(value)
+  if (!text) return ''
+  return kind === 'shell'
+    ? truncatePreviewMiddle(text, 84)
+    : truncatePreviewEnd(text, 72)
+}
+
 const hasMeaningfulToolPayload = (value) => {
   if (value == null) return false
   if (typeof value === 'string') return Boolean(value.trim())
@@ -582,48 +611,48 @@ const describeToolActivity = (tool) => {
   if (action.kind === 'shell') {
     return {
       text: '正在执行命令',
-      preview: action.preview || '等待命令输出'
+      preview: compactProcessPreview(action.preview || '等待命令输出', 'shell')
     }
   }
 
   if (action.kind === 'read') {
     return {
       text: '正在读取文件',
-      preview: action.preview || '等待文件内容'
+      preview: compactProcessPreview(action.preview || '等待文件内容', 'read')
     }
   }
 
   if (action.kind === 'list') {
     return {
       text: '正在查看目录',
-      preview: action.preview || '等待目录结果'
+      preview: compactProcessPreview(action.preview || '等待目录结果', 'list')
     }
   }
 
   if (action.kind === 'search') {
     return {
       text: '正在搜索文件',
-      preview: action.preview || '等待搜索结果'
+      preview: compactProcessPreview(action.preview || '等待搜索结果', 'search')
     }
   }
 
   if (action.kind === 'edit') {
     return {
       text: '正在修改文件',
-      preview: action.preview || '等待修改结果'
+      preview: compactProcessPreview(action.preview || '等待修改结果', 'edit')
     }
   }
 
   if (action.kind === 'skill') {
     return {
       text: '正在执行技能',
-      preview: action.preview || '正在准备技能上下文'
+      preview: compactProcessPreview(action.preview || '正在准备技能上下文', 'skill')
     }
   }
 
   return {
     text: action.label || `正在执行 ${action.name || '工具'}`,
-    preview: action.preview
+    preview: compactProcessPreview(action.preview, action.kind)
   }
 }
 
@@ -1504,12 +1533,15 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .query-process-summary {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -1525,6 +1557,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
   letter-spacing: 0.04em;
 }
 
