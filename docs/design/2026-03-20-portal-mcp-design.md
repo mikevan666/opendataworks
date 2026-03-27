@@ -8,33 +8,32 @@
 - `dataagent-nl2sql/bin/odw-cli`
 - backend agent metadata API
 
-这条链路已经承担 NL2SQL 运行时，不适合在本次改造中直接切换为 MCP-first。与此同时，数据门户的 inspect、lineage、datasource、DDL、只读 query 能力又有明显的多客户端复用诉求，需要提供一个比 skill-local CLI 更通用的协议入口。
+这条链路已经先完成了 CLI 收敛与敏感连接信息下线；在此基础上，数据门户的 inspect、lineage、datasource、DDL、只读 query 能力进一步切到 MCP-first，更适合作为 OpenDataWorks 内部 DataAgent 的默认工具面，同时保留 skill-local CLI 作为非 MCP 智能体的兼容路径。
 
 ## Scope
 
 本次范围：
 
-- 保持现有智能问数 skill 主链路不变
+- 将 OpenDataWorks 内部 DataAgent 主链路切到 MCP-first
 - 在 `backend-agent-api` 上补齐 agent-only DDL 与只读 query 接口
 - 新增远程 `portal-mcp` 服务，对外暴露数据门户 MCP 工具
-- 更新部署、镜像和离线包脚本
+- 更新部署、镜像和离线包脚本，并为 DataAgent runtime 注入 portal-mcp client 配置
 
 不在本次范围：
 
-- 将 NL2SQL runtime 改造成 MCP-first
 - 用户身份透传与细粒度用户态鉴权
 - 写操作、异步查询任务、跨数据源联查
 
 ## Architecture
 
-### Dual-Track Runtime
+### MCP-First Runtime
 
 保留两条路径并存：
 
-1. NL2SQL 继续走 `script -> odw-cli -> backend /api/v1/ai/metadata/*`
-2. 新客户端走 `portal-mcp -> backend /api/v1/ai/metadata/* + /api/v1/ai/query/read`
+1. OpenDataWorks 内部 DataAgent 默认走 `portal-mcp -> backend /api/v1/ai/metadata/* + /api/v1/ai/query/read`
+2. 不支持远程 MCP 的智能体继续走 `script -> odw-cli -> backend /api/v1/ai/*`
 
-这样可以把 MCP 作为新增复用面，而不是替换现有 skill 执行面。
+这样可以把 MCP 作为默认主链路，同时保留一条单层 fallback，不拆 skill，也不回退到直连数据库。
 
 ### Backend Boundary
 
@@ -132,11 +131,11 @@
 
 - 新增独立容器 `portal-mcp`
 - `portal-mcp` 通过内网访问 `backend:8080/api`
-- DataAgent Compose 与 skill 挂载保持不变
+- DataAgent Compose 增加 `DATAAGENT_PORTAL_MCP_*` 运行时配置，由 runtime 动态注入当前 run，不依赖 repo 内静态 `.claude/settings.json`
 
 ## Tradeoffs
 
-- 选择双轨并存，牺牲了短期的一点重复适配，但避免了直接重构 NL2SQL 运行时
+- 选择 MCP-first + CLI fallback，既能让 OpenDataWorks 内部 DataAgent 直接受益于远程 MCP，也能兼容不支持 MCP 的其他智能体
 - 选择远程 MCP 而不是本地 MCP，提升了多客户端复用性，也让版本和 token 集中管理
 - query 放在 backend 侧执行，能统一权限、超时和数据源解析；代价是 backend 需要承担更多 agent-only 只读查询逻辑
 - v1 使用服务身份，不做用户透传，优先保证稳定接入与统一部署

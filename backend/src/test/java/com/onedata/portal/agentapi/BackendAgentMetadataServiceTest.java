@@ -3,13 +3,13 @@ package com.onedata.portal.agentapi;
 import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
 import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
+import com.onedata.portal.agentapi.service.AgentJdbcExecutor;
+import com.onedata.portal.agentapi.service.BackendAgentMetadataService;
 import com.onedata.portal.entity.DataField;
 import com.onedata.portal.entity.DataLineage;
 import com.onedata.portal.entity.DataTable;
 import com.onedata.portal.entity.DorisCluster;
 import com.onedata.portal.entity.DorisDbUser;
-import com.onedata.portal.agentapi.service.AgentJdbcExecutor;
-import com.onedata.portal.agentapi.service.BackendAgentMetadataService;
 import com.onedata.portal.mapper.DataFieldMapper;
 import com.onedata.portal.mapper.DataLineageMapper;
 import com.onedata.portal.mapper.DataTableMapper;
@@ -25,6 +25,8 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -177,6 +179,80 @@ class BackendAgentMetadataServiceTest {
         assertEquals("ads_sales_di", response.getTable());
         assertEquals("stat_day", response.getTables().get(0).getFields().get(0).getFieldName());
         assertEquals("doris_ads", response.getLineage().get(0).getDownstreamDb());
+    }
+
+    @Test
+    void inspectRanksGlobalMatchesBeforeAlphabeticalFallback() {
+        DataTable commentMatched = new DataTable();
+        commentMatched.setId(11L);
+        commentMatched.setDbName("a_finance");
+        commentMatched.setTableName("finance_summary");
+        commentMatched.setTableComment("包含 order_id 的汇总");
+        commentMatched.setStatus("active");
+
+        DataTable fieldMatched = new DataTable();
+        fieldMatched.setId(22L);
+        fieldMatched.setDbName("z_sales");
+        fieldMatched.setTableName("sales_detail");
+        fieldMatched.setTableComment("销售明细");
+        fieldMatched.setStatus("active");
+
+        DataField field = new DataField();
+        field.setTableId(22L);
+        field.setFieldName("order_id");
+        field.setFieldType("bigint");
+        field.setFieldComment("订单ID");
+
+        when(dataTableMapper.selectList(any())).thenReturn(Collections.singletonList(commentMatched));
+        when(dataFieldMapper.selectList(any())).thenReturn(Collections.singletonList(field), Collections.singletonList(field));
+        when(dataTableMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(fieldMatched));
+        when(dataLineageMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+        AgentInspectResponse response = backendAgentMetadataService.inspect(null, null, "order_id", 1);
+
+        assertEquals(1, response.getTableCount());
+        assertEquals("z_sales", response.getTables().get(0).getDbName());
+        assertEquals("sales_detail", response.getTables().get(0).getTableName());
+        assertEquals("order_id", response.getTables().get(0).getFields().get(0).getFieldName());
+    }
+
+    @Test
+    void exportDatasourceRedactsConnectionFields() {
+        DataTable table = new DataTable();
+        table.setId(1L);
+        table.setClusterId(12L);
+        table.setDbName("doris_ods");
+        table.setStatus("active");
+
+        DorisCluster cluster = new DorisCluster();
+        cluster.setId(12L);
+        cluster.setClusterName("cluster-a");
+        cluster.setSourceType("DORIS");
+        cluster.setFeHost("doris-fe");
+        cluster.setFePort(9030);
+        cluster.setUsername("cluster_user");
+        cluster.setPassword("cluster_pass");
+
+        DorisDbUser readonlyUser = new DorisDbUser();
+        readonlyUser.setClusterId(12L);
+        readonlyUser.setDatabaseName("doris_ods");
+        readonlyUser.setReadonlyUsername("readonly_user");
+        readonlyUser.setReadonlyPassword("readonly_pass");
+
+        when(dataTableMapper.selectList(any())).thenReturn(Collections.singletonList(table));
+        when(dorisClusterMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(cluster));
+        when(dorisDbUserMapper.selectList(any())).thenReturn(Collections.singletonList(readonlyUser));
+
+        List<Map<String, Object>> rows = backendAgentMetadataService.exportDatasource(null);
+
+        assertEquals(1, rows.size());
+        Map<String, Object> row = rows.get(0);
+        assertEquals("doris", row.get("engine"));
+        assertEquals("cluster-a", row.get("cluster_name"));
+        assertEquals("readonly_user", row.get("resolved_by"));
+        assertTrue(!row.containsKey("fe_host"));
+        assertTrue(!row.containsKey("password"));
+        assertTrue(!row.containsKey("readonly_password"));
     }
 
     @Test

@@ -1,10 +1,10 @@
 # 数据源路由
 
-先结论：所有问数只允许单源路由。问题明确指向 `opendataworks` 平台核心表时直接走 MySQL；托管数据表先用元数据判断库表归属，再决定落到 MySQL 还是 Doris。
+先结论：所有问数只允许单源路由。问题明确指向 `opendataworks` 平台核心表时，可直接进入 `database=opendataworks`、`engine=mysql` 的只读查询路径；托管数据表先用元数据判断库表归属，再决定落到 MySQL 还是 Doris。
 
 ## 路由规则
 
-- `data_table`、`data_field`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这类平台核心表查询走 MySQL
+- `data_table`、`data_field`、`data_lineage`、`data_task`、`data_workflow`、`workflow_*`、`doris_*` 这类平台核心表查询固定使用 `database=opendataworks`、`engine=mysql`；执行仍经由 backend 只读查询接口
 - 托管数据表、事实表、汇总表先通过 metadata 定位数据库，再由 `resolve_datasource.py` 判断引擎
 - 若 `resolve_datasource.py` 返回 `mysql`，则按 MySQL 语法和能力执行
 - 若返回 `doris`，则按 Doris 语法和能力执行

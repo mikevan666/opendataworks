@@ -23,6 +23,15 @@ from core.stream_events import EventSequencer
 logger = logging.getLogger(__name__)
 
 SAFE_AUTO_ALLOWED_TOOLS = ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
+PORTAL_MCP_SERVER_NAME = "portal"
+PORTAL_MCP_TOOL_NAMES = [
+    "portal_search_tables",
+    "portal_get_lineage",
+    "portal_resolve_datasource",
+    "portal_export_metadata",
+    "portal_get_table_ddl",
+    "portal_query_readonly",
+]
 
 
 @dataclass
@@ -244,9 +253,11 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         os.environ[key] = value
 
     project_cwd = resolve_agent_project_cwd()
-    # provider/base_url/token 全由后端运行时注入，避免依赖用户本地的 Claude 配置文件
+    # provider/base_url/token 全由后端运行时注入；portal-mcp 也由运行时动态注入，
+    # 避免依赖用户本地或 repo 内静态 Claude 配置文件。
     setting_sources = ["project"]
-    allowed_tools = list(SAFE_AUTO_ALLOWED_TOOLS)
+    mcp_servers = _build_portal_mcp_servers(cfg)
+    allowed_tools = _build_allowed_tools(mcp_servers)
     permission_mode = _resolve_sdk_permission_mode()
     max_turns = _resolve_max_turns(cfg, params.execution_mode)
     options_kwargs = dict(
@@ -256,6 +267,7 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
         setting_sources=setting_sources,
         max_turns=max_turns,
         allowed_tools=allowed_tools,
+        mcp_servers=mcp_servers,
         include_partial_messages=supports_partial_messages,
         env=runtime_env,
         stderr=lambda line: logger.error(
@@ -271,13 +283,14 @@ async def stream_agent_reply(params: AgentRunInput) -> AsyncIterator[dict[str, A
     options = ClaudeAgentOptions(**options_kwargs)
     timeout_seconds = max(10, int(params.timeout_seconds or cfg.agent_timeout_seconds))
     logger.info(
-        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s permission_mode=%s timeout_hint=%s max_turns=%s partial=%s base_url=%s",
+        "run.config run_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s mcp_servers=%s permission_mode=%s timeout_hint=%s max_turns=%s partial=%s base_url=%s",
         params.run_id,
         provider_id,
         model,
         project_cwd,
         ",".join(setting_sources),
         ",".join(allowed_tools),
+        ",".join(sorted(mcp_servers.keys())) if mcp_servers else "(none)",
         permission_mode or "(sdk-default)",
         timeout_seconds,
         max_turns,
@@ -707,7 +720,11 @@ def _build_system_prompt(database_hint: str | None) -> str:
         "你是 DataAgent 智能问数助手。",
         "- 数据问题优先通过当前内置通用问数 skill 处理。",
         (
-            f"- 需要查元数据、数据源、SQL 或 Python 时，遵循 skill 内定义的命令模板。"
+            "- 如果当前可用工具里出现 `mcp__portal__portal_*`，优先直接调用这些 portal-mcp 工具做"
+            " metadata、lineage、datasource、DDL 与只读 SQL。"
+        ),
+        (
+            f"- 如果当前 run 没有注入 `mcp__portal__portal_*`，再按 skill 文档回退到 Python 脚本 / `odw-cli`。"
             f"运行时只提供通用入口：`{python_bin}` / `$DATAAGENT_PYTHON_BIN` 和 `$DATAAGENT_SKILL_ROOT`。"
         ),
         "- 当前内置 skill 只提供 OpenDataWorks 平台术语、平台表和数据中台通用规则；不要臆造租户业务术语、业务环境默认值或隐藏口径。",
@@ -891,18 +908,11 @@ def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput 
     runtime_env = dict(os.environ)
     runtime_env.update(provider_env)
     sql_read_timeout = int(getattr(params, "sql_read_timeout_seconds", 0) or 0)
-    sql_write_timeout = int(getattr(params, "sql_write_timeout_seconds", 0) or 0)
     runtime_env.update(
         {
-            "ODW_MYSQL_HOST": str(cfg.mysql_host or "").strip(),
-            "ODW_MYSQL_PORT": str(int(cfg.mysql_port or 3306)),
-            "ODW_MYSQL_USER": str(cfg.mysql_user or "").strip(),
-            "ODW_MYSQL_PASSWORD": str(cfg.mysql_password or ""),
-            "ODW_MYSQL_DATABASE": str(cfg.mysql_database or "opendataworks").strip() or "opendataworks",
             "DATAAGENT_QUERY_LIMIT": str(int(cfg.query_result_limit or 100)),
             "DATAAGENT_RESULT_PREVIEW_ROWS": str(min(20, int(cfg.query_result_limit or 100))),
             "DATAAGENT_SQL_READ_TIMEOUT_SECONDS": str(sql_read_timeout),
-            "DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS": str(sql_write_timeout),
             "DATAAGENT_PYTHON_BIN": str(python_bin),
             "DATAAGENT_SKILL_ROOT": str(skills_root),
             "VIRTUAL_ENV": str(python_bin.parent.parent),
@@ -929,6 +939,50 @@ def _resolve_sdk_permission_mode() -> str:
         # standard mode and rely on allowed_tools for the read-only + script path.
         return "default"
     return "bypassPermissions"
+
+
+def _build_portal_mcp_servers(cfg: Any) -> dict[str, dict[str, Any]]:
+    enabled = bool(getattr(cfg, "dataagent_portal_mcp_enabled", True))
+    if not enabled:
+        return {}
+
+    raw_url = str(getattr(cfg, "dataagent_portal_mcp_base_url", "") or "").strip()
+    token = str(getattr(cfg, "dataagent_portal_mcp_token", "") or "").strip()
+    if not raw_url or not token:
+        return {}
+
+    header_name = (
+        str(getattr(cfg, "dataagent_portal_mcp_token_header_name", "") or "").strip()
+        or "X-Portal-MCP-Token"
+    )
+    return {
+        PORTAL_MCP_SERVER_NAME: {
+            "type": "http",
+            "url": raw_url.rstrip("/"),
+            "headers": {
+                header_name: token,
+            },
+        }
+    }
+
+
+def _build_allowed_tools(mcp_servers: dict[str, Any] | None = None) -> list[str]:
+    allowed = list(SAFE_AUTO_ALLOWED_TOOLS)
+    if mcp_servers and PORTAL_MCP_SERVER_NAME in mcp_servers:
+        allowed.extend(
+            f"mcp__{PORTAL_MCP_SERVER_NAME}__{tool_name}"
+            for tool_name in PORTAL_MCP_TOOL_NAMES
+        )
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in allowed:
+        name = str(item or "").strip()
+        if not name or name in seen:
+            continue
+        deduped.append(name)
+        seen.add(name)
+    return deduped
 
 
 def _default_model_for_provider(provider_id: str) -> str:
