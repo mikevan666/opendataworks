@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.onedata.portal.agentapi.config.AgentApiAuthInterceptor;
 import com.onedata.portal.agentapi.config.AgentApiProperties;
 import com.onedata.portal.agentapi.controller.AgentMetadataController;
+import com.onedata.portal.agentapi.dto.AgentDatasourceResolution;
 import com.onedata.portal.agentapi.dto.AgentInspectResponse;
 import com.onedata.portal.agentapi.dto.AgentTableDdlResponse;
 import com.onedata.portal.agentapi.service.AgentMetadataService;
@@ -80,6 +81,36 @@ class AgentMetadataControllerTest {
                 .andExpect(jsonPath("$[0].db_name").value("opendataworks"));
 
         verify(agentMetadataService).exportTables(null);
+    }
+
+    @Test
+    void resolveDatasourceOmitsSensitiveFieldsFromJson() throws Exception {
+        AgentDatasourceResolution response = new AgentDatasourceResolution();
+        response.setDatabase("doris_ods");
+        response.setEngine("doris");
+        response.setHost("doris-fe");
+        response.setPort(9030);
+        response.setUser("readonly_user");
+        response.setPassword("readonly_pass");
+        response.setSourceType("DORIS");
+        response.setClusterId(12L);
+        response.setClusterName("cluster-a");
+        response.setResolvedBy("readonly_user");
+        when(agentMetadataService.resolveDatasource("doris_ods", null)).thenReturn(response);
+
+        mockMvc.perform(get("/v1/ai/metadata/datasource/resolve")
+                        .header("X-Agent-Service-Token", "test-token")
+                        .queryParam("database", "doris_ods"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.database").value("doris_ods"))
+                .andExpect(jsonPath("$.engine").value("doris"))
+                .andExpect(jsonPath("$.cluster_name").value("cluster-a"))
+                .andExpect(jsonPath("$.host").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.user").doesNotExist())
+                .andExpect(jsonPath("$.port").doesNotExist());
+
+        verify(agentMetadataService).resolveDatasource("doris_ods", null);
     }
 
     @Test

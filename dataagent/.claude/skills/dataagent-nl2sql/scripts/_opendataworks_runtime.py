@@ -142,14 +142,45 @@ def resolve_datasource(database: str, preferred_engine: str | None = None) -> di
     return {
         "engine": payload.get("engine"),
         "database": payload.get("database"),
-        "host": payload.get("host"),
-        "port": payload.get("port"),
-        "user": payload.get("user"),
-        "password": payload.get("password"),
         "source_type": payload.get("source_type"),
         "cluster_id": payload.get("cluster_id"),
         "cluster_name": payload.get("cluster_name"),
         "resolved_by": payload.get("resolved_by"),
+    }
+
+
+def query_readonly(
+    database: str,
+    sql: str,
+    preferred_engine: str | None = None,
+    limit: int | None = None,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    target_database = str(database or "").strip()
+    if not target_database:
+        raise ValueError("database 不能为空")
+
+    statement = str(sql or "").strip()
+    ensure_read_only(statement)
+
+    payload = call_metadata_cli(
+        "query-readonly",
+        database=target_database,
+        sql=statement,
+        preferred_engine=preferred_engine,
+        limit=limit,
+        timeout_seconds=timeout_seconds,
+    )
+    return {
+        "kind": payload.get("kind"),
+        "engine": payload.get("engine"),
+        "database": payload.get("database"),
+        "sql": payload.get("sql"),
+        "limit": payload.get("limit"),
+        "rows": payload.get("rows") or [],
+        "row_count": payload.get("row_count"),
+        "has_more": payload.get("has_more"),
+        "duration_ms": payload.get("duration_ms"),
     }
 
 

@@ -71,6 +71,10 @@ class Settings(BaseSettings):
 
     # ---- Skills ----
     skills_output_dir: str = "../.claude/skills/dataagent-nl2sql"
+    dataagent_portal_mcp_enabled: bool = True
+    dataagent_portal_mcp_base_url: str = ""
+    dataagent_portal_mcp_token: str = ""
+    dataagent_portal_mcp_token_header_name: str = "X-Portal-MCP-Token"
 
     # ---- 运行策略 ----
     max_few_shot_examples: int = 5

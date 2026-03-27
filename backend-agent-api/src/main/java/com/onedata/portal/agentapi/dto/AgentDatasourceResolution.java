@@ -1,5 +1,6 @@
 package com.onedata.portal.agentapi.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -7,9 +8,17 @@ import lombok.Data;
 public class AgentDatasourceResolution {
     private String engine;
     private String database;
+
+    @JsonIgnore
     private String host;
+
+    @JsonIgnore
     private Integer port;
+
+    @JsonIgnore
     private String user;
+
+    @JsonIgnore
     private String password;
 
     @JsonProperty("source_type")

@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import argparse
-import time
-
-import pymysql
 
 from _opendataworks_runtime import (
     ensure_read_only,
     env_int,
     error_payload,
     print_json,
-    resolve_datasource,
+    query_readonly,
     serializable_rows,
 )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Execute read-only SQL against a resolved datasource")
+    parser = argparse.ArgumentParser(description="Execute read-only SQL through the backend agent query path")
     parser.add_argument("--database", required=True)
     parser.add_argument("--engine", default="")
     parser.add_argument("--sql", required=True)
@@ -30,30 +27,15 @@ def main():
 
     try:
         ensure_read_only(sql)
-        resolved = resolve_datasource(database, preferred_engine=preferred_engine)
-
-        started_at = time.perf_counter()
-        conn = pymysql.connect(
-            host=resolved["host"],
-            port=int(resolved["port"]),
-            user=resolved["user"],
-            password=resolved["password"],
-            database=resolved["database"],
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor,
-            read_timeout=max(1, env_int("DATAAGENT_SQL_READ_TIMEOUT_SECONDS", 60)),
-            write_timeout=max(1, env_int("DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS", 60)),
+        result = query_readonly(
+            database=database,
+            sql=sql,
+            preferred_engine=preferred_engine,
+            limit=limit,
+            timeout_seconds=max(1, env_int("DATAAGENT_SQL_READ_TIMEOUT_SECONDS", 60)),
         )
-        try:
-            with conn.cursor() as cur:
-                cur.execute(sql)
-                rows = list(cur.fetchmany(limit + 1) or [])
-        finally:
-            conn.close()
 
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        has_more = len(rows) > limit
-        preview_rows = rows[:limit]
+        preview_rows = list(result.get("rows") or [])[:limit]
         serialized_rows = serializable_rows(preview_rows)
         columns = list(serialized_rows[0].keys()) if serialized_rows else []
 
@@ -61,14 +43,14 @@ def main():
             {
                 "kind": "sql_execution",
                 "tool_label": "SQL 执行",
-                "engine": resolved["engine"],
-                "database": resolved["database"],
+                "engine": result.get("engine"),
+                "database": result.get("database"),
                 "sql": sql,
                 "columns": columns,
                 "rows": serialized_rows,
                 "row_count": len(serialized_rows),
-                "has_more": has_more,
-                "duration_ms": duration_ms,
+                "has_more": bool(result.get("has_more")),
+                "duration_ms": int(result.get("duration_ms") or 0),
                 "summary": f"返回 {len(serialized_rows)} 行结果",
                 "error": None,
             }

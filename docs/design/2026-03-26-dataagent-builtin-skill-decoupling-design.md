@@ -68,7 +68,7 @@
   - `workflow_publish_record`、`data_table`、`data_lineage`、`doris_cluster` 等平台核心表知识
   - `df` 快照表、`di` 增量表、`ds` 时间分区规则
   - `<schema>.<table>` 约束
-  - 平台核心表可直接走 `opendataworks` MySQL 的规则
+  - 平台核心表可直接进入 `database=opendataworks`、`engine=mysql` 的只读查询路径的规则
 - 移除：
   - `env_name`
   - `PROD / SIM`

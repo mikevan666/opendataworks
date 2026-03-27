@@ -5,6 +5,8 @@ BASE_URL="${ODW_BACKEND_BASE_URL:-}"
 SERVICE_TOKEN="${ODW_AGENT_SERVICE_TOKEN:-}"
 TIMEOUT_SECONDS="${ODW_BACKEND_TIMEOUT_SECONDS:-30}"
 TOKEN_HEADER_NAME="${ODW_AGENT_SERVICE_TOKEN_HEADER_NAME:-X-Agent-Service-Token}"
+AI_BASE_URL=""
+METADATA_BASE_URL=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -13,6 +15,7 @@ Usage:
   odw-cli lineage [--table TABLE] [--db-name DB] [--table-id ID] [--depth N]
   odw-cli resolve-datasource --database DB [--preferred-engine mysql|doris]
   odw-cli export --kind tables|lineage|datasource [--database DB]
+  odw-cli query-readonly --database DB --sql SQL [--preferred-engine mysql|doris] [--limit N] [--timeout-seconds N]
 EOF
   exit 2
 }
@@ -26,20 +29,27 @@ require_env() {
   fi
 }
 
-run_request() {
-  endpoint="$1"
-  shift
+normalize_base_urls() {
+  normalized="${BASE_URL%/}"
+  case "$normalized" in
+    */api/v1/ai/metadata)
+      AI_BASE_URL="${normalized%/metadata}"
+      METADATA_BASE_URL="$normalized"
+      ;;
+    */api/v1/ai)
+      AI_BASE_URL="$normalized"
+      METADATA_BASE_URL="$normalized/metadata"
+      ;;
+    *)
+      echo "ODW_BACKEND_BASE_URL must point to /api/v1/ai or /api/v1/ai/metadata" >&2
+      exit 1
+      ;;
+  esac
+}
 
-  body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT INT TERM
-
-  http_code="$(curl -sS -o "$body_file" -w '%{http_code}' \
-    -H "Accept: application/json" \
-    -H "${TOKEN_HEADER_NAME}: ${SERVICE_TOKEN}" \
-    --max-time "$TIMEOUT_SECONDS" \
-    -G "${BASE_URL%/}/${endpoint}" \
-    "$@")"
-
+handle_response() {
+  body_file="$1"
+  http_code="$2"
   if [ "${http_code#2}" != "$http_code" ]; then
     cat "$body_file"
     rm -f "$body_file"
@@ -55,6 +65,47 @@ run_request() {
   rm -f "$body_file"
   trap - EXIT INT TERM
   exit 1
+}
+
+run_get_request() {
+  base_url="$1"
+  endpoint="$2"
+  shift 2
+
+  body_file="$(mktemp)"
+  trap 'rm -f "$body_file"' EXIT INT TERM
+
+  http_code="$(curl -sS -o "$body_file" -w '%{http_code}' \
+    -H "Accept: application/json" \
+    -H "${TOKEN_HEADER_NAME}: ${SERVICE_TOKEN}" \
+    --max-time "$TIMEOUT_SECONDS" \
+    -G "${base_url%/}/${endpoint}" \
+    "$@")"
+
+  handle_response "$body_file" "$http_code"
+}
+
+run_post_json() {
+  base_url="$1"
+  endpoint="$2"
+  payload="$3"
+
+  body_file="$(mktemp)"
+  trap 'rm -f "$body_file"' EXIT INT TERM
+
+  http_code="$(curl -sS -o "$body_file" -w '%{http_code}' \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -H "${TOKEN_HEADER_NAME}: ${SERVICE_TOKEN}" \
+    --max-time "$TIMEOUT_SECONDS" \
+    -X POST "${base_url%/}/${endpoint}" \
+    --data-binary "$payload")"
+
+  handle_response "$body_file" "$http_code"
+}
+
+json_escape() {
+  printf '%s' "${1:-}" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
 parse_inspect() {
@@ -92,7 +143,7 @@ parse_inspect() {
   [ -n "$table_name" ] && set -- "$@" --data-urlencode "table=$table_name"
   [ -n "$keyword" ] && set -- "$@" --data-urlencode "keyword=$keyword"
   [ -n "$table_limit" ] && set -- "$@" --data-urlencode "tableLimit=$table_limit"
-  run_request "inspect" "$@"
+  run_get_request "$METADATA_BASE_URL" "inspect" "$@"
 }
 
 parse_lineage() {
@@ -130,7 +181,7 @@ parse_lineage() {
   [ -n "$db_name" ] && set -- "$@" --data-urlencode "dbName=$db_name"
   [ -n "$table_id" ] && set -- "$@" --data-urlencode "tableId=$table_id"
   [ -n "$depth" ] && set -- "$@" --data-urlencode "depth=$depth"
-  run_request "lineage" "$@"
+  run_get_request "$METADATA_BASE_URL" "lineage" "$@"
 }
 
 parse_resolve_datasource() {
@@ -160,7 +211,7 @@ parse_resolve_datasource() {
 
   set -- --data-urlencode "database=$database"
   [ -n "$preferred_engine" ] && set -- "$@" --data-urlencode "preferredEngine=$preferred_engine"
-  run_request "datasource/resolve" "$@"
+  run_get_request "$METADATA_BASE_URL" "datasource/resolve" "$@"
 }
 
 parse_export() {
@@ -190,11 +241,61 @@ parse_export() {
 
   set -- --data-urlencode "kind=$kind"
   [ -n "$database" ] && set -- "$@" --data-urlencode "database=$database"
-  run_request "export" "$@"
+  run_get_request "$METADATA_BASE_URL" "export" "$@"
+}
+
+parse_query_readonly() {
+  database=""
+  sql_text=""
+  preferred_engine=""
+  limit=""
+  timeout_seconds=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --database)
+        database="${2:-}"
+        shift 2
+        ;;
+      --sql)
+        sql_text="${2:-}"
+        shift 2
+        ;;
+      --preferred-engine|--engine)
+        preferred_engine="${2:-}"
+        shift 2
+        ;;
+      --limit)
+        limit="${2:-}"
+        shift 2
+        ;;
+      --timeout-seconds)
+        timeout_seconds="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown query-readonly arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  if [ -z "$database" ] || [ -z "$sql_text" ]; then
+    echo "--database and --sql are required" >&2
+    usage
+  fi
+
+  payload="{\"database\":\"$(json_escape "$database")\",\"sql\":\"$(json_escape "$sql_text")\""
+  [ -n "$preferred_engine" ] && payload="${payload},\"preferredEngine\":\"$(json_escape "$preferred_engine")\""
+  [ -n "$limit" ] && payload="${payload},\"limit\":${limit}"
+  [ -n "$timeout_seconds" ] && payload="${payload},\"timeoutSeconds\":${timeout_seconds}"
+  payload="${payload}}"
+
+  run_post_json "$AI_BASE_URL" "query/read" "$payload"
 }
 
 require_env ODW_BACKEND_BASE_URL "$BASE_URL"
 require_env ODW_AGENT_SERVICE_TOKEN "$SERVICE_TOKEN"
+normalize_base_urls
 
 subcommand="${1:-}"
 [ -n "$subcommand" ] || usage
@@ -212,6 +313,9 @@ case "$subcommand" in
     ;;
   export)
     parse_export "$@"
+    ;;
+  query-readonly)
+    parse_query_readonly "$@"
     ;;
   -h|--help|help)
     usage
