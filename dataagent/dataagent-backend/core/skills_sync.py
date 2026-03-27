@@ -57,6 +57,7 @@ def ensure_static_skills_bundle() -> dict[str, Any]:
                 _write_text_if_absent(paths["scripts"] / "_opendataworks_runtime.py", _default_runtime_helper()),
                 _write_text_if_absent(paths["scripts"] / "inspect_metadata.py", _default_script_stub("inspect_metadata")),
                 _write_text_if_absent(paths["scripts"] / "resolve_datasource.py", _default_script_stub("resolve_datasource")),
+                _write_text_if_absent(paths["scripts"] / "get_lineage.py", _default_get_lineage_script()),
                 _write_text_if_absent(paths["scripts"] / "get_table_ddl.py", _default_get_table_ddl_script()),
                 _write_text_if_absent(paths["scripts"] / "run_sql.py", _default_script_stub("run_sql")),
                 _write_text_if_absent(paths["scripts"] / "build_chart_spec.py", _default_script_stub("build_chart_spec")),
@@ -203,16 +204,17 @@ description: Use this built-in skill for Chinese OpenDataWorks intelligent-query
 3. 若可见 `mcp__portal__portal_*`，优先直接调用 portal-mcp 工具
 4. 若 MCP 不可用，表字段不清先 `inspect_metadata.py`
 5. 若 MCP 不可用，引擎不清再 `resolve_datasource.py`
-6. 需要 live DDL 时优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时再 `get_table_ddl.py`
-7. SQL 明确后才 `run_sql.py` 或 `mcp__portal__portal_query_readonly`
-8. 结果适合图表时再 `build_chart_spec.py`
+6. 需要上游 / 下游 / 血缘快照时优先 `mcp__portal__portal_get_lineage`；无 MCP 时再 `get_lineage.py`
+7. 需要 live DDL 时优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时再 `get_table_ddl.py`
+8. SQL 明确后才 `run_sql.py` 或 `mcp__portal__portal_query_readonly`
+9. 结果适合图表时再 `build_chart_spec.py`
 
 ## 脚本执行规范
 
 - 本地脚本统一通过 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...` 调用
 - 若运行时已注入 `portal-mcp`，优先直接调用 `mcp__portal__portal_search_tables`、`mcp__portal__portal_get_lineage`、`mcp__portal__portal_resolve_datasource`、`mcp__portal__portal_export_metadata`、`mcp__portal__portal_get_table_ddl`、`mcp__portal__portal_query_readonly`
 - metadata 与只读 SQL 的 fallback 路径固定通过 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 转发到 backend `/api/v1/ai/*`
-- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 禁止自己拼 `/app/scripts/...`、`scripts/<name>.py` 或手写猜测脚本名。
 """
 
@@ -284,11 +286,12 @@ def _default_reference_tools() -> str:
 
 - 统一命令格式：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 - 首选 MCP tools：`mcp__portal__portal_search_tables`、`mcp__portal__portal_get_lineage`、`mcp__portal__portal_resolve_datasource`、`mcp__portal__portal_export_metadata`、`mcp__portal__portal_get_table_ddl`、`mcp__portal__portal_query_readonly`
-- `inspect_metadata.py`、`resolve_datasource.py`、`get_table_ddl.py`、`query_opendataworks_metadata.py`、`run_sql.py` 都只通过 `odw-cli -> backend /api/v1/ai/*` 执行，不直连数据库
-- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- `inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`query_opendataworks_metadata.py`、`run_sql.py` 都只通过 `odw-cli -> backend /api/v1/ai/*` 执行，不直连数据库
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 禁止使用 `/app/scripts/...`、`scripts/<name>.py` 或自己猜脚本名
 - `inspect_metadata.py`：定位数据库、表、字段、血缘
 - `resolve_datasource.py`：判断目标引擎与数据源
+- `get_lineage.py`：查看上游 / 下游 / 血缘快照
 - `get_table_ddl.py`：查看 live 表 DDL
 - `run_sql.py`：执行只读 SQL
 - `build_chart_spec.py`：根据结果决定是否出图
@@ -364,6 +367,45 @@ def main() -> None:
         database=database,
         table=table,
         table_id=table_id,
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _default_get_lineage_script() -> str:
+    return '''from __future__ import annotations
+
+import argparse
+import json
+
+from _opendataworks_runtime import call_metadata_cli
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Get lineage snapshot through backend metadata path")
+    parser.add_argument("--table", default="")
+    parser.add_argument("--db-name", default="")
+    parser.add_argument("--table-id", type=int, default=None)
+    parser.add_argument("--depth", type=int, default=None)
+    args = parser.parse_args()
+
+    table = str(args.table or "").strip()
+    db_name = str(args.db_name or "").strip()
+    table_id = args.table_id
+    depth = args.depth
+    if table_id is None and not table:
+        parser.error("--table 或 --table-id 至少提供一个")
+
+    payload = call_metadata_cli(
+        "lineage",
+        table=table,
+        db_name=db_name,
+        table_id=table_id,
+        depth=depth,
     )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 

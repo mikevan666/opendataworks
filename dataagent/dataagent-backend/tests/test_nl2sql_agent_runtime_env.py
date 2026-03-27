@@ -85,6 +85,15 @@ def test_build_allowed_tools_includes_portal_mcp_tools_once():
     assert len(allowed_tools) == len(set(allowed_tools))
 
 
+def test_build_system_prompt_prefers_lineage_and_ddl_tools():
+    prompt = nl2sql_agent._build_system_prompt(None)
+
+    assert "mcp__portal__portal_get_lineage" in prompt
+    assert "get_lineage.py" in prompt
+    assert "mcp__portal__portal_get_table_ddl" in prompt
+    assert "get_table_ddl.py" in prompt
+
+
 class _ClaudeAgentOptions:
     last_kwargs = None
 

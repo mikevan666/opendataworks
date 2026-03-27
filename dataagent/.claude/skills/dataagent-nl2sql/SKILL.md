@@ -95,6 +95,7 @@ Follow this priority order:
    - table DDL → `mcp__portal__portal_get_table_ddl`
    - read-only SQL → `mcp__portal__portal_query_readonly`
 3. **If MCP tools are unavailable**:
+   - upstream/downstream lineage → `get_lineage.py`
    - need live table DDL → `get_table_ddl.py`
    - platform core table with known fields → go straight to the `run_sql.py` read-only query path
    - managed table, fields unclear → `inspect_metadata.py` first
@@ -110,7 +111,7 @@ Do not execute `run_sql.py` without confirmed database, metrics, and dimensions.
 
 All scripts execute via: `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 
-Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `get_table_ddl.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
+Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `get_lineage.py`, `get_table_ddl.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
 
 Preferred MCP tools when available:
 
@@ -129,6 +130,9 @@ Command templates:
 
 # Datasource resolution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]
+
+# Lineage snapshot
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table <table_name> [--db-name <db_name>] [--depth <n>]
 
 # Live table DDL
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_table_ddl.py" --database <db_name> --table <table_name>
@@ -153,6 +157,7 @@ Prohibitions:
 - For 统计/对比/趋势/占比/明细/诊断 questions, the first real action must be a concrete script call or a clarifying question, not reading `assets/*.json`
 - Once MCP or fallback-script parameters are clear, always execute the real tool; do not skip execution and give SQL conclusions based solely on references
 - Do not invent or expose datasource credentials; skill/runtime only receives datasource summary fields and all metadata / read-only SQL go through `portal-mcp` or `odw-cli -> backend /api/v1/ai/*`
+- For upstream/downstream lineage questions, prefer `portal_get_lineage` or `get_lineage.py` before writing custom SQL; only use `run_sql.py` when the lineage snapshot still lacks required fields
 
 ## Multi-Datasource Constraints
 
@@ -190,6 +195,7 @@ Do not generate `chart_spec` when data is unsuitable for visualization. Retain `
 
 - [`scripts/inspect_metadata.py`](scripts/inspect_metadata.py) — locate managed tables
 - [`scripts/resolve_datasource.py`](scripts/resolve_datasource.py) — resolve engine and datasource
+- [`scripts/get_lineage.py`](scripts/get_lineage.py) — fetch lineage snapshot through the backend metadata path
 - [`scripts/get_table_ddl.py`](scripts/get_table_ddl.py) — fetch live table DDL through the backend metadata path
 - [`scripts/run_sql.py`](scripts/run_sql.py) — execute read-only SQL through the backend query path
 - [`scripts/build_chart_spec.py`](scripts/build_chart_spec.py) — generate chart spec from SQL results

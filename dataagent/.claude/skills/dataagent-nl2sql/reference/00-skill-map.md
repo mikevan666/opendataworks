@@ -60,6 +60,7 @@
 ## 何时执行脚本
 
 - 平台核心表问题且字段已清楚：优先 `mcp__portal__portal_query_readonly`；无 MCP 时可直接 `run_sql.py`
+- 需要上游 / 下游 / 血缘快照：优先 `mcp__portal__portal_get_lineage`；无 MCP 时用 `get_lineage.py`
 - 需要 live DDL / `SHOW CREATE TABLE`：优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时用 `get_table_ddl.py`
 - 托管数据表、字段或库表不清：优先 `mcp__portal__portal_search_tables`；无 MCP 时先 `inspect_metadata.py`
 - 引擎不清：优先 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`

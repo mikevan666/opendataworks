@@ -6,7 +6,7 @@
 
 - fallback 脚本统一通过：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 - 若运行时暴露了 `mcp__portal__portal_*`，优先直接调用这些 MCP tools，不要先绕回脚本。
-- 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
 - 动态 metadata 与只读 SQL 的固定实现是：Python 脚本内部优先调用 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，再由 CLI 请求 backend `/api/v1/ai/*`。
 - 执行任何 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在。
@@ -25,7 +25,7 @@
 - metadata 导出：`mcp__portal__portal_export_metadata`
 - 表 DDL：`mcp__portal__portal_get_table_ddl`
 - 只读 SQL：`mcp__portal__portal_query_readonly`
-- 只有当前 run 看不到这些工具时，才回退到 `inspect_metadata.py` / `resolve_datasource.py` / `get_table_ddl.py` / `run_sql.py` / `odw-cli`
+- 只有当前 run 看不到这些工具时，才回退到 `inspect_metadata.py` / `resolve_datasource.py` / `get_lineage.py` / `get_table_ddl.py` / `run_sql.py` / `odw-cli`
 
 ## inspect_metadata.py
 
@@ -69,6 +69,25 @@
 - 典型顺序：
   - `inspect_metadata.py` 之后
   - `run_sql.py` 之前
+
+## get_lineage.py
+
+- 用途：查看目标表的上游 / 下游 / 血缘快照
+- 适用场景：
+  - 用户明确问“某个表的上游表 / 下游表 / 血缘关系”
+  - 当前 run 没有 `mcp__portal__portal_get_lineage`
+  - 需要避免手写 `data_lineage + data_table` SQL 的字段猜测
+- 固定链路：
+  - `get_lineage.py -> odw-cli lineage -> backend /api/v1/ai/metadata/lineage`
+- 必须满足：
+  - `--table` 或 `--table-id` 至少提供一个
+  - 同名表不唯一时，先补充 `--db-name`
+- 命令模板：
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table some_table --db-name doris_ods --depth 2`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table-id 123 --depth 2`
+- 收口规则：
+  - `lineage_snapshot` 返回后优先基于结果回答
+  - 只有 lineage 快照缺少用户明确要的字段时，才追加 `run_sql.py`
 
 ## get_table_ddl.py
 
@@ -137,7 +156,7 @@
   - 迁移后仍以 `/api/v1/ai` 作为文档和部署默认值
 - 支持命令：
   - `inspect --keyword KW [--database DB] [--table TABLE] [--table-limit N]`
-  - `lineage [--database DB] [--table TABLE] [--table-id ID]`
+  - `lineage [--table TABLE] [--db-name DB] [--table-id ID] [--depth N]`
   - `resolve-datasource --database DB [--engine mysql|doris]`
   - `export --kind metadata|lineage|datasource [--database DB] [--table TABLE] [--table-id ID]`
   - `ddl [--database DB --table TABLE] [--table-id ID]`
@@ -185,14 +204,15 @@
 - 趋势：平台核心表可直接进入 `run_sql.py` 只读查询快路径 -> `build_chart_spec.py --chart-type line`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type line`
 - 占比：平台核心表可直接进入 `run_sql.py` 只读查询快路径 -> `build_chart_spec.py --chart-type pie`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type pie`
 - 明细：平台核心表可直接进入 `run_sql.py` 只读查询快路径；托管数据表用 `inspect_metadata.py` -> `run_sql.py`
-- 诊断：优先 `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`；无 MCP 时按问题需要走 `get_table_ddl.py` 或 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
+- 诊断：优先 `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`；无 MCP 时优先 `get_lineage.py` / `get_table_ddl.py`，只有结果仍不足时再 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
 - 工作流发布趋势快路径：`21-metric-index.md` -> `22-sql-example-index.md` -> `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<按 created_at 按天聚合 workflow_publish_record 的 SQL>"` -> `build_chart_spec.py --chart-type line`；首个有效结果返回后直接总结
 
 ## 诊断直达规则
 
 - 对 `workflow_publish_record` 或任意已给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
-- 这类问题的第一动作应是直接进入平台表只读查询步骤，或用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/query_opendataworks_metadata.py" --kind lineage` / `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<SQL>"` 查询 `data_lineage + data_table`。
-- 如果第一次血缘 SQL 已返回非空结果，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
+- 上游 / 下游 / 血缘问题的第一动作应是 `mcp__portal__portal_get_lineage`；无 MCP 时使用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table <table> [--db-name <db>]`。
+- 只有 lineage 快照里缺少用户明确需要的额外字段时，才允许再用 `run_sql.py` 查询 `data_lineage + data_table`。
+- 如果第一次 lineage 工具结果已返回非空数据，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
 - 只有表名不唯一、数据库不清或字段不清时，才允许退回 `inspect_metadata.py` 或追问。
 
 ## 何时必须先追问

@@ -90,6 +90,34 @@ def test_get_table_ddl_uses_backend_cli(monkeypatch):
     assert result["fields"] == [{"field_name": "workflow_id"}]
 
 
+def test_get_lineage_uses_backend_cli(monkeypatch):
+    runtime = _load_runtime_module()
+    captured = {}
+
+    def fake_call_metadata_cli(subcommand, **options):
+        captured["subcommand"] = subcommand
+        captured["options"] = options
+        return {
+            "kind": "lineage_snapshot",
+            "db_name": "doris_ods",
+            "table": "some_table",
+            "table_id": 12,
+            "depth": 2,
+            "lineage": [{"lineage_type": "upstream"}],
+        }
+
+    monkeypatch.setattr(runtime, "call_metadata_cli", fake_call_metadata_cli)
+
+    result = runtime.get_lineage(table="some_table", db_name="doris_ods", depth=2)
+
+    assert captured["subcommand"] == "lineage"
+    assert captured["options"]["table"] == "some_table"
+    assert captured["options"]["db_name"] == "doris_ods"
+    assert captured["options"]["depth"] == 2
+    assert result["kind"] == "lineage_snapshot"
+    assert result["lineage"] == [{"lineage_type": "upstream"}]
+
+
 def test_query_readonly_uses_backend_cli(monkeypatch):
     runtime = _load_runtime_module()
     captured = {}
@@ -297,3 +325,38 @@ def test_get_table_ddl_script_delegates_to_cli(monkeypatch):
     }
     assert payload["result"]["kind"] == "table_ddl"
     assert payload["result"]["table_name"] == "workflow_publish_record"
+
+
+def test_get_lineage_script_delegates_to_cli(monkeypatch):
+    module = _load_skill_module("get_lineage.py", "dataagent_get_lineage")
+    captured = {}
+    payload = {}
+
+    def fake_get_lineage(table=None, db_name=None, table_id=None, depth=None):
+        captured["table"] = table
+        captured["db_name"] = db_name
+        captured["table_id"] = table_id
+        captured["depth"] = depth
+        return {
+            "kind": "lineage_snapshot",
+            "db_name": db_name,
+            "table": table,
+            "table_id": table_id,
+            "depth": depth,
+            "lineage": [{"lineage_type": "upstream"}],
+        }
+
+    monkeypatch.setattr(module, "get_lineage", fake_get_lineage)
+    monkeypatch.setattr(module, "print_json", lambda value: payload.setdefault("result", value))
+    monkeypatch.setattr(sys, "argv", ["get_lineage.py", "--table", "some_table", "--db-name", "doris_ods", "--depth", "2"])
+
+    module.main()
+
+    assert captured == {
+        "table": "some_table",
+        "db_name": "doris_ods",
+        "table_id": None,
+        "depth": 2,
+    }
+    assert payload["result"]["kind"] == "lineage_snapshot"
+    assert payload["result"]["table"] == "some_table"
