@@ -6,7 +6,7 @@
 
 - fallback 脚本统一通过：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 - 若运行时暴露了 `mcp__portal__portal_*`，优先直接调用这些 MCP tools，不要先绕回脚本。
-- 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 固定脚本只有：`inspect_metadata.py`、`resolve_datasource.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 不要自己拼脚本路径或脚本名；禁止使用 `/app/scripts/...`、`scripts/<name>.py`、`resolvedadatsource.py` 这类猜测路径或拼写。
 - 动态 metadata 与只读 SQL 的固定实现是：Python 脚本内部优先调用 skill 自带 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`，再由 CLI 请求 backend `/api/v1/ai/*`。
 - 执行任何 metadata 相关脚本前，先检查 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 是否存在。
@@ -25,7 +25,7 @@
 - metadata 导出：`mcp__portal__portal_export_metadata`
 - 表 DDL：`mcp__portal__portal_get_table_ddl`
 - 只读 SQL：`mcp__portal__portal_query_readonly`
-- 只有当前 run 看不到这些工具时，才回退到 `inspect_metadata.py` / `resolve_datasource.py` / `run_sql.py` / `odw-cli`
+- 只有当前 run 看不到这些工具时，才回退到 `inspect_metadata.py` / `resolve_datasource.py` / `get_table_ddl.py` / `run_sql.py` / `odw-cli`
 
 ## inspect_metadata.py
 
@@ -69,6 +69,24 @@
 - 典型顺序：
   - `inspect_metadata.py` 之后
   - `run_sql.py` 之前
+
+## get_table_ddl.py
+
+- 用途：查看 live 表 DDL，等价于 skill 的标准 `SHOW CREATE TABLE` / DDL 路径
+- 适用场景：
+  - 用户明确要求看建表语句、DDL、`SHOW CREATE TABLE`
+  - 需要确认真实字段顺序、注释、分区或建表属性
+  - 当前 run 没有 `mcp__portal__portal_get_table_ddl`
+- 固定链路：
+  - `get_table_ddl.py -> odw-cli ddl -> backend /api/v1/ai/metadata/ddl`
+- 必须满足：
+  - `--table-id` 或 `--database + --table` 至少提供一组
+  - 同名表不唯一时，先补充 `database` 或 `table_id`
+- 命令模板：
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_table_ddl.py" --database opendataworks --table workflow_publish_record`
+  - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_table_ddl.py" --table-id 123`
+- 收口规则：
+  - 返回 `table_ddl` 后就优先基于该结果回答，不要再手写等价 `SHOW CREATE TABLE`
 
 ## run_sql.py
 
@@ -122,6 +140,7 @@
   - `lineage [--database DB] [--table TABLE] [--table-id ID]`
   - `resolve-datasource --database DB [--engine mysql|doris]`
   - `export --kind metadata|lineage|datasource [--database DB] [--table TABLE] [--table-id ID]`
+  - `ddl [--database DB --table TABLE] [--table-id ID]`
   - `query-readonly --database DB --sql SQL [--preferred-engine mysql|doris] [--limit N] [--timeout-seconds S]`
 - 输出边界：
   - `resolve-datasource` 与 `export kind=datasource` 只返回 datasource 摘要，不返回 host / port / user / password / readonly_* 等敏感字段
@@ -166,7 +185,7 @@
 - 趋势：平台核心表可直接进入 `run_sql.py` 只读查询快路径 -> `build_chart_spec.py --chart-type line`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type line`
 - 占比：平台核心表可直接进入 `run_sql.py` 只读查询快路径 -> `build_chart_spec.py --chart-type pie`；托管数据表用 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py --chart-type pie`
 - 明细：平台核心表可直接进入 `run_sql.py` 只读查询快路径；托管数据表用 `inspect_metadata.py` -> `run_sql.py`
-- 诊断：平台核心表可直接进入 `run_sql.py` 只读查询快路径；托管数据表用 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
+- 诊断：优先 `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`；无 MCP 时按问题需要走 `get_table_ddl.py` 或 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py`
 - 工作流发布趋势快路径：`21-metric-index.md` -> `22-sql-example-index.md` -> `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<按 created_at 按天聚合 workflow_publish_record 的 SQL>"` -> `build_chart_spec.py --chart-type line`；首个有效结果返回后直接总结
 
 ## 诊断直达规则

@@ -11,7 +11,7 @@
 | 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
 | 占比 | `10-query-playbooks.md`、`20-term-index.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
 | 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage`；托管数据表优先 `mcp__portal__portal_search_tables`，无 MCP 再回退脚本 | 表格 |
+| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`；托管数据表优先 `mcp__portal__portal_search_tables`，无 MCP 再回退脚本 | 表格 |
 | 术语解释 | `20-term-index.md` | 无，必要时回看资产 | 中文解释 |
 | SQL 示例 | `22-sql-example-index.md` | 无，必要时回看资产 | SQL 模板示例 |
 
@@ -60,6 +60,7 @@
 ## 何时执行脚本
 
 - 平台核心表问题且字段已清楚：优先 `mcp__portal__portal_query_readonly`；无 MCP 时可直接 `run_sql.py`
+- 需要 live DDL / `SHOW CREATE TABLE`：优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时用 `get_table_ddl.py`
 - 托管数据表、字段或库表不清：优先 `mcp__portal__portal_search_tables`；无 MCP 时先 `inspect_metadata.py`
 - 引擎不清：优先 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
 - 结果结构适合图表：再 `build_chart_spec.py`

@@ -61,6 +61,35 @@ def test_resolve_datasource_uses_backend_cli(monkeypatch):
     assert result["resolved_by"] == "readonly_user"
 
 
+def test_get_table_ddl_uses_backend_cli(monkeypatch):
+    runtime = _load_runtime_module()
+    captured = {}
+
+    def fake_call_metadata_cli(subcommand, **options):
+        captured["subcommand"] = subcommand
+        captured["options"] = options
+        return {
+            "kind": "table_ddl",
+            "database": "opendataworks",
+            "table_name": "workflow_publish_record",
+            "table_id": 12,
+            "engine": "mysql",
+            "fields": [{"field_name": "workflow_id"}],
+            "ddl": "CREATE TABLE workflow_publish_record (...)",
+        }
+
+    monkeypatch.setattr(runtime, "call_metadata_cli", fake_call_metadata_cli)
+
+    result = runtime.get_table_ddl(database="opendataworks", table="workflow_publish_record")
+
+    assert captured["subcommand"] == "ddl"
+    assert captured["options"]["database"] == "opendataworks"
+    assert captured["options"]["table"] == "workflow_publish_record"
+    assert result["kind"] == "table_ddl"
+    assert result["table_name"] == "workflow_publish_record"
+    assert result["fields"] == [{"field_name": "workflow_id"}]
+
+
 def test_query_readonly_uses_backend_cli(monkeypatch):
     runtime = _load_runtime_module()
     captured = {}
@@ -235,3 +264,36 @@ def test_run_sql_script_delegates_to_query_cli(monkeypatch):
     assert payload["result"]["engine"] == "mysql"
     assert payload["result"]["database"] == "opendataworks"
     assert payload["result"]["rows"] == [{"value": 1}]
+
+
+def test_get_table_ddl_script_delegates_to_cli(monkeypatch):
+    module = _load_skill_module("get_table_ddl.py", "dataagent_get_table_ddl")
+    captured = {}
+    payload = {}
+
+    def fake_get_table_ddl(database=None, table=None, table_id=None):
+        captured["database"] = database
+        captured["table"] = table
+        captured["table_id"] = table_id
+        return {
+            "kind": "table_ddl",
+            "database": database,
+            "table_name": table,
+            "table_id": table_id,
+            "fields": [{"field_name": "workflow_id"}],
+            "ddl": "CREATE TABLE workflow_publish_record (...)",
+        }
+
+    monkeypatch.setattr(module, "get_table_ddl", fake_get_table_ddl)
+    monkeypatch.setattr(module, "print_json", lambda value: payload.setdefault("result", value))
+    monkeypatch.setattr(sys, "argv", ["get_table_ddl.py", "--database", "opendataworks", "--table", "workflow_publish_record"])
+
+    module.main()
+
+    assert captured == {
+        "database": "opendataworks",
+        "table": "workflow_publish_record",
+        "table_id": None,
+    }
+    assert payload["result"]["kind"] == "table_ddl"
+    assert payload["result"]["table_name"] == "workflow_publish_record"

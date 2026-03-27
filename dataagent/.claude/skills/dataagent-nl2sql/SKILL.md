@@ -95,6 +95,7 @@ Follow this priority order:
    - table DDL → `mcp__portal__portal_get_table_ddl`
    - read-only SQL → `mcp__portal__portal_query_readonly`
 3. **If MCP tools are unavailable**:
+   - need live table DDL → `get_table_ddl.py`
    - platform core table with known fields → go straight to the `run_sql.py` read-only query path
    - managed table, fields unclear → `inspect_metadata.py` first
    - engine unclear → `resolve_datasource.py`
@@ -109,7 +110,7 @@ Do not execute `run_sql.py` without confirmed database, metrics, and dimensions.
 
 All scripts execute via: `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 
-Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
+Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `get_table_ddl.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
 
 Preferred MCP tools when available:
 
@@ -128,6 +129,9 @@ Command templates:
 
 # Datasource resolution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]
+
+# Live table DDL
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_table_ddl.py" --database <db_name> --table <table_name>
 
 # SQL execution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"
@@ -186,6 +190,7 @@ Do not generate `chart_spec` when data is unsuitable for visualization. Retain `
 
 - [`scripts/inspect_metadata.py`](scripts/inspect_metadata.py) — locate managed tables
 - [`scripts/resolve_datasource.py`](scripts/resolve_datasource.py) — resolve engine and datasource
+- [`scripts/get_table_ddl.py`](scripts/get_table_ddl.py) — fetch live table DDL through the backend metadata path
 - [`scripts/run_sql.py`](scripts/run_sql.py) — execute read-only SQL through the backend query path
 - [`scripts/build_chart_spec.py`](scripts/build_chart_spec.py) — generate chart spec from SQL results
 - [`scripts/format_answer.py`](scripts/format_answer.py) — summarize results for the final answer

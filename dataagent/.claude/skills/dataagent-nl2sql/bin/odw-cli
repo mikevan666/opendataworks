@@ -15,6 +15,7 @@ Usage:
   odw-cli lineage [--table TABLE] [--db-name DB] [--table-id ID] [--depth N]
   odw-cli resolve-datasource --database DB [--preferred-engine mysql|doris]
   odw-cli export --kind tables|lineage|datasource [--database DB]
+  odw-cli ddl [--database DB --table TABLE] [--table-id ID]
   odw-cli query-readonly --database DB --sql SQL [--preferred-engine mysql|doris] [--limit N] [--timeout-seconds N]
 EOF
   exit 2
@@ -244,6 +245,43 @@ parse_export() {
   run_get_request "$METADATA_BASE_URL" "export" "$@"
 }
 
+parse_ddl() {
+  database=""
+  table_name=""
+  table_id=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --database)
+        database="${2:-}"
+        shift 2
+        ;;
+      --table)
+        table_name="${2:-}"
+        shift 2
+        ;;
+      --table-id)
+        table_id="${2:-}"
+        shift 2
+        ;;
+      *)
+        echo "unknown ddl arg: $1" >&2
+        usage
+        ;;
+    esac
+  done
+
+  if [ -z "$table_id" ] && { [ -z "$database" ] || [ -z "$table_name" ]; }; then
+    echo "--table-id or --database + --table is required" >&2
+    usage
+  fi
+
+  set --
+  [ -n "$database" ] && set -- "$@" --data-urlencode "database=$database"
+  [ -n "$table_name" ] && set -- "$@" --data-urlencode "table=$table_name"
+  [ -n "$table_id" ] && set -- "$@" --data-urlencode "tableId=$table_id"
+  run_get_request "$METADATA_BASE_URL" "ddl" "$@"
+}
+
 parse_query_readonly() {
   database=""
   sql_text=""
@@ -313,6 +351,9 @@ case "$subcommand" in
     ;;
   export)
     parse_export "$@"
+    ;;
+  ddl)
+    parse_ddl "$@"
     ;;
   query-readonly)
     parse_query_readonly "$@"

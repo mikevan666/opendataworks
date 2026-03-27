@@ -130,7 +130,7 @@
 
 ## 诊断
 
-- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群
+- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群、某张表的 DDL / `SHOW CREATE TABLE`
 - 先确认：
   - 目标表或目标数据库
   - 是否需要补充 `db_name`
@@ -138,10 +138,11 @@
 - 推荐顺序：
   1. `20-term-index.md`
   2. `40-runtime-metadata.md`
-  3. 平台核心表已明确时优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage`
+  3. 平台核心表已明确时优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`
   4. 托管数据表场景优先 `mcp__portal__portal_search_tables`
-  5. 无 MCP 时再使用 `inspect_metadata.py`
-  6. 必要时 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
+  5. 无 MCP 且需要 live DDL 时直接 `get_table_ddl.py`
+  6. 无 MCP 时再使用 `inspect_metadata.py`
+  7. 必要时 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
 - 默认输出：表格 + 诊断结论
 - 强约束：
   - 用户已给出具体表名时，不要在仓库代码、测试文件或参考文档中搜索 lineage/血缘实现。
