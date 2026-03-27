@@ -39,6 +39,13 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:24]}"
 
 
+def _is_placeholder_conversation_id(value: str | None) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    return text.startswith("chat_conv_") or text.startswith("chat_conversation_")
+
+
 def _append_str(base: str | None, delta: str | None) -> str:
     next_text = str(delta or "")
     if not next_text:
@@ -381,6 +388,37 @@ class TopicTaskStore:
         finally:
             conn.close()
         return self.get_topic(topic_id)
+
+    def update_topic_conversation_id(self, topic_id: str, *, conversation_id: str) -> dict[str, Any] | None:
+        value = str(conversation_id or "").strip()
+        if not value:
+            return self.get_topic(topic_id)
+        self._ensure_ready()
+        conn = self._connect(database=self._schema_name())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE da_agent_topic
+                    SET chat_conversation_id = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE topic_id = %s
+                    """,
+                    (value, topic_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_topic(topic_id)
+
+    def get_resumable_conversation_id(self, topic_id: str) -> str | None:
+        topic = self.get_topic(topic_id)
+        if not topic:
+            return None
+        conversation_id = str(topic.get("chat_conversation_id") or "").strip()
+        if _is_placeholder_conversation_id(conversation_id):
+            return None
+        return conversation_id or None
 
     def delete_topic(self, topic_id: str):
         self._ensure_ready()

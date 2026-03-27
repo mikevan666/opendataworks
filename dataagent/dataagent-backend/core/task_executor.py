@@ -47,6 +47,7 @@ class TaskExecutionInput:
     topic_id: str
     question: str
     history: list[dict[str, str]]
+    resume_session_id: str | None
     provider_id: str
     model: str
     database_hint: str | None
@@ -65,6 +66,7 @@ class TaskExecutionResult:
     error: dict[str, Any] | None = None
     provider_id: str = ""
     model: str = ""
+    session_id: str = ""
 
 
 @dataclass
@@ -109,6 +111,7 @@ class ClaudeToMagicAdapter:
         self.result_error = ""
         self.result_is_error = False
         self.provider_error_message = ""
+        self.session_id = ""
         self.saw_partial_stream = False
         self.reducer = _ProvisionalReducerState()
 
@@ -576,6 +579,9 @@ class ClaudeToMagicAdapter:
         msg_type = type(msg).__name__
         records: list[dict[str, Any]] = []
         content = getattr(msg, "content", None)
+        session_id = str(getattr(msg, "session_id", "") or "").strip()
+        if session_id:
+            self.session_id = session_id
 
         if msg_type == "ResultMessage":
             self.result_subtype = str(getattr(msg, "subtype", "") or "")
@@ -686,6 +692,7 @@ class ClaudeToMagicAdapter:
                 error={"code": self.preferred_error_code(), "message": reason, "detail": self.result_error},
                 provider_id=self.provider_id,
                 model=self.model,
+                session_id=self.session_id,
             )
         if self.result_subtype.startswith("error"):
             reason = _result_subtype_to_reason(self.result_subtype, self.result_error)
@@ -702,6 +709,7 @@ class ClaudeToMagicAdapter:
                     usage=self.usage or None,
                     provider_id=self.provider_id,
                     model=self.model,
+                    session_id=self.session_id,
                 )
             return TaskExecutionResult(
                 task_status="error",
@@ -710,6 +718,7 @@ class ClaudeToMagicAdapter:
                 error={"code": self.result_subtype or "model_error", "message": reason, "detail": self.result_error},
                 provider_id=self.provider_id,
                 model=self.model,
+                session_id=self.session_id,
             )
 
         return TaskExecutionResult(
@@ -718,6 +727,7 @@ class ClaudeToMagicAdapter:
             usage=self.usage or None,
             provider_id=self.provider_id,
             model=self.model,
+            session_id=self.session_id,
         )
 
 
@@ -749,7 +759,7 @@ async def execute_task_stream(
 
     adapter = ClaudeToMagicAdapter(params, provider_id=provider_id, model=model)
 
-    prompt = _build_prompt(params.history, params.question)
+    prompt = str(params.question or "").strip() if params.resume_session_id else _build_prompt(params.history, params.question)
     system_prompt = _build_system_prompt(params.database_hint)
 
     if params.debug:
@@ -797,6 +807,7 @@ async def execute_task_stream(
             error={"code": "sdk_not_installed", "message": reason, "detail": str(exc)},
             provider_id=provider_id,
             model=model,
+            session_id=adapter.session_id,
         )
 
     env_payload = _build_provider_env(
@@ -829,6 +840,8 @@ async def execute_task_stream(
             str(line or "").rstrip(),
         ),
     )
+    if params.resume_session_id:
+        options_kwargs["resume"] = params.resume_session_id
     if permission_mode:
         options_kwargs["permission_mode"] = permission_mode
     options = ClaudeAgentOptions(**options_kwargs)
@@ -882,6 +895,7 @@ async def execute_task_stream(
                         error={"code": "task_cancelled", "message": "任务已取消"},
                         provider_id=provider_id,
                         model=model,
+                        session_id=adapter.session_id,
                     )
                 await _emit_records(emit, adapter.ingest_sdk_message(msg))
     except Exception as exc:
@@ -902,6 +916,7 @@ async def execute_task_stream(
                     usage=adapter.usage or None,
                     provider_id=provider_id,
                     model=model,
+                    session_id=adapter.session_id,
                 )
 
         error_message = adapter.preferred_error_message(reason)
@@ -935,6 +950,7 @@ async def execute_task_stream(
             },
             provider_id=provider_id,
             model=model,
+            session_id=adapter.session_id,
         )
 
     await _emit_records(emit, adapter.finalize_records(final_status="finished", commit_pending_answer=True))

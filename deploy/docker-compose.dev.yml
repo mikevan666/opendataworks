@@ -136,6 +136,7 @@ services:
       retries: 5
       start_period: 60s
     volumes:
+      - dataagent-home:/tmp/dataagent-home
       - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
 
   portal-mcp:
@@ -170,4 +171,6 @@ volumes:
   mysql-data:
     driver: local
   backend-logs:
+    driver: local
+  dataagent-home:
     driver: local

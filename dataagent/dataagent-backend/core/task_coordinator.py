@@ -109,6 +109,7 @@ class TaskCoordinator:
                 return
 
             topic_id = str(task.get("topic_id") or "")
+            resume_session_id = self.store.get_resumable_conversation_id(topic_id)
             self.store.mark_task_running(task_id)
             self.store.ensure_assistant_message(topic_id=topic_id, task_id=task_id, status="running")
             writer = TaskPersistenceWriter(store=self.store, topic_id=topic_id, task_id=task_id)
@@ -127,6 +128,7 @@ class TaskCoordinator:
                         topic_id=topic_id,
                         question=str(task.get("prompt") or ""),
                         history=history,
+                        resume_session_id=resume_session_id,
                         provider_id=str(task.get("provider_id") or ""),
                         model=str(task.get("model") or ""),
                         database_hint=str(task.get("database_hint") or "") or None,
@@ -144,6 +146,8 @@ class TaskCoordinator:
                     usage=result.usage,
                     error=result.error,
                 )
+                if result.session_id:
+                    self.store.update_topic_conversation_id(topic_id, conversation_id=result.session_id)
                 self.store.finish_task(task_id=task_id, task_status=result.task_status, error=result.error)
             except asyncio.CancelledError:
                 raise

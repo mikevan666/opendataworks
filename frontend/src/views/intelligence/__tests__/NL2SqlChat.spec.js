@@ -518,6 +518,65 @@ describe('NL2SqlChat', () => {
     expect(wrapper.find('.query-process-content').exists()).toBe(true)
   })
 
+  it('shortens overly long shell previews in the collapsed process summary', async () => {
+    const longCommand = 'python /opt/dataagent/scripts/run_sql.py --workspace /very/long/project/path/with/many/segments --database opendataworks --question "最近 30 天工作流发布次数趋势并按天输出明细以及累计值" --output-format json'
+
+    apiMocks.topicApi.getTopicMessages.mockResolvedValue({
+      topic_id: 'topic-1',
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
+        {
+          message_id: 'a1',
+          topic_id: 'topic-1',
+          task_id: 'task-1',
+          sender_type: 'assistant',
+          type: 'assistant',
+          status: 'finished',
+          content: '最近 30 天共发布 12 次。',
+          blocks: [
+            {
+              block_id: 'tool-1',
+              type: 'tool',
+              status: 'success',
+              tool_id: 'tool-bash-1',
+              tool_name: 'Bash',
+              input: {
+                command: longCommand
+              },
+              output: {
+                kind: 'python_execution',
+                summary: '执行完成',
+                stdout: 'done'
+              }
+            },
+            {
+              block_id: 'main-1',
+              type: 'main_text',
+              status: 'success',
+              text: '最近 30 天共发布 12 次。'
+            }
+          ],
+          created_at: '2026-03-10T02:00:00Z'
+        }
+      ]
+    })
+
+    const wrapper = mountChat()
+
+    await flushPromises()
+    await flushPromises()
+
+    const preview = wrapper.find('.query-process-summary-preview')
+    expect(preview.exists()).toBe(true)
+    expect(preview.text()).toContain('python /opt/dataagent/scripts/run_sql.py')
+    expect(preview.text()).toContain('...')
+    expect(preview.text()).toContain('--output-format json')
+    expect(preview.text().length).toBeLessThan(longCommand.length)
+  })
+
   it('does not inject inline chart tools into the conclusion area', async () => {
     apiMocks.topicApi.getTopicMessages.mockResolvedValue({
       topic_id: 'topic-1',
