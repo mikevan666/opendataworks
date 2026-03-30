@@ -216,6 +216,7 @@ description: Use this built-in skill for Chinese OpenDataWorks intelligent-query
 - metadata 与只读 SQL 的 fallback 路径固定通过 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 转发到 backend `/api/v1/ai/*`
 - 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 禁止自己拼 `/app/scripts/...`、`scripts/<name>.py` 或手写猜测脚本名。
+- 上游 / 下游 / 血缘问题默认先走 lineage tool；`run_sql.py` 对首轮 `data_lineage` 类 SQL 默认拒绝，只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 """
 
 
@@ -244,6 +245,7 @@ def _default_reference_playbooks() -> str:
 - 占比：确认分类维度和指标
 - 明细：确认对象、过滤条件、字段
 - 诊断：确认异常指标和对比基线
+- 上游 / 下游 / 血缘问题先走 `portal_get_lineage` 或 `get_lineage.py`；`run_sql.py` 对首轮 `data_lineage` 类 SQL 默认拒绝
 """
 
 
@@ -294,6 +296,7 @@ def _default_reference_tools() -> str:
 - `get_lineage.py`：查看上游 / 下游 / 血缘快照
 - `get_table_ddl.py`：查看 live 表 DDL
 - `run_sql.py`：执行只读 SQL
+- 血缘问题里，`run_sql.py` 默认拒绝首轮 `data_lineage` 类 SQL；只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 - `build_chart_spec.py`：根据结果决定是否出图
 - `format_answer.py`：整理最终中文结论
 """
@@ -303,6 +306,9 @@ def _default_reference_runtime() -> str:
     return """# 运行时元数据与数据源说明
 
 先结论：需要动态补齐库表结构、血缘、数据源或只读 SQL 时，优先走 `portal-mcp`；只有 MCP 不可用时才回退到 skill 自带 `odw-cli`，不要直连数据库。
+
+- runtime 会把原始问题注入 `DATAAGENT_ORIGINAL_QUESTION`
+- 血缘问题里 `run_sql.py` 会据此拒绝首轮 `data_lineage` 类 SQL；只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 """
 
 

@@ -35,6 +35,7 @@ Convert Chinese natural-language data questions into read-only SQL, execute agai
 10. **ALWAYS** stop after the first correct `sql_execution` or `chart_spec`. Do not re-execute equivalent SQL or continue reading assets once the answer is grounded.
 11. **ALWAYS** prefer global metadata search first when the user did not explicitly provide a database. Only add `--database` after the user or metadata has already narrowed the scope.
 12. **ALWAYS** do a small synonym or related-term expansion when the first metadata search is too sparse, but keep the expansion limited and grounded in the user’s wording.
+13. **ALWAYS** treat upstream/downstream/lineage questions as lineage-tool-first. For these questions, `run_sql.py` now hard-blocks first-pass `data_lineage` SQL unless `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` is explicitly set for a clearly scoped supplemental query.
 
 ## Anti-Patterns
 
@@ -140,6 +141,9 @@ Command templates:
 # SQL execution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"
 
+# Lineage-only supplemental SQL after snapshot is still insufficient
+DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<supplemental lineage SQL>"
+
 # Chart generation
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'
 
@@ -158,6 +162,7 @@ Prohibitions:
 - Once MCP or fallback-script parameters are clear, always execute the real tool; do not skip execution and give SQL conclusions based solely on references
 - Do not invent or expose datasource credentials; skill/runtime only receives datasource summary fields and all metadata / read-only SQL go through `portal-mcp` or `odw-cli -> backend /api/v1/ai/*`
 - For upstream/downstream lineage questions, prefer `portal_get_lineage` or `get_lineage.py` before writing custom SQL; only use `run_sql.py` when the lineage snapshot still lacks required fields
+- For upstream/downstream lineage questions, do not retry guessed `data_lineage` SQL after the guard fires; switch to `portal_get_lineage` or `get_lineage.py`, and only use `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` for a clearly scoped supplemental query
 
 ## Multi-Datasource Constraints
 

@@ -88,6 +88,7 @@
 - 收口规则：
   - `lineage_snapshot` 返回后优先基于结果回答
   - 只有 lineage 快照缺少用户明确要的字段时，才追加 `run_sql.py`
+  - 如果必须补 `data_lineage + data_table` 的 SQL，显式使用 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 
 ## get_table_ddl.py
 
@@ -119,6 +120,10 @@
 - 固定链路：
   - `run_sql.py -> odw-cli query-readonly -> backend /api/v1/ai/query/read`
   - skill/runtime 不再直连业务数据库，也不接收 datasource 凭据
+- 血缘硬约束：
+  - `run_sql.py` 会读取 `DATAAGENT_ORIGINAL_QUESTION`
+  - 当前问题命中“上游 / 下游 / 血缘”且 SQL 命中 `data_lineage` / `upstream_table_id` / `downstream_table_id` / `lineage_type` 时，默认拒绝执行
+  - 只有明确是 lineage 快照后的补充查询时，才允许显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 - 必须先满足：
   - 指标清楚
   - 时间范围清楚
@@ -134,6 +139,7 @@
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT layer, COUNT(*) AS table_cnt FROM opendataworks.data_table WHERE deleted = 0 GROUP BY layer ORDER BY table_cnt DESC LIMIT 20"`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT * FROM doris_ods.some_table_df WHERE ds = (SELECT MAX(ds) FROM doris_ods.some_table_df) LIMIT 100"`
   - `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database doris_ods --engine doris --sql "SELECT * FROM doris_ods.some_table_di WHERE ds BETWEEN '2026-03-01' AND '2026-03-13' LIMIT 100"`
+  - `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT dl.lineage_type, ut.table_name AS upstream_table, dt.table_name AS downstream_table FROM opendataworks.data_lineage dl LEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0 LEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0 WHERE (ut.table_name = 'your_table' OR dt.table_name = 'your_table') ORDER BY dl.id DESC LIMIT 100"`
 - 禁止：
   - 没定位到数据库就执行
   - 用来“试着猜一下”
@@ -212,6 +218,7 @@
 - 对 `workflow_publish_record` 或任意已给出明确表名的平台核心表诊断问题，不要再搜索仓库代码、测试文件或文档实现。
 - 上游 / 下游 / 血缘问题的第一动作应是 `mcp__portal__portal_get_lineage`；无 MCP 时使用 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table <table> [--db-name <db>]`。
 - 只有 lineage 快照里缺少用户明确需要的额外字段时，才允许再用 `run_sql.py` 查询 `data_lineage + data_table`。
+- 如果 `run_sql.py` 返回“请先使用 `portal_get_lineage` / `get_lineage.py`”之类的 guard 错误，不要继续猜等价 SQL，直接切回 lineage 专用路径。
 - 如果第一次 lineage 工具结果已返回非空数据，即使部分 `upstream_table` / `downstream_table` 为空，也直接基于现有结果总结；不要为了补齐空列继续追加第二条 SQL。
 - 只有表名不唯一、数据库不清或字段不清时，才允许退回 `inspect_metadata.py` 或追问。
 

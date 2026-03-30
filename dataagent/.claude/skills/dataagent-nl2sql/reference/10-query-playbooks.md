@@ -151,6 +151,7 @@
   - 用户已给出具体表名时，不要在仓库代码、测试文件或参考文档中搜索 lineage/血缘实现。
   - 用户问上游 / 下游 / 血缘时，第一动作必须是 `portal_get_lineage` 或 `get_lineage.py`；不要先猜 `run_sql.py`。
   - 只有 lineage 快照里缺少必要字段时，才允许追加 `run_sql.py` 查询 `data_lineage + data_table` 补充。
+  - `run_sql.py` 现在会根据 `DATAAGENT_ORIGINAL_QUESTION` 默认拒绝首轮 `data_lineage` 类 SQL；只有确定是补充查询时，才允许显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`。
   - 第一次 lineage 工具结果已返回非空数据时，直接基于结果总结；不要继续追加等价 SQL。
 
 ## 术语解释

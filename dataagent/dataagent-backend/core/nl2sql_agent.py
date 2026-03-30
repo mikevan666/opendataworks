@@ -728,6 +728,7 @@ def _build_system_prompt(database_hint: str | None) -> str:
             f"运行时只提供通用入口：`{python_bin}` / `$DATAAGENT_PYTHON_BIN` 和 `$DATAAGENT_SKILL_ROOT`。"
         ),
         "- 用户问某张表的上游 / 下游 / 血缘时，优先 `mcp__portal__portal_get_lineage`；无 MCP 时优先 `get_lineage.py`，不要先猜 `run_sql.py`。",
+        "- 对上游 / 下游 / 血缘问题，`run_sql.py` 默认会拒绝首轮 `data_lineage` 类 SQL；只有 lineage 快照仍缺必要字段时，才允许显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` 追加补充查询。",
         "- 用户要看 DDL / SHOW CREATE TABLE 时，优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时优先 `get_table_ddl.py`。",
         "- 当前内置 skill 只提供 OpenDataWorks 平台术语、平台表和数据中台通用规则；不要臆造租户业务术语、业务环境默认值或隐藏口径。",
         "- 不要自己发明部署绝对路径、脚本名或命令格式；路径和参数以 skill 文档为准。",
@@ -910,11 +911,13 @@ def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput 
     runtime_env = dict(os.environ)
     runtime_env.update(provider_env)
     sql_read_timeout = int(getattr(params, "sql_read_timeout_seconds", 0) or 0)
+    original_question = str(getattr(params, "question", "") or "").strip()
     runtime_env.update(
         {
             "DATAAGENT_QUERY_LIMIT": str(int(cfg.query_result_limit or 100)),
             "DATAAGENT_RESULT_PREVIEW_ROWS": str(min(20, int(cfg.query_result_limit or 100))),
             "DATAAGENT_SQL_READ_TIMEOUT_SECONDS": str(sql_read_timeout),
+            "DATAAGENT_ORIGINAL_QUESTION": original_question,
             "DATAAGENT_PYTHON_BIN": str(python_bin),
             "DATAAGENT_SKILL_ROOT": str(skills_root),
             "VIRTUAL_ENV": str(python_bin.parent.parent),

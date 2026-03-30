@@ -16,7 +16,11 @@ def test_build_runtime_env_does_not_expose_direct_db_connection_settings(monkeyp
     monkeypatch.setattr(nl2sql_agent, "resolve_builtin_skill_root_dir", lambda: Path("/tmp/skill-root"))
 
     cfg = SimpleNamespace(query_result_limit=120)
-    params = SimpleNamespace(sql_read_timeout_seconds=45, sql_write_timeout_seconds=90)
+    params = SimpleNamespace(
+        question="workflow_publish_record 的上游表有哪些",
+        sql_read_timeout_seconds=45,
+        sql_write_timeout_seconds=90,
+    )
 
     runtime_env = nl2sql_agent._build_runtime_env(cfg, {"CUSTOM_FLAG": "1"}, params)
 
@@ -24,6 +28,7 @@ def test_build_runtime_env_does_not_expose_direct_db_connection_settings(monkeyp
     assert runtime_env["DATAAGENT_QUERY_LIMIT"] == "120"
     assert runtime_env["DATAAGENT_RESULT_PREVIEW_ROWS"] == "20"
     assert runtime_env["DATAAGENT_SQL_READ_TIMEOUT_SECONDS"] == "45"
+    assert runtime_env["DATAAGENT_ORIGINAL_QUESTION"] == "workflow_publish_record 的上游表有哪些"
     assert runtime_env["DATAAGENT_SKILL_ROOT"] == "/tmp/skill-root"
     assert "ODW_MYSQL_HOST" not in runtime_env
     assert "ODW_MYSQL_PORT" not in runtime_env
@@ -90,6 +95,7 @@ def test_build_system_prompt_prefers_lineage_and_ddl_tools():
 
     assert "mcp__portal__portal_get_lineage" in prompt
     assert "get_lineage.py" in prompt
+    assert "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1" in prompt
     assert "mcp__portal__portal_get_table_ddl" in prompt
     assert "get_table_ddl.py" in prompt
 

@@ -36,6 +36,7 @@
 - `get_lineage.py` 是上游 / 下游问题的标准 fallback，优先级高于手写血缘 SQL。
 - `get_table_ddl.py` 不直接执行数据库连接，而是通过 `odw-cli ddl` 调 backend `/api/v1/ai/metadata/ddl`。
 - `run_sql.py` 不再直连数据库，而是通过 `odw-cli query-readonly` 调 backend `/api/v1/ai/query/read`。
+- runtime 会把原始用户问题注入 `DATAAGENT_ORIGINAL_QUESTION`；`run_sql.py` 会据此拦截首轮 `data_lineage` 类 SQL，避免把上游 / 下游问题退化成反复猜字段。
 - 一旦数据库明确，SQL 必须写 `<schema>.<table>`；平台核心表固定用 `opendataworks.<table>`。
 
 ## 平台核心表速查
@@ -124,6 +125,7 @@ LIMIT 100;
 
 - 用户已经给出明确表名时，优先 `mcp__portal__portal_get_lineage`；无 MCP 时优先 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table <table> [--db-name <db>]`，不要先搜索仓库里的 lineage/血缘代码实现。
 - 只有 lineage 快照缺少用户明确要看的字段时，才允许追加 `run_sql.py` 查询 `data_lineage + data_table`。
+- 如果确实需要这类补充 SQL，显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`；否则 `run_sql.py` 会直接拒绝。
 - 只要第一次 lineage 工具结果已返回非空数据，就直接总结；即使 `downstream_table` 或 `upstream_table` 有空值，也不要因为补空列再继续追加第二条 SQL。
 - 只有同名表不唯一或用户没给出表名时，才退回 metadata 检索和追问。
 

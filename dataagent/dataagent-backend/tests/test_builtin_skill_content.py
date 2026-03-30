@@ -57,6 +57,8 @@ def test_builtin_skill_keeps_generic_df_di_rules_without_business_defaults():
         "/api/v1/ai/query/read",
         "不再直连业务数据库",
         "http://backend:8080/api/v1/ai",
+        "DATAAGENT_ORIGINAL_QUESTION",
+        "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1",
     ]
     for token in required_tokens:
         assert token in snapshot

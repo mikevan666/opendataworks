@@ -294,6 +294,90 @@ def test_run_sql_script_delegates_to_query_cli(monkeypatch):
     assert payload["result"]["rows"] == [{"value": 1}]
 
 
+def test_run_sql_script_blocks_lineage_sql_before_query(monkeypatch):
+    module = _load_skill_module("run_sql.py", "dataagent_run_sql")
+    payload = {}
+    captured = {"called": False}
+
+    def fake_query_readonly(database, sql, preferred_engine=None, limit=None, timeout_seconds=None):
+        captured["called"] = True
+        return {}
+
+    monkeypatch.setattr(module, "query_readonly", fake_query_readonly)
+    monkeypatch.setattr(module, "print_json", lambda value: payload.setdefault("result", value))
+    monkeypatch.setenv("DATAAGENT_ORIGINAL_QUESTION", "workflow_publish_record 的上游表有哪些")
+    monkeypatch.delenv("DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_sql.py",
+            "--database",
+            "opendataworks",
+            "--engine",
+            "mysql",
+            "--sql",
+            "SELECT lineage_type, upstream_table_id FROM opendataworks.data_lineage LIMIT 10",
+        ],
+    )
+
+    module.main()
+
+    assert captured["called"] is False
+    assert payload["result"]["kind"] == "sql_execution"
+    assert "请先使用 `mcp__portal__portal_get_lineage`" in payload["result"]["error"]
+    assert "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1" in payload["result"]["error"]
+
+
+def test_run_sql_script_allows_lineage_sql_with_explicit_fallback(monkeypatch):
+    module = _load_skill_module("run_sql.py", "dataagent_run_sql")
+    captured = {}
+    payload = {}
+
+    def fake_query_readonly(database, sql, preferred_engine=None, limit=None, timeout_seconds=None):
+        captured["database"] = database
+        captured["sql"] = sql
+        captured["preferred_engine"] = preferred_engine
+        captured["limit"] = limit
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "kind": "query_result",
+            "engine": "mysql",
+            "database": database,
+            "sql": sql,
+            "rows": [{"lineage_type": "upstream"}],
+            "row_count": 1,
+            "has_more": False,
+            "duration_ms": 7,
+        }
+
+    monkeypatch.setattr(module, "query_readonly", fake_query_readonly)
+    monkeypatch.setattr(module, "print_json", lambda value: payload.setdefault("result", value))
+    monkeypatch.setenv("DATAAGENT_ORIGINAL_QUESTION", "workflow_publish_record 的上游表有哪些")
+    monkeypatch.setenv("DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK", "1")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_sql.py",
+            "--database",
+            "opendataworks",
+            "--engine",
+            "mysql",
+            "--sql",
+            "SELECT lineage_type, upstream_table_id FROM opendataworks.data_lineage LIMIT 10",
+        ],
+    )
+
+    module.main()
+
+    assert captured["database"] == "opendataworks"
+    assert "data_lineage" in captured["sql"]
+    assert captured["limit"] == 100
+    assert payload["result"]["kind"] == "sql_execution"
+    assert payload["result"]["rows"] == [{"lineage_type": "upstream"}]
+
+
 def test_get_table_ddl_script_delegates_to_cli(monkeypatch):
     module = _load_skill_module("get_table_ddl.py", "dataagent_get_table_ddl")
     captured = {}

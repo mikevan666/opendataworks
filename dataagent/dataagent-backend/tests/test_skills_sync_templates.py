@@ -34,6 +34,7 @@ def test_default_reference_templates_describe_cli_only_runtime():
     combined = "\n".join(
         [
             skills_sync._default_skill_md(),
+            skills_sync._default_reference_playbooks(),
             skills_sync._default_reference_tools(),
             skills_sync._default_reference_runtime(),
         ]
@@ -50,5 +51,7 @@ def test_default_reference_templates_describe_cli_only_runtime():
     assert "/api/v1/ai/*" in combined
     assert "MCP 不可用" in combined
     assert "不直连数据库" in combined
+    assert "DATAAGENT_ORIGINAL_QUESTION" in combined
+    assert "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1" in combined
     assert "pymysql" not in combined
     assert "ODW_MYSQL_" not in combined
