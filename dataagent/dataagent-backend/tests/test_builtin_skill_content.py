@@ -46,11 +46,19 @@ def test_builtin_skill_keeps_generic_df_di_rules_without_business_defaults():
         "ds",
         "portal-mcp",
         "mcp__portal__portal_search_tables",
+        "mcp__portal__portal_get_lineage",
+        "mcp__portal__portal_get_table_ddl",
         "mcp__portal__portal_query_readonly",
+        "get_lineage.py",
+        "get_table_ddl.py",
+        "odw-cli lineage",
+        "odw-cli ddl",
         "query-readonly",
         "/api/v1/ai/query/read",
         "不再直连业务数据库",
         "http://backend:8080/api/v1/ai",
+        "DATAAGENT_ORIGINAL_QUESTION",
+        "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1",
     ]
     for token in required_tokens:
         assert token in snapshot

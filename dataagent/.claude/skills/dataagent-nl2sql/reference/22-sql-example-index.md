@@ -86,7 +86,7 @@
 
 ### 查看某张表的上下游血缘
 - 标签：诊断、血缘关系、表格
-- 答案摘要：已给出明确表名时，直接在 opendataworks 的 data_lineage 与 data_table 上执行血缘 SQL；若同名表可能存在于多个数据库，再补充 db_name，不要搜索仓库代码或文档实现。
+- 答案摘要：已给出明确表名时，优先使用 `portal_get_lineage` 或 `get_lineage.py` 获取血缘快照；若同名表可能存在于多个数据库，再补充 db_name。只有快照缺少必要字段时，才补充 `data_lineage + data_table` 的 SQL。
 - 来源：`assets/few_shots.json`
 
 ### 查询某张 df 快照表最新一天的明细

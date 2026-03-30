@@ -15,6 +15,7 @@ def _write_fake_curl(tmp_path: Path) -> Path:
     script.write_text(
         """#!/bin/sh
 set -eu
+printf '%s\n' "$@" > "${TEST_CURL_ARGS_FILE:?}"
 body_file=""
 payload=""
 url=""
@@ -55,6 +56,7 @@ printf '%s' "${TEST_HTTP_CODE:-200}"
 def _base_env(tmp_path: Path, base_url: str) -> dict[str, str]:
     url_file = tmp_path / "curl-url.txt"
     payload_file = tmp_path / "curl-payload.txt"
+    args_file = tmp_path / "curl-args.txt"
     fake_curl = _write_fake_curl(tmp_path)
     env = dict(os.environ)
     env.update(
@@ -64,6 +66,7 @@ def _base_env(tmp_path: Path, base_url: str) -> dict[str, str]:
             "ODW_AGENT_SERVICE_TOKEN": "test-token",
             "TEST_CURL_URL_FILE": str(url_file),
             "TEST_CURL_PAYLOAD_FILE": str(payload_file),
+            "TEST_CURL_ARGS_FILE": str(args_file),
             "TEST_RESPONSE_BODY": '{"kind":"ok"}',
             "TEST_HTTP_CODE": "200",
         }
@@ -85,6 +88,27 @@ def test_odw_cli_inspect_uses_metadata_root_for_new_ai_base_url(tmp_path: Path):
     assert completed.returncode == 0
     assert json.loads(completed.stdout)["kind"] == "ok"
     assert (tmp_path / "curl-url.txt").read_text(encoding="utf-8") == "http://backend:8080/api/v1/ai/metadata/inspect"
+
+
+def test_odw_cli_lineage_uses_metadata_lineage_endpoint(tmp_path: Path):
+    env = _base_env(tmp_path, "http://backend:8080/api/v1/ai")
+
+    completed = subprocess.run(
+        ["sh", str(ODW_CLI), "lineage", "--table", "some_table", "--db-name", "doris_ods", "--table-id", "12", "--depth", "2"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["kind"] == "ok"
+    assert (tmp_path / "curl-url.txt").read_text(encoding="utf-8") == "http://backend:8080/api/v1/ai/metadata/lineage"
+    args = (tmp_path / "curl-args.txt").read_text(encoding="utf-8").splitlines()
+    assert "table=some_table" in args
+    assert "dbName=doris_ods" in args
+    assert "tableId=12" in args
+    assert "depth=2" in args
 
 
 def test_odw_cli_query_readonly_uses_query_endpoint_for_legacy_metadata_base_url(tmp_path: Path):
@@ -122,3 +146,30 @@ def test_odw_cli_query_readonly_uses_query_endpoint_for_legacy_metadata_base_url
         "limit": 20,
         "timeoutSeconds": 15,
     }
+
+
+def test_odw_cli_ddl_uses_metadata_ddl_endpoint(tmp_path: Path):
+    env = _base_env(tmp_path, "http://backend:8080/api/v1/ai")
+
+    completed = subprocess.run(
+        [
+            "sh",
+            str(ODW_CLI),
+            "ddl",
+            "--database",
+            "opendataworks",
+            "--table",
+            "workflow_publish_record",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["kind"] == "ok"
+    assert (tmp_path / "curl-url.txt").read_text(encoding="utf-8") == "http://backend:8080/api/v1/ai/metadata/ddl"
+    args = (tmp_path / "curl-args.txt").read_text(encoding="utf-8").splitlines()
+    assert "database=opendataworks" in args
+    assert "table=workflow_publish_record" in args

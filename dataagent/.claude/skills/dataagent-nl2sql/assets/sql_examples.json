@@ -77,6 +77,7 @@
       "question": "查看某张表的上下游血缘",
       "sql": "SELECT dl.lineage_type,\n       ut.db_name AS upstream_db,\n       ut.table_name AS upstream_table,\n       dt.db_name AS downstream_db,\n       dt.table_name AS downstream_table\nFROM opendataworks.data_lineage dl\nLEFT JOIN opendataworks.data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0\nLEFT JOIN opendataworks.data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0\nWHERE (ut.table_name = 'your_table' OR dt.table_name = 'your_table')\nORDER BY dl.id DESC\nLIMIT 100;",
       "notes": [
+        "实际问答时优先 `portal_get_lineage` 或 `get_lineage.py`；这条 SQL 只作为快照结果不足时的补充模板。",
         "把 `your_table` 替换成用户给出的真实表名即可。",
         "平台核心表 SQL 也要保留 schema 前缀。",
         "血缘定位默认输出表格，不强制出图。"

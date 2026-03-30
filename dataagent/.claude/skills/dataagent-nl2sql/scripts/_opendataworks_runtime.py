@@ -149,6 +149,67 @@ def resolve_datasource(database: str, preferred_engine: str | None = None) -> di
     }
 
 
+def get_lineage(
+    table: str | None = None,
+    db_name: str | None = None,
+    table_id: int | None = None,
+    depth: int | None = None,
+) -> dict[str, Any]:
+    target_table = str(table or "").strip()
+    target_db_name = str(db_name or "").strip()
+    if table_id is None and not target_table:
+        raise ValueError("table 或 table_id 至少提供一个")
+
+    payload = call_metadata_cli(
+        "lineage",
+        table=target_table,
+        db_name=target_db_name,
+        table_id=table_id,
+        depth=depth,
+    )
+    return {
+        "kind": payload.get("kind"),
+        "db_name": payload.get("db_name"),
+        "table": payload.get("table"),
+        "table_id": payload.get("table_id"),
+        "depth": payload.get("depth"),
+        "lineage": payload.get("lineage") or [],
+        "error": payload.get("error"),
+    }
+
+
+def get_table_ddl(
+    database: str | None = None,
+    table: str | None = None,
+    table_id: int | None = None,
+) -> dict[str, Any]:
+    target_database = str(database or "").strip()
+    target_table = str(table or "").strip()
+    if table_id is None and (not target_database or not target_table):
+        raise ValueError("table_id 或 database + table 至少提供一组")
+
+    payload = call_metadata_cli(
+        "ddl",
+        database=target_database,
+        table=target_table,
+        table_id=table_id,
+    )
+    return {
+        "kind": payload.get("kind"),
+        "database": payload.get("database"),
+        "table_name": payload.get("table_name"),
+        "table_id": payload.get("table_id"),
+        "cluster_id": payload.get("cluster_id"),
+        "cluster_name": payload.get("cluster_name"),
+        "engine": payload.get("engine"),
+        "source_type": payload.get("source_type"),
+        "resolved_by": payload.get("resolved_by"),
+        "table_comment": payload.get("table_comment"),
+        "fields": payload.get("fields") or [],
+        "ddl": payload.get("ddl"),
+    }
+
+
 def query_readonly(
     database: str,
     sql: str,

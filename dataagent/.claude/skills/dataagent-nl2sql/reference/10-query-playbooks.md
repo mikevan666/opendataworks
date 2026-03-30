@@ -130,7 +130,7 @@
 
 ## 诊断
 
-- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群
+- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群、某张表的 DDL / `SHOW CREATE TABLE`
 - 先确认：
   - 目标表或目标数据库
   - 是否需要补充 `db_name`
@@ -138,15 +138,21 @@
 - 推荐顺序：
   1. `20-term-index.md`
   2. `40-runtime-metadata.md`
-  3. 平台核心表已明确时优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage`
-  4. 托管数据表场景优先 `mcp__portal__portal_search_tables`
-  5. 无 MCP 时再使用 `inspect_metadata.py`
-  6. 必要时 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
+  3. 上游 / 下游 / 血缘问题优先 `mcp__portal__portal_get_lineage`
+  4. 平台核心表已明确且要补平台表字段时，再用 `mcp__portal__portal_query_readonly`
+  5. 查看 DDL 时优先 `mcp__portal__portal_get_table_ddl`
+  6. 托管数据表场景优先 `mcp__portal__portal_search_tables`
+  7. 无 MCP 且上游 / 下游 / 血缘问题时直接 `get_lineage.py`
+  8. 无 MCP 且需要 live DDL 时直接 `get_table_ddl.py`
+  9. 无 MCP 时再使用 `inspect_metadata.py`
+  10. 必要时 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
 - 默认输出：表格 + 诊断结论
 - 强约束：
   - 用户已给出具体表名时，不要在仓库代码、测试文件或参考文档中搜索 lineage/血缘实现。
-  - 直接进入 `data_lineage + data_table` 的只读查询步骤；只有表名不唯一或数据库不清时才追问。
-  - 第一次血缘 SQL 已返回非空结果时，直接基于结果总结；不要继续追加等价 SQL。
+  - 用户问上游 / 下游 / 血缘时，第一动作必须是 `portal_get_lineage` 或 `get_lineage.py`；不要先猜 `run_sql.py`。
+  - 只有 lineage 快照里缺少必要字段时，才允许追加 `run_sql.py` 查询 `data_lineage + data_table` 补充。
+  - `run_sql.py` 现在会根据 `DATAAGENT_ORIGINAL_QUESTION` 默认拒绝首轮 `data_lineage` 类 SQL；只有确定是补充查询时，才允许显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`。
+  - 第一次 lineage 工具结果已返回非空数据时，直接基于结果总结；不要继续追加等价 SQL。
 
 ## 术语解释
 

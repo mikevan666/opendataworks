@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import re
 
 from _opendataworks_runtime import (
     ensure_read_only,
@@ -10,6 +12,48 @@ from _opendataworks_runtime import (
     query_readonly,
     serializable_rows,
 )
+
+LINEAGE_QUESTION_KEYWORDS = ("上游", "下游", "血缘", "lineage")
+LINEAGE_SQL_PATTERNS = (
+    r"\bdata_lineage\b",
+    r"\bupstream_table_id\b",
+    r"\bdownstream_table_id\b",
+    r"\blineage_type\b",
+)
+
+
+def _looks_like_lineage_question(question: str) -> bool:
+    lowered = str(question or "").strip().lower()
+    if not lowered:
+        return False
+    return any(keyword in lowered for keyword in LINEAGE_QUESTION_KEYWORDS)
+
+
+def _looks_like_lineage_sql(sql: str) -> bool:
+    statement = str(sql or "").strip()
+    if not statement:
+        return False
+    return any(re.search(pattern, statement, flags=re.IGNORECASE) for pattern in LINEAGE_SQL_PATTERNS)
+
+
+def _lineage_sql_fallback_allowed() -> bool:
+    raw = str(os.getenv("DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK", "") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def enforce_lineage_first_guard(sql: str):
+    question = str(os.getenv("DATAAGENT_ORIGINAL_QUESTION", "") or "").strip()
+    if not _looks_like_lineage_question(question):
+        return
+    if _lineage_sql_fallback_allowed():
+        return
+    if not _looks_like_lineage_sql(sql):
+        return
+    raise ValueError(
+        "当前问题是上游/下游/血缘诊断，请先使用 `mcp__portal__portal_get_lineage`；"
+        "无 MCP 时先执行 `get_lineage.py`。只有 lineage 快照仍缺字段时，才允许带 "
+        "`DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` 再补充 `run_sql.py`。"
+    )
 
 
 def main():
@@ -27,6 +71,7 @@ def main():
 
     try:
         ensure_read_only(sql)
+        enforce_lineage_first_guard(sql)
         result = query_readonly(
             database=database,
             sql=sql,
