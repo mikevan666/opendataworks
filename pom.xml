@@ -11,6 +11,13 @@
     <packaging>pom</packaging>
 
     <name>OpenDataWorks Reactor</name>
+    <licenses>
+        <license>
+            <name>GNU General Public License v3.0 only</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.en.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <modules>
         <module>backend-agent-api</module>
