@@ -1182,6 +1182,7 @@ import { businessDomainApi, dataDomainApi } from '@/api/domain'
 import PersistentTabs from '@/components/PersistentTabs.vue'
 import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
 import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
+import { copyText } from '@/utils/clipboard'
 import { loadEcharts } from '@/utils/loadEcharts'
 
 const SqlEditor = defineAsyncComponent({
@@ -4437,7 +4438,7 @@ const copyDdl = async (tabId) => {
   const state = tabStates[tabId]
   if (!state?.ddl) return
   try {
-    await navigator.clipboard.writeText(state.ddl)
+    await copyText(state.ddl)
     ElMessage.success('已复制')
   } catch (error) {
     ElMessage.error('复制失败')
