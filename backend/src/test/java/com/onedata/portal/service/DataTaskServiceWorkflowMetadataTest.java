@@ -115,7 +115,7 @@ class DataTaskServiceWorkflowMetadataTest {
 
         dataTaskService.update(updatePayload, null, null);
 
-        verify(workflowTaskRelationMapper).delete(any());
+        verify(workflowTaskRelationMapper).hardDeleteByTaskId(1L);
         verify(workflowTaskRelationMapper, never()).insert(any());
         verify(workflowTaskRelationMapper, never()).updateById(any());
         verify(workflowService).refreshTaskRelations(10L);
@@ -302,7 +302,7 @@ class DataTaskServiceWorkflowMetadataTest {
 
         when(dataLineageMapper.delete(any())).thenReturn(2);
         when(tableTaskRelationMapper.hardDeleteByTaskId(401L)).thenReturn(1);
-        when(workflowTaskRelationMapper.delete(any())).thenReturn(1);
+        when(workflowTaskRelationMapper.hardDeleteByTaskId(401L)).thenReturn(1);
         when(dataTaskMapper.deleteById(401L)).thenReturn(1);
 
         dataTaskService.delete(401L);
@@ -311,5 +311,6 @@ class DataTaskServiceWorkflowMetadataTest {
         verify(workflowService).normalizeAndPersistMetadata(88L, "system");
         verify(dolphinSchedulerService, never()).setWorkflowReleaseState(anyLong(), anyString());
         verify(dolphinSchedulerService, never()).deleteWorkflow(anyLong());
+        verify(workflowTaskRelationMapper).hardDeleteByTaskId(401L);
     }
 }

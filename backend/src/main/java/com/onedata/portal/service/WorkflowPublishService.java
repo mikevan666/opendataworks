@@ -52,6 +52,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -337,6 +338,7 @@ public class WorkflowPublishService {
             runtimeTask.setSql(task.getTaskSql());
             runtimeTask.setDatasourceName(task.getDatasourceName());
             runtimeTask.setDatasourceType(task.getDatasourceType());
+            runtimeTask.setFlag(normalizeDolphinFlag(task.getDolphinFlag()));
             DefinitionTaskMetadata metadata = runtimeTask.getTaskCode() != null
                     ? definitionTaskMetadataByCode.get(runtimeTask.getTaskCode())
                     : null;
@@ -681,6 +683,14 @@ public class WorkflowPublishService {
         return value.trim();
     }
 
+    private String normalizeDolphinFlag(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "YES";
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return "NO".equals(normalized) ? "NO" : "YES";
+    }
+
     private List<WorkflowPublishRepairIssue> buildPublishMetadataRepairIssues(DataWorkflow workflow,
             RuntimeWorkflowDefinition platformDefinition) {
         if (workflow == null || platformDefinition == null || CollectionUtils.isEmpty(platformDefinition.getTasks())) {
@@ -891,6 +901,11 @@ public class WorkflowPublishService {
                 localTask.setTaskGroupName(runtimeTask.getTaskGroupName().trim());
                 changed = true;
             }
+            if (!Objects.equals(normalizeDolphinFlag(localTask.getDolphinFlag()),
+                    normalizeDolphinFlag(runtimeTask.getFlag()))) {
+                localTask.setDolphinFlag(normalizeDolphinFlag(runtimeTask.getFlag()));
+                changed = true;
+            }
             if (!changed) {
                 continue;
             }
@@ -955,6 +970,7 @@ public class WorkflowPublishService {
                 changed |= putText(taskParams, "type", runtimeTask.getDatasourceType());
 
                 changed |= putInt(taskObject, "taskGroupId", runtimeTask.getTaskGroupId());
+                changed |= putText(taskObject, "flag", normalizeDolphinFlag(runtimeTask.getFlag()));
                 changed |= putText(taskObject, "taskPriority", runtimeTask.getTaskPriority());
                 changed |= putInt(taskObject, "version", runtimeTask.getTaskVersion());
                 changed |= putLongArray(taskObject, "inputTableIds", runtimeTask.getInputTableIds());

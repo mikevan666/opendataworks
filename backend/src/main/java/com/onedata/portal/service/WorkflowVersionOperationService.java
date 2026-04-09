@@ -269,6 +269,7 @@ public class WorkflowVersionOperationService {
             payload.setDatasourceName(readText(taskSnapshot.getNode(), "datasourceName", existing.getDatasourceName()));
             payload.setDatasourceType(readText(taskSnapshot.getNode(), "datasourceType", existing.getDatasourceType()));
             payload.setTaskGroupName(readText(taskSnapshot.getNode(), "taskGroupName", existing.getTaskGroupName()));
+            payload.setDolphinFlag(readText(taskSnapshot.getNode(), "dolphinFlag", existing.getDolphinFlag()));
             payload.setRetryTimes(readInteger(taskSnapshot.getNode(), "retryTimes", existing.getRetryTimes()));
             payload.setRetryInterval(readInteger(taskSnapshot.getNode(), "retryInterval", existing.getRetryInterval()));
             payload.setTimeoutSeconds(readInteger(taskSnapshot.getNode(), "timeoutSeconds", existing.getTimeoutSeconds()));
@@ -651,6 +652,7 @@ public class WorkflowVersionOperationService {
                         firstText(task, "datasourceType"),
                         firstText(taskParams, "type")));
                 taskNode.put("taskGroupName", firstText(task, "taskGroupName"));
+                taskNode.put("dolphinFlag", firstText(task, "dolphinFlag", "flag"));
                 taskNode.put("retryTimes", firstLong(task, "retryTimes", "failRetryTimes"));
                 taskNode.put("retryInterval", firstLong(task, "retryInterval", "failRetryInterval"));
                 taskNode.put("timeoutSeconds", firstLong(task, "timeoutSeconds", "timeout"));

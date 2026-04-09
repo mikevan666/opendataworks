@@ -294,6 +294,7 @@ public class DolphinRuntimeDefinitionService {
             task.setDatasourceType(normalizeText(task.getDatasourceType()));
             task.setTaskPriority(normalizeTaskPriority(task.getTaskPriority()));
             task.setTaskGroupName(normalizeText(task.getTaskGroupName()));
+            task.setFlag(normalizeDolphinFlag(task.getFlag()));
 
             Long datasourceId = task.getDatasourceId();
             String datasourceName = task.getDatasourceName();
@@ -596,6 +597,7 @@ public class DolphinRuntimeDefinitionService {
             task.setTaskPriority(normalizeTaskPriority(readText(item, "taskPriority", "priority")));
             task.setTaskGroupId(readInt(item, "taskGroupId"));
             task.setTaskGroupName(readText(item, "taskGroupName"));
+            task.setFlag(normalizeDolphinFlag(readText(item, "flag", "taskFlag")));
 
             JsonNode taskParamsNode = normalizeNode(item.get("taskParams"));
             if (taskParamsNode != null && !taskParamsNode.isNull()) {
@@ -889,6 +891,14 @@ public class DolphinRuntimeDefinitionService {
             return "LOW";
         }
         return "LOWEST";
+    }
+
+    private String normalizeDolphinFlag(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "YES";
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return "NO".equals(normalized) ? "NO" : "YES";
     }
 
     private long resolveProjectCode(Long projectCode) {

@@ -138,6 +138,27 @@ class WorkflowRuntimeDiffServiceTest {
     }
 
     @Test
+    void buildDiffShouldDetectTaskFlagChanges() {
+        RuntimeWorkflowDefinition baselineDef = definition("wf_a");
+        RuntimeTaskDefinition baselineTask = task(1L, "task_1", "SELECT 1", 11L, 21L);
+        baselineTask.setFlag("YES");
+        baselineDef.setTasks(Collections.singletonList(baselineTask));
+
+        RuntimeWorkflowDefinition currentDef = definition("wf_a");
+        RuntimeTaskDefinition currentTask = task(1L, "task_1", "SELECT 1", 11L, 21L);
+        currentTask.setFlag("NO");
+        currentDef.setTasks(Collections.singletonList(currentTask));
+
+        RuntimeDiffSummary summary = buildDiff(baselineDef, currentDef,
+                Collections.<RuntimeTaskEdge>emptyList(),
+                Collections.<RuntimeTaskEdge>emptyList());
+
+        assertTrue(Boolean.TRUE.equals(summary.getChanged()));
+        assertTrue(summary.getTaskModified().stream()
+                .anyMatch(item -> item.contains("task.flag") && item.contains("YES") && item.contains("NO")));
+    }
+
+    @Test
     void buildDiffShouldDetectTaskRelationChanges() {
         RuntimeWorkflowDefinition baselineDef = definition("wf_a");
         baselineDef.setTasks(Arrays.asList(
@@ -304,6 +325,7 @@ class WorkflowRuntimeDiffServiceTest {
         task.setDatasourceId(10L);
         task.setDatasourceName("doris_ds");
         task.setDatasourceType("DORIS");
+        task.setFlag("YES");
         task.setInputTableIds(Collections.singletonList(inputTableId));
         task.setOutputTableIds(Collections.singletonList(outputTableId));
         return task;
