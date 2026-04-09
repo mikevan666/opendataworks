@@ -115,7 +115,7 @@ class WorkflowDeployServiceTest {
         DataWorkflow workflow = new DataWorkflow();
         workflow.setId(1L);
         workflow.setWorkflowName("wf_test");
-        workflow.setProjectCode(11L);
+        workflow.setProjectCode(20001L);
         workflow.setDescription("workflow deploy description");
         workflow.setTaskGroupName("tg_default");
         workflow.setGlobalParams("[]");
@@ -203,6 +203,7 @@ class WorkflowDeployServiceTest {
 
         WorkflowDeployService.DeploymentResult result = service.deploy(workflow);
         assertEquals(90001L, result.getWorkflowCode());
+        assertEquals(11L, result.getProjectCode());
         assertEquals(2, result.getTaskCount());
 
         ArgumentCaptor<Integer> retryTimesCaptor = ArgumentCaptor.forClass(Integer.class);
