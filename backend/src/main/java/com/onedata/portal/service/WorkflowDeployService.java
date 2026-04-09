@@ -177,6 +177,7 @@ public class WorkflowDeployService {
                     nodeType,
                     datasourceId,
                     realDatasourceType != null ? realDatasourceType : task.getDatasourceType(),
+                    task.getDolphinFlag(),
                     taskGroupId,
                     null);
             definitions.add(definition);

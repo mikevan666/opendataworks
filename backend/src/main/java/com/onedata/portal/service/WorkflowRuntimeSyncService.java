@@ -842,6 +842,7 @@ public class WorkflowRuntimeSyncService {
         task.setDatasourceName(runtimeTask.getDatasourceName());
         task.setDatasourceType(runtimeTask.getDatasourceType());
         task.setTaskGroupName(runtimeTask.getTaskGroupName());
+        task.setDolphinFlag(runtimeTask.getFlag());
         task.setDolphinProcessCode(definition.getWorkflowCode());
         task.setDolphinTaskCode(runtimeTask.getTaskCode());
         task.setDolphinTaskVersion(runtimeTask.getTaskVersion() != null ? runtimeTask.getTaskVersion() : 1);

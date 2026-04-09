@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,14 +42,14 @@ class DolphinSchedulerServiceTest {
         DolphinConfig config = new DolphinConfig();
         config.setProjectName("it_project");
         when(dolphinConfigService.getActiveConfig()).thenReturn(config);
-
-        DolphinProject project = new DolphinProject();
-        project.setCode(100L);
-        when(openApiClient.getProject("it_project")).thenReturn(project);
     }
 
     @Test
     void listTaskGroupsShouldKeepGlobalGroupsWhenFilteringByProject() {
+        DolphinProject project = new DolphinProject();
+        project.setCode(100L);
+        when(openApiClient.getProject("it_project")).thenReturn(project);
+
         DolphinTaskGroup currentProjectGroup = taskGroup(1, "tg-project", 100L);
         DolphinTaskGroup globalGroup = taskGroup(2, "tg-global", 0L);
         DolphinTaskGroup otherProjectGroup = taskGroup(3, "tg-other", 200L);
@@ -65,6 +66,44 @@ class DolphinSchedulerServiceTest {
                 "全局任务组(projectCode=0)应存在");
         assertTrue(options.stream().noneMatch(item -> "tg-other".equals(item.getName())),
                 "其他项目任务组应被过滤");
+    }
+
+    @Test
+    void buildTaskDefinitionShouldDefaultFlagToYes() {
+        Map<String, Object> payload = service.buildTaskDefinition(
+                1001L,
+                1,
+                "task_default_flag",
+                "desc",
+                "echo ok",
+                "MEDIUM",
+                1,
+                1,
+                60);
+
+        assertEquals("YES", payload.get("flag"));
+    }
+
+    @Test
+    void buildTaskDefinitionShouldKeepExplicitNoFlag() {
+        Map<String, Object> payload = service.buildTaskDefinition(
+                1002L,
+                1,
+                "task_disabled",
+                "desc",
+                "echo ok",
+                "MEDIUM",
+                1,
+                1,
+                60,
+                "SHELL",
+                null,
+                null,
+                "NO",
+                null,
+                null);
+
+        assertEquals("NO", payload.get("flag"));
     }
 
     private DolphinTaskGroup taskGroup(int id, String name, Long projectCode) {

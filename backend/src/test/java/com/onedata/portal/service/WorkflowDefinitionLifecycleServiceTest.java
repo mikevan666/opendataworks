@@ -162,6 +162,7 @@ class WorkflowDefinitionLifecycleServiceTest {
     void commitShouldCreateWorkflowWhenPreviewPassed() {
         RuntimeWorkflowDefinition definition = baseDefinition();
         RuntimeTaskDefinition task1 = sqlTask(1L, "t_extract", "SQL_A");
+        task1.setFlag("NO");
         RuntimeTaskDefinition task2 = sqlTask(2L, "t_load", "SQL_B");
         definition.setTasks(Arrays.asList(task1, task2));
         definition.setExplicitEdges(Arrays.asList(
@@ -212,6 +213,7 @@ class WorkflowDefinitionLifecycleServiceTest {
         assertEquals("import_file", captured.getTriggerSource());
         assertNotNull(captured.getDefinitionJson());
         assertTrue(captured.getDefinitionJson().contains("processTaskRelationList"));
+        assertTrue(captured.getDefinitionJson().contains("\"flag\":\"NO\""));
     }
 
     @Test
@@ -223,6 +225,7 @@ class WorkflowDefinitionLifecycleServiceTest {
         task.setRetryInterval(null);
         task.setTimeoutSeconds(null);
         task.setTaskVersion(null);
+        task.setFlag("NO");
         definition.setTasks(Collections.singletonList(task));
         definition.setExplicitEdges(Collections.singletonList(new RuntimeTaskEdge(0L, 11L)));
 
@@ -264,6 +267,7 @@ class WorkflowDefinitionLifecycleServiceTest {
         assertNull(capturedTask.getRetryInterval(), "导入阶段不应在 create 之前补 retryInterval 默认值");
         assertNull(capturedTask.getTimeoutSeconds(), "导入阶段不应在 create 之前补 timeoutSeconds 默认值");
         assertNull(capturedTask.getDolphinTaskVersion(), "导入阶段不应在 create 之前补 dolphinTaskVersion 默认值");
+        assertEquals("NO", capturedTask.getDolphinFlag(), "导入阶段应保留 Dolphin flag");
 
         verify(workflowService).normalizeAndPersistMetadata(77L, "tester");
     }
@@ -412,6 +416,7 @@ class WorkflowDefinitionLifecycleServiceTest {
         task.setDatasourceName("mysql_ds");
         task.setDatasourceType("MYSQL");
         task.setTaskVersion(1);
+        task.setFlag("YES");
         return task;
     }
 

@@ -143,6 +143,7 @@ class WorkflowDeployServiceTest {
         taskA.setDatasourceName("ds_main");
         taskA.setDatasourceType("MYSQL");
         taskA.setTaskGroupName("tg_sql");
+        taskA.setDolphinFlag("NO");
         taskA.setPriority(8);
         taskA.setRetryTimes(4);
         taskA.setRetryInterval(6);
@@ -160,6 +161,7 @@ class WorkflowDeployServiceTest {
         taskB.setDatasourceName("ds_main");
         taskB.setDatasourceType("MYSQL");
         taskB.setTaskGroupName("tg_sql");
+        taskB.setDolphinFlag("YES");
         taskB.setPriority(5);
         taskB.setRetryTimes(2);
         taskB.setRetryInterval(3);
@@ -178,7 +180,7 @@ class WorkflowDeployServiceTest {
         when(tableTaskRelationMapper.selectList(any())).thenReturn(Arrays.asList(relWriteA, relReadB));
 
         when(dolphinSchedulerService.buildTaskDefinition(anyLong(), anyInt(), anyString(), anyString(), anyString(),
-                anyString(), anyInt(), anyInt(), anyInt(), anyString(), any(), anyString(), any(), any()))
+                anyString(), anyInt(), anyInt(), anyInt(), anyString(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(Collections.singletonMap("ok", true));
         when(dolphinSchedulerService.buildRelation(anyLong(), anyInt(), anyLong(), anyInt()))
                 .thenAnswer(invocation -> dolphinRelation(
@@ -213,7 +215,7 @@ class WorkflowDeployServiceTest {
                 retryTimesCaptor.capture(),
                 retryIntervalCaptor.capture(),
                 timeoutCaptor.capture(),
-                eq("SQL"), eq(901L), eq("MYSQL"), eq(77), eq(null));
+                eq("SQL"), eq(901L), eq("MYSQL"), eq("NO"), eq(77), eq(null));
         assertEquals("HIGH", priorityCaptor.getValue());
         assertEquals(Integer.valueOf(4), retryTimesCaptor.getValue());
         assertEquals(Integer.valueOf(6), retryIntervalCaptor.getValue());
