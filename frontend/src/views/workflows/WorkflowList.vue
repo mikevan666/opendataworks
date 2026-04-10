@@ -233,7 +233,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, h } from 'vue'
 import dayjs from 'dayjs'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -241,8 +241,8 @@ import { Search, Link, Plus } from '@element-plus/icons-vue'
 import { workflowApi } from '@/api/workflow'
 import { taskApi } from '@/api/task'
 import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
+import WorkflowPublishPreviewDialog from './WorkflowPublishPreviewDialog.vue'
 import {
-  buildPublishPreviewHtml,
   buildPublishRepairHtml,
   firstPreviewErrorMessage,
   isDialogCancel,
@@ -598,14 +598,13 @@ const previewPublishAndConfirm = async (row) => {
   }
   try {
     await ElMessageBox.confirm(
-      buildPublishPreviewHtml(preview),
+      h(WorkflowPublishPreviewDialog, { preview }),
       '发布变更确认',
       {
         type: 'warning',
-        customClass: 'workflow-publish-message-box',
+        customClass: 'workflow-publish-message-box workflow-publish-message-box--preview',
         confirmButtonText: '确认发布',
-        cancelButtonText: '取消',
-        dangerouslyUseHTMLString: true
+        cancelButtonText: '取消'
       }
     )
     return true
@@ -959,11 +958,4 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-</style>
-
-<style>
-.workflow-publish-message-box {
-  width: min(1080px, 92vw) !important;
-  max-width: 92vw !important;
-}
 </style>

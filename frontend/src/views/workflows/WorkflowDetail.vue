@@ -765,7 +765,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Link, Delete, Edit, Plus, Close } from '@element-plus/icons-vue'
@@ -776,8 +776,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import WorkflowTaskManager from './WorkflowTaskManager.vue'
 import WorkflowBackfillDialog from './WorkflowBackfillDialog.vue'
 import WorkflowVersionComparePanel from './WorkflowVersionComparePanel.vue'
+import WorkflowPublishPreviewDialog from './WorkflowPublishPreviewDialog.vue'
 import {
-  buildPublishPreviewHtml,
   buildPublishRepairHtml,
   firstPreviewErrorMessage,
   isDialogCancel,
@@ -1979,14 +1979,13 @@ const previewPublishAndConfirm = async (row) => {
   }
   try {
     await ElMessageBox.confirm(
-      buildPublishPreviewHtml(preview),
+      h(WorkflowPublishPreviewDialog, { preview }),
       '发布变更确认',
       {
         type: 'warning',
-        customClass: 'workflow-publish-message-box',
+        customClass: 'workflow-publish-message-box workflow-publish-message-box--preview',
         confirmButtonText: '确认发布',
-        cancelButtonText: '取消',
-        dangerouslyUseHTMLString: true
+        cancelButtonText: '取消'
       }
     )
     return true
@@ -2515,11 +2514,4 @@ onMounted(() => {
   cursor: pointer;
 }
 
-</style>
-
-<style>
-.workflow-publish-message-box {
-  width: min(1080px, 92vw) !important;
-  max-width: 92vw !important;
-}
 </style>

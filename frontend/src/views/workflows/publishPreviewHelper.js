@@ -1,4 +1,4 @@
-const MAX_RENDER_COUNT = 20
+export const MAX_RENDER_COUNT = 20
 
 const escapeHtml = (text) => {
   const raw = String(text ?? '')
@@ -10,12 +10,15 @@ const escapeHtml = (text) => {
     .replaceAll("'", '&#39;')
 }
 
-const formatFieldValue = (value) => {
+export const formatFieldValue = (value, options = {}) => {
+  const preserveEmpty = options?.preserveEmpty === true
+  const prettyObject = options?.prettyObject !== false
+
   if (value === null || value === undefined || value === '') {
-    return '-'
+    return preserveEmpty ? '' : '-'
   }
   if (typeof value === 'object') {
-    return JSON.stringify(value)
+    return prettyObject ? JSON.stringify(value, null, 2) : JSON.stringify(value)
   }
   return String(value)
 }
@@ -28,14 +31,14 @@ const renderValueCell = (value) => {
   `
 }
 
-const formatTask = (task) => {
+export const formatTask = (task) => {
   if (!task) return '-'
   const code = task.taskCode ?? '-'
   const name = task.taskName || '-'
   return `${name} (${code})`
 }
 
-const formatRelation = (relation) => {
+export const formatRelation = (relation) => {
   if (!relation) return '-'
   const pre = relation.entryEdge || relation.preTaskCode === 0
     ? '入口'

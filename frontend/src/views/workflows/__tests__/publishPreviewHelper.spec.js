@@ -1,4 +1,5 @@
 import { buildPublishPreviewHtml, resolvePublishVersionId } from '../publishPreviewHelper'
+import { buildTaskFieldDiffRows } from '../publishPreviewDiffHelper'
 
 describe('publishPreviewHelper', () => {
   it('renders explicit before and after values for task field changes', () => {
@@ -26,6 +27,25 @@ describe('publishPreviewHelper', () => {
     expect(html).toContain('sql_task (1001)')
     expect(html).toContain('from ods.user_old')
     expect(html).toContain('from ods.user_new')
+  })
+
+  it('classifies added removed and modified task diff rows', () => {
+    const rows = buildTaskFieldDiffRows(
+      'select id\nfrom ods.user_old\nwhere dt = ${bizdate}',
+      'select user_id\nfrom ods.user_new\nwhere dt = ${bizdate}\nlimit 10'
+    )
+
+    expect(rows.map(row => row.type)).toEqual(['modified', 'modified', 'added'])
+    expect(rows[0].left.lineNumber).toBe(1)
+    expect(rows[0].right.lineNumber).toBe(1)
+    expect(rows.some((row) => (
+      row.type === 'modified'
+      && (
+        row.left.segments.some(segment => segment.changed)
+        || row.right.segments.some(segment => segment.changed)
+      )
+    ))).toBe(true)
+    expect(rows[2].right.text).toBe('limit 10')
   })
 
   it('prefers last published version when resolving publish version id', () => {
