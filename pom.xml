@@ -7,7 +7,7 @@
 
     <groupId>com.onedata</groupId>
     <artifactId>opendataworks-reactor</artifactId>
-    <version>0.9.0</version>
+    <version>1.0.0</version>
     <packaging>pom</packaging>
 
     <name>OpenDataWorks Reactor</name>
