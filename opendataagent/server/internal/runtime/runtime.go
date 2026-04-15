@@ -86,7 +86,7 @@ func buildOptions(input RunInput) sdkapi.Options {
 	settings.MCP = buildMCPConfig(input.MCPServers)
 	toolsDisabled := envBool("ODA_DISABLE_AGENT_TOOLS")
 
-	enabledBuiltinTools := []string{"skill", "read", "glob", "grep"}
+	enabledBuiltinTools := []string{"skill", "read", "glob", "grep", "bash"}
 	customTools := []sdktool.Tool{newRuntimeContextTool(input.SkillEntries, input.MCPServers)}
 	skillRegistrations := buildSkillRegistrations(input.SkillEntries)
 	if toolsDisabled {

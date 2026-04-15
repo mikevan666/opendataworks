@@ -31,6 +31,9 @@ func New(cfg config.Config) (*App, error) {
 	if err := os.MkdirAll(cfg.StateDir, 0755); err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(cfg.SkillsDir, 0755); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(cfg.ManagedSkillsDir, 0755); err != nil {
 		return nil, err
 	}
@@ -48,6 +51,10 @@ func New(cfg config.Config) (*App, error) {
 		},
 		subscribers: make(map[string]map[chan models.TaskEvent]struct{}),
 		taskCancels: make(map[string]context.CancelFunc),
+	}
+	if err := app.skillSvc.SyncSharedSource(cfg.SharedSkillsDir, cfg.SkillsDir); err != nil {
+		_ = stateStore.Close()
+		return nil, err
 	}
 	app.state = app.defaultState()
 	if err := app.load(); err != nil {

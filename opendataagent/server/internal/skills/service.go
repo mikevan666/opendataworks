@@ -40,6 +40,79 @@ type Service struct {
 	ManagedDir string
 }
 
+func (s Service) SyncSharedSource(sharedRoot string, skillsRoot string) error {
+	sharedRoot = strings.TrimSpace(sharedRoot)
+	if sharedRoot == "" {
+		return nil
+	}
+	info, err := os.Stat(sharedRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("shared skills root is not a directory: %s", sharedRoot)
+	}
+	if strings.TrimSpace(skillsRoot) == "" {
+		return errors.New("skills root is required")
+	}
+
+	bundledTarget := filepath.Join(skillsRoot, "bundled")
+	binTarget := filepath.Join(skillsRoot, "bin")
+	libTarget := filepath.Join(skillsRoot, "lib")
+
+	if err := os.RemoveAll(bundledTarget); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(binTarget); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(libTarget); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(bundledTarget, 0755); err != nil {
+		return err
+	}
+
+	for _, pair := range []struct {
+		src string
+		dst string
+	}{
+		{src: filepath.Join(sharedRoot, "bin"), dst: binTarget},
+		{src: filepath.Join(sharedRoot, "lib"), dst: libTarget},
+	} {
+		if stat, err := os.Stat(pair.src); err == nil && stat.IsDir() {
+			if err := copyDir(pair.src, pair.dst); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, group := range []string{"platform", "generic"} {
+		groupRoot := filepath.Join(sharedRoot, group)
+		entries, err := os.ReadDir(groupRoot)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			srcPath := filepath.Join(groupRoot, entry.Name())
+			dstPath := filepath.Join(bundledTarget, entry.Name())
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s Service) ScanRuntimeEntries() ([]Entry, error) {
 	bundled, err := s.scanDir(s.BundledDir, "bundled")
 	if err != nil {
@@ -401,7 +474,15 @@ func copyDir(src string, dst string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0644
+		}
+		if err := os.WriteFile(dstPath, data, mode); err != nil {
 			return err
 		}
 	}

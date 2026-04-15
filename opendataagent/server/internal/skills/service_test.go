@@ -152,3 +152,51 @@ func TestImportSkillPackageFromZip(t *testing.T) {
 		t.Fatalf("expected zip content to be extracted, got %q", string(content))
 	}
 }
+
+func TestSyncSharedSourceMirrorsRootSkills(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(root, "shared")
+	target := filepath.Join(root, "target")
+
+	if err := os.MkdirAll(filepath.Join(shared, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(shared, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(shared, "platform", "opendataworks-platform"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(shared, "generic", "python-analysis"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "bin", "odw-cli"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "lib", "helper.py"), []byte("VALUE = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "platform", "opendataworks-platform", "SKILL.md"), []byte("# Platform"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "generic", "python-analysis", "SKILL.md"), []byte("# Python"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := Service{}
+	if err := svc.SyncSharedSource(shared, target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "bin", "odw-cli")); err != nil {
+		t.Fatalf("expected mirrored odw-cli: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "lib", "helper.py")); err != nil {
+		t.Fatalf("expected mirrored shared lib: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "bundled", "opendataworks-platform", "SKILL.md")); err != nil {
+		t.Fatalf("expected mirrored platform skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "bundled", "python-analysis", "SKILL.md")); err != nil {
+		t.Fatalf("expected mirrored generic skill: %v", err)
+	}
+}

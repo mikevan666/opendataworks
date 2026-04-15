@@ -1,4 +1,6 @@
 services:
+  # Note: opendataagent is intentionally deployed via opendataagent/deploy/docker-compose.yml
+  # and is not part of the root portal compose stack.
   # MySQL 数据库
   mysql:
     image: mysql:8.0
