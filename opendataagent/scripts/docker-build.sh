@@ -5,6 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SYNC_SCRIPT="$PROJECT_ROOT/scripts/sync-root-skills.sh"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+# shellcheck source=/dev/null
+source "$LIB_DIR/container-runtime.sh"
 
 VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
 TAG="${TAG:-$VERSION}"
@@ -44,8 +48,17 @@ done
 
 "$SYNC_SCRIPT"
 
-docker build -t "opendataagent-server:${TAG}" "$PROJECT_ROOT/server"
-docker build -t "opendataagent-web:${TAG}" "$PROJECT_ROOT/web"
+if ! CONTAINER_CMD="$(detect_container_runtime)"; then
+  echo "docker or podman is required" >&2
+  exit 1
+fi
+if ! ensure_container_runtime_ready "$CONTAINER_CMD"; then
+  echo "$CONTAINER_CMD is not ready" >&2
+  exit 1
+fi
+
+"$CONTAINER_CMD" build -t "opendataagent-server:${TAG}" "$PROJECT_ROOT/server"
+"$CONTAINER_CMD" build -t "opendataagent-web:${TAG}" "$PROJECT_ROOT/web"
 
 echo "Built images:"
 echo "  opendataagent-server:${TAG}"
