@@ -46,7 +46,7 @@ services:
 
   # 后端服务
   backend:
-    image: ${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:0.9.0}
+    image: ${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:1.0.0}
     container_name: opendataworks-backend
     restart: always
     env_file:
@@ -73,7 +73,7 @@ services:
 
   # 前端服务
   frontend:
-    image: ${OPENDATAWORKS_FRONTEND_IMAGE:-mikefan2019/opendataworks-frontend:0.9.0}
+    image: ${OPENDATAWORKS_FRONTEND_IMAGE:-mikefan2019/opendataworks-frontend:1.0.0}
     container_name: opendataworks-frontend
     restart: always
     env_file:
@@ -95,7 +95,7 @@ services:
 
   # DataAgent 后端服务（NL2SQL）
   dataagent-backend:
-    image: ${OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE:-mikefan2019/opendataworks-dataagent-backend:0.9.0}
+    image: ${OPENDATAWORKS_DATAAGENT_BACKEND_IMAGE:-mikefan2019/opendataworks-dataagent-backend:1.0.0}
     container_name: opendataworks-dataagent-backend
     restart: always
     user: "${DATAAGENT_RUNTIME_UID:-1000}:${DATAAGENT_RUNTIME_GID:-1000}"
@@ -124,9 +124,13 @@ services:
       SCHEDULE_SCAN_INTERVAL_SECONDS: ${DATAAGENT_SCHEDULE_SCAN_INTERVAL_SECONDS:-10}
       SCHEDULE_SCAN_BATCH_SIZE: ${DATAAGENT_SCHEDULE_SCAN_BATCH_SIZE:-10}
       SCHEDULE_LOCK_TTL_SECONDS: ${DATAAGENT_SCHEDULE_LOCK_TTL_SECONDS:-60}
-      ODW_BACKEND_BASE_URL: ${ODW_BACKEND_BASE_URL:-http://backend:8080/api/v1/ai/metadata}
+      ODW_BACKEND_BASE_URL: ${ODW_BACKEND_BASE_URL:-http://backend:8080/api/v1/ai}
       ODW_AGENT_SERVICE_TOKEN: ${AGENT_API_SERVICE_TOKEN:-odw-agent-service-token}
       ODW_BACKEND_TIMEOUT_SECONDS: ${ODW_BACKEND_TIMEOUT_SECONDS:-30}
+      DATAAGENT_PORTAL_MCP_ENABLED: ${DATAAGENT_PORTAL_MCP_ENABLED:-true}
+      DATAAGENT_PORTAL_MCP_BASE_URL: ${DATAAGENT_PORTAL_MCP_BASE_URL:-http://portal-mcp:8801/mcp}
+      DATAAGENT_PORTAL_MCP_TOKEN: ${DATAAGENT_PORTAL_MCP_TOKEN:-odw-portal-mcp-token}
+      DATAAGENT_PORTAL_MCP_TOKEN_HEADER_NAME: ${DATAAGENT_PORTAL_MCP_TOKEN_HEADER_NAME:-X-Portal-MCP-Token}
     ports:
       - "8900:8900"
     depends_on:
@@ -147,7 +151,7 @@ services:
       - ${DATAAGENT_SKILLS_DIR:-../dataagent/.claude/skills}:/app/.claude/skills
 
   portal-mcp:
-    image: ${OPENDATAWORKS_PORTAL_MCP_IMAGE:-mikefan2019/opendataworks-portal-mcp:0.9.0}
+    image: ${OPENDATAWORKS_PORTAL_MCP_IMAGE:-mikefan2019/opendataworks-portal-mcp:1.0.0}
     container_name: opendataworks-portal-mcp
     restart: always
     env_file:

@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Comparator;
@@ -816,7 +817,27 @@ public class DolphinSchedulerService {
             Integer taskGroupPriority) {
         return buildTaskDefinition(taskCode, taskVersion, taskName, description, rawScript,
                 taskPriority, retryTimes, retryInterval, timeoutSeconds, nodeType,
-                datasourceId, datasourceType, null, null, null, null, taskGroupId, taskGroupPriority);
+                datasourceId, datasourceType, null, null, null, null, null, taskGroupId, taskGroupPriority);
+    }
+
+    public Map<String, Object> buildTaskDefinition(long taskCode,
+            int taskVersion,
+            String taskName,
+            String description,
+            String rawScript,
+            String taskPriority,
+            int retryTimes,
+            int retryInterval,
+            int timeoutSeconds,
+            String nodeType,
+            Long datasourceId,
+            String datasourceType,
+            String dolphinFlag,
+            Integer taskGroupId,
+            Integer taskGroupPriority) {
+        return buildTaskDefinition(taskCode, taskVersion, taskName, description, rawScript,
+                taskPriority, retryTimes, retryInterval, timeoutSeconds, nodeType,
+                datasourceId, datasourceType, null, null, null, null, dolphinFlag, taskGroupId, taskGroupPriority);
     }
 
     /**
@@ -840,6 +861,34 @@ public class DolphinSchedulerService {
             String customJson,
             Integer taskGroupId,
             Integer taskGroupPriority) {
+        return buildTaskDefinition(taskCode, taskVersion, taskName, description, rawScript,
+                taskPriority, retryTimes, retryInterval, timeoutSeconds, nodeType,
+                datasourceId, datasourceType, targetDatasourceId, sourceTable, targetTable, customJson,
+                null, taskGroupId, taskGroupPriority);
+    }
+
+    /**
+     * Build task definition payload for DolphinScheduler with DataX support.
+     */
+    public Map<String, Object> buildTaskDefinition(long taskCode,
+            int taskVersion,
+            String taskName,
+            String description,
+            String rawScript,
+            String taskPriority,
+            int retryTimes,
+            int retryInterval,
+            int timeoutSeconds,
+            String nodeType,
+            Long datasourceId,
+            String datasourceType,
+            Long targetDatasourceId,
+            String sourceTable,
+            String targetTable,
+            String customJson,
+            String dolphinFlag,
+            Integer taskGroupId,
+            Integer taskGroupPriority) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("code", taskCode);
         payload.put("name", taskName);
@@ -848,7 +897,7 @@ public class DolphinSchedulerService {
         payload.put("delayTime", "0");
         payload.put("failRetryInterval", String.valueOf(Math.max(retryInterval, 1)));
         payload.put("failRetryTimes", String.valueOf(Math.max(retryTimes, 0)));
-        payload.put("flag", "YES");
+        payload.put("flag", normalizeDolphinFlag(dolphinFlag));
         payload.put("taskPriority", taskPriority);
         DolphinConfig config = getConfig();
         payload.put("workerGroup", config.getWorkerGroup());
@@ -879,6 +928,14 @@ public class DolphinSchedulerService {
             throw new IllegalStateException("Unable to construct task parameters", e);
         }
         return payload;
+    }
+
+    private String normalizeDolphinFlag(String dolphinFlag) {
+        if (!StringUtils.hasText(dolphinFlag)) {
+            return "YES";
+        }
+        String normalized = dolphinFlag.trim().toUpperCase(Locale.ROOT);
+        return "NO".equals(normalized) ? "NO" : "YES";
     }
 
     public TaskRelationPayload buildRelation(long upstreamCode, int upstreamVersion,

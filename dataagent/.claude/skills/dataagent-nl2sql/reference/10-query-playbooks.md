@@ -1,10 +1,11 @@
 # 场景 Playbooks
 
-先结论：本技能优先覆盖统计、对比、趋势、占比、明细、诊断六类问题。对于 `opendataworks` 平台核心表问题，字段已清楚时可以直接走 MySQL；对于托管数据表问题，再走 metadata -> datasource -> SQL。
+先结论：本技能优先覆盖统计、对比、趋势、占比、明细、诊断六类问题。若当前 run 已注入 `portal-mcp`，优先直接使用 `mcp__portal__portal_*`；否则再走脚本 fallback。对于 `opendataworks` 平台核心表问题，字段已清楚时可以直接进入 `database=opendataworks`、`engine=mysql` 的只读查询路径；对于托管数据表问题，再走 metadata -> datasource -> SQL。
 
 ## 托管数据表通用规则
 
 - 一旦 metadata 确认 `db_name`，SQL 统一写成 `<db_name>.<table_name>`；不要只写裸表名。
+- `mcp__portal__portal_search_tables`、`mcp__portal__portal_resolve_datasource`、`mcp__portal__portal_query_readonly` 是首选工具；`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py` 是兼容 fallback，其中 `run_sql.py` 仍然通过 backend 只读查询路径执行。
 - `doris` / `mysql` 是引擎类型，不是 schema 名；不要把引擎名误写到 `FROM doris.xxx` 这种 SQL 里。
 - 若 Doris 表名体现 `df` 快照含义，默认视为按 `ds` 存储的每日全量快照表。
 - 非归因分析、非历史回溯、非用户显式指定历史区间时，`df` 快照表优先只查最新 `ds`。
@@ -21,8 +22,9 @@
   - 是否需要过滤状态
 - 推荐顺序：
   1. `21-metric-index.md`
-  2. 平台核心表已明确时直接 `run_sql.py`
-  3. 托管数据表场景才用 `inspect_metadata.py`
+  2. 优先 `mcp__portal__portal_query_readonly`
+  3. 无 MCP 且平台核心表已明确时，直接进入 `run_sql.py` 只读查询快路径
+  4. 托管数据表场景才用 `inspect_metadata.py`
 - 默认输出：表格
 - 追问条件：
   - 指标口径不清
@@ -40,9 +42,10 @@
 - 推荐顺序：
   1. `21-metric-index.md`
   2. `20-term-index.md`
-  3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管数据表场景才用 `inspect_metadata.py`
-  5. `build_chart_spec.py --chart-type bar`
+  3. 优先 `mcp__portal__portal_query_readonly`
+  4. 无 MCP 且平台核心表已明确时，直接进入 `run_sql.py` 只读查询快路径
+  5. 托管数据表场景才用 `inspect_metadata.py`
+  6. `build_chart_spec.py --chart-type bar`
 - 默认图表：条形图
 - 回退输出：表格
 
@@ -56,19 +59,20 @@
 - 推荐顺序：
   1. `21-metric-index.md`
   2. `22-sql-example-index.md`
-  3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管数据表场景才用 `inspect_metadata.py`
-  5. `build_chart_spec.py --chart-type line`
-- 第一条脚本动作：
-  - 平台核心表场景：直接执行 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT ..."`
-  - 托管数据表场景：先 `inspect_metadata.py`
+  3. 优先 `mcp__portal__portal_query_readonly`
+  4. 无 MCP 且平台核心表已明确时，直接进入 `run_sql.py` 只读查询快路径
+  5. 托管数据表场景才用 `inspect_metadata.py`
+  6. `build_chart_spec.py --chart-type line`
+- 第一条真实工具动作：
+  - MCP 可用：平台核心表场景直接 `mcp__portal__portal_query_readonly`；托管数据表场景先 `mcp__portal__portal_search_tables`
+  - 无 MCP：平台核心表场景直接进入 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "SELECT ..."` 只读查询快路径；托管数据表场景先 `inspect_metadata.py`
 - 选表规则：
   - 平台核心表问题优先直接用已知表结构，不要先兜圈读资产。
   - 托管数据表候选由模型根据字段与 reference 自己判断，不依赖脚本推荐。
   - 若时间字段不唯一，优先使用 `created_at`、`ds` 或明确的业务记录时间；仍不明确就追问。
 - 数据源规则：
-  - 平台核心表固定走 `opendataworks` MySQL。
-  - 托管数据表若已确定 `db_name`，再调用 `resolve_datasource.py`；成功一次后不要重复调用。
+  - 平台核心表固定使用 `database=opendataworks`、`engine=mysql` 的只读查询路径，由 backend 代执行。
+  - 托管数据表若已确定 `db_name`，优先 `mcp__portal__portal_resolve_datasource`；无 MCP 再调用 `resolve_datasource.py`；成功一次后不要重复调用。
 - 快路径示例：
   - `最近 30 天工作流发布次数趋势` 命中 `workflow_publish_record` 时，固定按 `21-metric-index.md` -> `22-sql-example-index.md` -> `run_sql.py` -> `build_chart_spec.py --chart-type line` 执行。
   - 默认使用 `workflow_publish_record.created_at` 按天聚合发布记录数；第一次返回口径正确的 `sql_execution` 和 `chart_spec` 后就直接总结，不再重复执行等价 SQL。
@@ -95,9 +99,10 @@
 - 推荐顺序：
   1. `20-term-index.md`
   2. `21-metric-index.md`
-  3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管数据表场景才用 `inspect_metadata.py`
-  5. `build_chart_spec.py --chart-type pie`
+  3. 优先 `mcp__portal__portal_query_readonly`
+  4. 无 MCP 且平台核心表已明确时，直接进入 `run_sql.py` 只读查询快路径
+  5. 托管数据表场景才用 `inspect_metadata.py`
+  6. `build_chart_spec.py --chart-type pie`
 - 默认图表：饼图
 - 回退条件：
   - 类别超过 8 个
@@ -113,8 +118,9 @@
 - 推荐顺序：
   1. `20-term-index.md`
   2. `30-tool-recipes.md`
-  3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管数据表场景才用 `inspect_metadata.py`
+  3. 优先 `mcp__portal__portal_query_readonly`
+  4. 无 MCP 且平台核心表已明确时，直接进入 `run_sql.py` 只读查询快路径
+  5. 托管数据表场景才用 `inspect_metadata.py`
 - 默认输出：表格
 - 约束：
   - 必须带 LIMIT
@@ -124,7 +130,7 @@
 
 ## 诊断
 
-- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群
+- 典型问题：某张表有哪些上游下游血缘、某个数据库路由到哪个 Doris 集群、某张表的 DDL / `SHOW CREATE TABLE`
 - 先确认：
   - 目标表或目标数据库
   - 是否需要补充 `db_name`
@@ -132,14 +138,21 @@
 - 推荐顺序：
   1. `20-term-index.md`
   2. `40-runtime-metadata.md`
-  3. 平台核心表已明确时直接 `run_sql.py`
-  4. 托管数据表场景才用 `inspect_metadata.py`
-  5. 必要时 `resolve_datasource.py`
+  3. 上游 / 下游 / 血缘问题优先 `mcp__portal__portal_get_lineage`
+  4. 平台核心表已明确且要补平台表字段时，再用 `mcp__portal__portal_query_readonly`
+  5. 查看 DDL 时优先 `mcp__portal__portal_get_table_ddl`
+  6. 托管数据表场景优先 `mcp__portal__portal_search_tables`
+  7. 无 MCP 且上游 / 下游 / 血缘问题时直接 `get_lineage.py`
+  8. 无 MCP 且需要 live DDL 时直接 `get_table_ddl.py`
+  9. 无 MCP 时再使用 `inspect_metadata.py`
+  10. 必要时 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
 - 默认输出：表格 + 诊断结论
 - 强约束：
   - 用户已给出具体表名时，不要在仓库代码、测试文件或参考文档中搜索 lineage/血缘实现。
-  - 直接执行 `data_lineage + data_table` 的查询脚本；只有表名不唯一或数据库不清时才追问。
-  - 第一次血缘 SQL 已返回非空结果时，直接基于结果总结；不要继续追加等价 SQL。
+  - 用户问上游 / 下游 / 血缘时，第一动作必须是 `portal_get_lineage` 或 `get_lineage.py`；不要先猜 `run_sql.py`。
+  - 只有 lineage 快照里缺少必要字段时，才允许追加 `run_sql.py` 查询 `data_lineage + data_table` 补充。
+  - `run_sql.py` 现在会根据 `DATAAGENT_ORIGINAL_QUESTION` 默认拒绝首轮 `data_lineage` 类 SQL；只有确定是补充查询时，才允许显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`。
+  - 第一次 lineage 工具结果已返回非空数据时，直接基于结果总结；不要继续追加等价 SQL。
 
 ## 术语解释
 

@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -42,6 +43,7 @@ import java.util.stream.Collectors;
 public class BackendAgentMetadataService implements AgentMetadataService {
 
     private static final int INSPECT_FETCH_LIMIT = 800;
+    private static final int INSPECT_FIELD_FETCH_LIMIT = 2400;
     private static final int INSPECT_LINEAGE_LIMIT = 120;
     private static final int LINEAGE_FETCH_LIMIT = 400;
     private static final int DDL_TIMEOUT_SECONDS = 20;
@@ -345,39 +347,110 @@ public class BackendAgentMetadataService implements AgentMetadataService {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("db_name", table.getDbName());
             row.put("cluster_id", table.getClusterId());
+            row.put("engine", cluster == null ? inferEngineFromDatabase(table.getDbName()) : engineForSourceType(cluster.getSourceType()));
             row.put("source_type", cluster == null ? null : normalizeSourceType(cluster.getSourceType()));
-            row.put("fe_host", cluster == null ? null : cluster.getFeHost());
-            row.put("fe_port", cluster == null ? null : cluster.getFePort());
-            row.put("username", cluster == null ? null : cluster.getUsername());
-            row.put("password", cluster == null ? null : cluster.getPassword());
-            row.put("readonly_username", dbUser == null ? null : dbUser.getReadonlyUsername());
-            row.put("readonly_password", dbUser == null ? null : dbUser.getReadonlyPassword());
+            row.put("cluster_name", cluster == null ? "platform-mysql" : trimToEmpty(cluster.getClusterName()));
+            row.put("resolved_by", cluster == null ? "platform_runtime" : (dbUser == null ? "data_table" : "readonly_user"));
             rows.add(row);
         }
         return rows;
     }
 
     private List<DataTable> findTables(String database, String table, String keyword, int fetchLimit) {
+        if (!StringUtils.hasText(table) && !StringUtils.hasText(keyword)) {
+            return listActiveTables(database).stream()
+                    .limit(Math.max(1, fetchLimit))
+                    .collect(Collectors.toList());
+        }
+
+        Map<Long, SearchCandidate> candidates = new LinkedHashMap<>();
+        if (StringUtils.hasText(table)) {
+            indexTableMatches(candidates, database, table, true, fetchLimit);
+            indexFieldMatches(candidates, database, table, true, fetchLimit);
+        }
+        if (StringUtils.hasText(keyword)) {
+            indexTableMatches(candidates, database, keyword, false, fetchLimit);
+            indexFieldMatches(candidates, database, keyword, false, fetchLimit);
+        }
+
+        return candidates.values().stream()
+                .filter(candidate -> candidate.matches(table, keyword))
+                .sorted(Comparator
+                        .comparingLong(SearchCandidate::getScore).reversed()
+                        .thenComparing(Comparator.comparingInt(SearchCandidate::getMatchSignals).reversed())
+                        .thenComparing(candidate -> trimToEmpty(candidate.getTable().getDbName()))
+                        .thenComparing(candidate -> trimToEmpty(candidate.getTable().getTableName()))
+                        .thenComparing(candidate -> candidate.getTable().getId(), Comparator.nullsLast(Long::compareTo)))
+                .limit(Math.max(1, fetchLimit))
+                .map(SearchCandidate::getTable)
+                .collect(Collectors.toList());
+    }
+
+    private void indexTableMatches(
+            Map<Long, SearchCandidate> candidates,
+            String database,
+            String term,
+            boolean tableQuery,
+            int fetchLimit
+    ) {
+        if (!StringUtils.hasText(term)) {
+            return;
+        }
+        List<DataTable> tables = queryTableMatches(database, term, fetchLimit);
+        for (DataTable item : tables) {
+            if (item == null || item.getId() == null) {
+                continue;
+            }
+            long score = scoreTextMatch(item.getTableName(), term, 1600, 900)
+                    + scoreTextMatch(item.getTableComment(), term, 1000, 520);
+            if (score <= 0) {
+                continue;
+            }
+            SearchCandidate candidate = candidates.computeIfAbsent(item.getId(), ignored -> new SearchCandidate(item));
+            candidate.addScore(score);
+            candidate.markMatched(tableQuery);
+        }
+    }
+
+    private void indexFieldMatches(
+            Map<Long, SearchCandidate> candidates,
+            String database,
+            String term,
+            boolean tableQuery,
+            int fetchLimit
+    ) {
+        if (!StringUtils.hasText(term)) {
+            return;
+        }
+        List<DataField> fields = queryFieldMatches(database, term, fetchLimit);
+        Map<Long, DataTable> tableMap = loadTableMapForFields(fields);
+        for (DataField field : fields) {
+            if (field == null || field.getTableId() == null) {
+                continue;
+            }
+            DataTable table = tableMap.get(field.getTableId());
+            if (table == null || table.getId() == null) {
+                continue;
+            }
+            SearchCandidate candidate = candidates.computeIfAbsent(table.getId(), ignored -> new SearchCandidate(table));
+            long score = scoreTextMatch(field.getFieldName(), term, 700, 320)
+                    + scoreTextMatch(field.getFieldComment(), term, 480, 220);
+            if (score <= 0) {
+                continue;
+            }
+            candidate.addScore(score);
+            candidate.markMatched(tableQuery);
+        }
+    }
+
+    private List<DataTable> queryTableMatches(String database, String term, int fetchLimit) {
         LambdaQueryWrapper<DataTable> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(database)) {
             wrapper.eq(DataTable::getDbName, database);
         }
-        if (StringUtils.hasText(table)) {
-            wrapper.and(nested -> nested.eq(DataTable::getTableName, table)
-                    .or().like(DataTable::getTableName, table)
-                    .or().like(DataTable::getTableComment, table));
-        }
-        if (StringUtils.hasText(keyword)) {
-            Set<Long> matchedFieldTableIds = findFieldMatchedTableIds(keyword);
-            wrapper.and(nested -> {
-                nested.like(DataTable::getTableName, keyword)
-                        .or().like(DataTable::getTableComment, keyword);
-                if (!matchedFieldTableIds.isEmpty()) {
-                    nested.or().in(DataTable::getId, matchedFieldTableIds);
-                }
-            });
-        }
-        wrapper.ne(DataTable::getStatus, "deprecated")
+        wrapper.and(nested -> nested.like(DataTable::getTableName, term)
+                        .or().like(DataTable::getTableComment, term))
+                .ne(DataTable::getStatus, "deprecated")
                 .orderByAsc(DataTable::getDbName)
                 .orderByAsc(DataTable::getTableName)
                 .orderByAsc(DataTable::getId)
@@ -385,20 +458,79 @@ public class BackendAgentMetadataService implements AgentMetadataService {
         return dataTableMapper.selectList(wrapper);
     }
 
-    private Set<Long> findFieldMatchedTableIds(String keyword) {
-        if (!StringUtils.hasText(keyword)) {
-            return Collections.emptySet();
-        }
+    private List<DataField> queryFieldMatches(String database, String term, int fetchLimit) {
         List<DataField> fields = dataFieldMapper.selectList(
                 new LambdaQueryWrapper<DataField>()
-                        .and(wrapper -> wrapper.like(DataField::getFieldName, keyword)
-                                .or().like(DataField::getFieldComment, keyword))
-                        .last("LIMIT 400")
+                        .and(wrapper -> wrapper.like(DataField::getFieldName, term)
+                                .or().like(DataField::getFieldComment, term))
+                        .orderByAsc(DataField::getTableId)
+                        .orderByAsc(DataField::getFieldOrder)
+                        .orderByAsc(DataField::getId)
+                        .last("LIMIT " + Math.max(1, Math.min(fetchLimit * 3, INSPECT_FIELD_FETCH_LIMIT)))
+        );
+        if (fields.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<Long, DataTable> tableMap = loadTableMap(
+                fields.stream().map(DataField::getTableId).filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new))
         );
         return fields.stream()
-                .map(DataField::getTableId)
+                .filter(field -> {
+                    DataTable table = tableMap.get(field.getTableId());
+                    return isSearchableTable(table, database);
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Map<Long, DataTable> loadTableMapForFields(List<DataField> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return loadTableMap(
+                fields.stream().map(DataField::getTableId).filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new))
+        );
+    }
+
+    private Map<Long, DataTable> loadTableMap(Collection<Long> tableIds) {
+        if (tableIds == null || tableIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return dataTableMapper.selectBatchIds(tableIds).stream()
                 .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+                .collect(Collectors.toMap(DataTable::getId, item -> item));
+    }
+
+    private boolean isSearchableTable(DataTable table, String database) {
+        if (table == null || table.getId() == null) {
+            return false;
+        }
+        if ("deprecated".equalsIgnoreCase(trimToEmpty(table.getStatus()))) {
+            return false;
+        }
+        return !StringUtils.hasText(database) || database.equals(table.getDbName());
+    }
+
+    private long scoreTextMatch(String source, String term, long exactScore, long containsScore) {
+        String normalizedSource = normalizeSearchToken(source);
+        String normalizedTerm = normalizeSearchToken(term);
+        if (!StringUtils.hasText(normalizedSource) || !StringUtils.hasText(normalizedTerm)) {
+            return 0;
+        }
+        if (normalizedSource.equals(normalizedTerm)) {
+            return exactScore;
+        }
+        if (normalizedSource.contains(normalizedTerm)) {
+            return containsScore;
+        }
+        return 0;
+    }
+
+    private String normalizeSearchToken(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     private Map<Long, List<DataField>> loadFields(List<Long> tableIds) {
@@ -662,6 +794,14 @@ public class BackendAgentMetadataService implements AgentMetadataService {
         return String.valueOf(clusterId) + "::" + trimToEmpty(database);
     }
 
+    private String inferEngineFromDatabase(String database) {
+        return "opendataworks".equals(trimToEmpty(database)) ? "mysql" : "doris";
+    }
+
+    private String engineForSourceType(String sourceType) {
+        return "MYSQL".equals(normalizeSourceType(sourceType)) ? "mysql" : "doris";
+    }
+
     private String extractActualTableName(String database, String tableName) {
         if (!StringUtils.hasText(tableName)) {
             return null;
@@ -741,6 +881,56 @@ public class BackendAgentMetadataService implements AgentMetadataService {
 
         public void setDatabase(String database) {
             this.database = database;
+        }
+    }
+
+    private static final class SearchCandidate {
+        private final DataTable table;
+        private long score;
+        private int matchSignals;
+        private boolean tableMatched;
+        private boolean keywordMatched;
+
+        private SearchCandidate(DataTable table) {
+            this.table = table;
+        }
+
+        public DataTable getTable() {
+            return table;
+        }
+
+        public long getScore() {
+            return score;
+        }
+
+        public int getMatchSignals() {
+            return matchSignals;
+        }
+
+        private void addScore(long delta) {
+            if (delta <= 0) {
+                return;
+            }
+            score += delta;
+            matchSignals += 1;
+        }
+
+        private void markMatched(boolean tableQuery) {
+            if (tableQuery) {
+                tableMatched = true;
+                return;
+            }
+            keywordMatched = true;
+        }
+
+        private boolean matches(String table, String keyword) {
+            if (StringUtils.hasText(table) && !tableMatched) {
+                return false;
+            }
+            if (StringUtils.hasText(keyword) && !keywordMatched) {
+                return false;
+            }
+            return true;
         }
     }
 }

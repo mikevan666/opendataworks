@@ -634,6 +634,7 @@ public class WorkflowDefinitionLifecycleService {
             node.put("taskPriority", task.getTaskPriority());
             node.put("taskGroupId", task.getTaskGroupId());
             node.put("taskGroupName", task.getTaskGroupName());
+            node.put("flag", normalizeDolphinFlag(task.getFlag()));
 
             Map<String, Object> taskParams = new LinkedHashMap<>();
             taskParams.put("sql", task.getSql());
@@ -769,6 +770,7 @@ public class WorkflowDefinitionLifecycleService {
             task.setTimeoutSeconds(runtimeTask.getTimeoutSeconds());
             task.setRetryTimes(runtimeTask.getRetryTimes());
             task.setRetryInterval(runtimeTask.getRetryInterval());
+            task.setDolphinFlag(normalizeDolphinFlag(runtimeTask.getFlag()));
             task.setOwner(operator);
             task.setDolphinTaskCode(runtimeTask.getTaskCode());
             task.setDolphinTaskVersion(runtimeTask.getTaskVersion());
@@ -839,6 +841,14 @@ public class WorkflowDefinitionLifecycleService {
             default:
                 return 5;
         }
+    }
+
+    private String normalizeDolphinFlag(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "YES";
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return "NO".equals(normalized) ? "NO" : "YES";
     }
 
     private String resolveRelationDecision(ImportContext context, String requestedDecision, boolean strict) {

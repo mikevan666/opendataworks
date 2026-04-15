@@ -118,4 +118,4 @@ docker compose -f deploy/docker-compose.dev.yml up -d
 
 ## 📄 许可证
 
-本项目采用 [Apache License 2.0](LICENSE) 开源协议。
+本项目采用 [GNU General Public License v3.0 only](LICENSE) 开源协议。

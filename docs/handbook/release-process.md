@@ -12,7 +12,7 @@
 
 ## 一、明确版本号
 
-按 [语义化版本](https://semver.org/lang/zh-CN/) 确定新版本号，例如 `0.2.0`：
+按 [语义化版本](https://semver.org/lang/zh-CN/) 确定新版本号，例如 `1.0.0`：
 
 - **主版本号（Major）**：不兼容的 API 变更
 - **次版本号（Minor）**：向下兼容的功能新增
@@ -26,15 +26,19 @@
 
 | 文件 | 修改内容 |
 |------|----------|
-| `backend/pom.xml` | `<version>0.2.0</version>` |
-| `frontend/package.json` | `"version": "0.2.0"` |
+| `pom.xml` | Reactor 聚合版本，如 `<version>1.0.0</version>` |
+| `backend-agent-api/pom.xml` | Agent API 模块版本，如 `<version>1.0.0</version>` |
+| `backend/pom.xml` | 后端模块版本，如 `<version>1.0.0</version>` |
+| `frontend/package.json` | 前端版本，如 `"version": "1.0.0"` |
+| `frontend/package-lock.json` | 锁文件顶层版本，如 `"version": "1.0.0"` |
+| `dataagent/dataagent-backend/main.py` | DataAgent 对外暴露版本，如 `version="1.0.0"` |
 
 ### 2.2 Docker Compose 正式部署
 
 | 文件 | 说明 |
 |------|------|
-| `deploy/docker-compose.prod.yml` | 使用 `${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:0.2.0}` 等形式，将 `latest` 替换为当前版本号 |
-| `deploy/.env.example` | 注释中说明离线部署时的镜像变量示例 |
+| `deploy/docker-compose.prod.yml` | 更新 frontend、backend、dataagent-backend、portal-mcp 四个正式镜像默认 tag，例如 `${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:1.0.0}` |
+| `deploy/.env.example` | 更新离线部署时的镜像变量示例 |
 
 ### 2.3 构建相关（如有）
 
@@ -48,9 +52,12 @@
 ### 3.1 本地验证
 
 ```bash
-# 构建镜像
+# 前端构建
+export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use
 cd frontend && npm run build
-cd ../backend && mvn clean package -DskipTests
+
+# 后端构建
+cd .. && mvn -pl backend -am clean package -DskipTests
 
 # 可选：本地构建 Docker 镜像
 scripts/build/build-images.sh
@@ -60,10 +67,10 @@ scripts/build/build-images.sh
 
 ```bash
 git add -A
-git commit -m "chore: release v0.2.0"
-git tag v0.2.0
+git commit -m "chore: release v1.0.0"
+git tag v1.0.0
 git push origin main
-git push origin v0.2.0
+git push origin v1.0.0
 ```
 
 推送 `v*` 标签会触发 GitHub Actions 的 [Build and Release](../../.github/workflows/docker-build.yml) 工作流。
@@ -72,8 +79,8 @@ git push origin v0.2.0
 
 工作流将依次执行：
 
-1. **构建并推送 Docker 镜像**：`mikefan2019/opendataworks-frontend`、`mikefan2019/opendataworks-backend`，打上版本 tag
-2. **生成离线部署包**：调用 `scripts/create-offline-package.sh --tag 0.2.0`
+1. **构建并推送 Docker 镜像**：`mikefan2019/opendataworks-frontend`、`mikefan2019/opendataworks-backend`、`mikefan2019/opendataworks-dataagent-backend`、`mikefan2019/opendataworks-portal-mcp`，打上版本 tag
+2. **生成离线部署包**：调用 `scripts/create-offline-package.sh --tag 1.0.0`
 3. **创建 GitHub Release**：上传离线包为 Release 附件，并自动生成 Release Notes（含提交记录）
 
 ---
@@ -83,7 +90,7 @@ git push origin v0.2.0
 ### 4.1 离线包生成（CI 中执行）
 
 ```bash
-scripts/create-offline-package.sh --tag 0.2.0 --output opendataworks-deployment-0.2.0.tar.gz
+scripts/create-offline-package.sh --tag 1.0.0 --output opendataworks-deployment-1.0.0.tar.gz
 ```
 
 - 使用 `--tag` 指定版本，对应 Docker Hub 上的镜像 tag
@@ -96,18 +103,20 @@ GitHub Release 中应包含：
 - **Release Notes**：GitHub Actions 自动生成（包含提交记录）
 - **下载区块**：由工作流写入 Release 正文，包含 Docker 镜像拉取命令与离线包链接
 - **附件**：
-  - `opendataworks-deployment-0.2.0.tar.gz`（离线部署包）
-  - 可选：`opendataworks-deployment-0.2.0.tar.gz.sha256`（校验和）
+  - `opendataworks-deployment-1.0.0.tar.gz`（离线部署包）
+  - 可选：`opendataworks-deployment-1.0.0.tar.gz.sha256`（校验和）
 
 ### 4.3 用户下载方式
 
 1. **Docker 镜像**：
    ```bash
-   docker pull mikefan2019/opendataworks-frontend:0.2.0
-   docker pull mikefan2019/opendataworks-backend:0.2.0
+   docker pull mikefan2019/opendataworks-frontend:1.0.0
+   docker pull mikefan2019/opendataworks-backend:1.0.0
+   docker pull mikefan2019/opendataworks-dataagent-backend:1.0.0
+   docker pull mikefan2019/opendataworks-portal-mcp:1.0.0
    ```
 
-2. **离线部署包**：在 Release 页面下载 `opendataworks-deployment-0.2.0.tar.gz`，按 [deploy/README.md](../../deploy/README.md) 进行离线部署。
+2. **离线部署包**：在 Release 页面下载 `opendataworks-deployment-1.0.0.tar.gz`，按 [deploy/README.md](../../deploy/README.md) 进行离线部署。
 
 ---
 
@@ -122,11 +131,11 @@ GitHub Release 中应包含：
 ## 流程概览
 
 ```
-1. 明确版本号 (如 0.2.0)
+1. 明确版本号 (如 1.0.0)
        ↓
-2. 修改 backend/pom.xml、frontend/package.json、deploy/docker-compose.prod.yml 等
+2. 修改 Maven、前端、DataAgent、Compose 与构建配置中的版本号
        ↓
-3. git commit、git tag v0.2.0、git push
+3. git commit、git tag v1.0.0、git push
        ↓
 4. CI 构建镜像、生成离线包、创建 Release 并上传附件
        ↓

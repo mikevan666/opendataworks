@@ -27,6 +27,13 @@ def test_builtin_skill_keeps_generic_df_di_rules_without_business_defaults():
         "component_name",
         "interface_name",
         "dwd_tech_dev_inspection_rule_cnt_di",
+        "host sh+curl+pymysql",
+        "ODW_MYSQL_HOST",
+        "ODW_MYSQL_PORT",
+        "ODW_MYSQL_USER",
+        "ODW_MYSQL_PASSWORD",
+        "ODW_MYSQL_DATABASE",
+        "数据源账号密码只在脚本内部使用",
     ]
     for token in forbidden_tokens:
         assert token not in snapshot
@@ -37,6 +44,21 @@ def test_builtin_skill_keeps_generic_df_di_rules_without_business_defaults():
         "workflow_publish_record",
         "data_lineage",
         "ds",
+        "portal-mcp",
+        "mcp__portal__portal_search_tables",
+        "mcp__portal__portal_get_lineage",
+        "mcp__portal__portal_get_table_ddl",
+        "mcp__portal__portal_query_readonly",
+        "get_lineage.py",
+        "get_table_ddl.py",
+        "odw-cli lineage",
+        "odw-cli ddl",
+        "query-readonly",
+        "/api/v1/ai/query/read",
+        "不再直连业务数据库",
+        "http://backend:8080/api/v1/ai",
+        "DATAAGENT_ORIGINAL_QUESTION",
+        "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1",
     ]
     for token in required_tokens:
         assert token in snapshot

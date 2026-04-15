@@ -57,6 +57,8 @@ def ensure_static_skills_bundle() -> dict[str, Any]:
                 _write_text_if_absent(paths["scripts"] / "_opendataworks_runtime.py", _default_runtime_helper()),
                 _write_text_if_absent(paths["scripts"] / "inspect_metadata.py", _default_script_stub("inspect_metadata")),
                 _write_text_if_absent(paths["scripts"] / "resolve_datasource.py", _default_script_stub("resolve_datasource")),
+                _write_text_if_absent(paths["scripts"] / "get_lineage.py", _default_get_lineage_script()),
+                _write_text_if_absent(paths["scripts"] / "get_table_ddl.py", _default_get_table_ddl_script()),
                 _write_text_if_absent(paths["scripts"] / "run_sql.py", _default_script_stub("run_sql")),
                 _write_text_if_absent(paths["scripts"] / "build_chart_spec.py", _default_script_stub("build_chart_spec")),
                 _write_text_if_absent(paths["scripts"] / "format_answer.py", _default_script_stub("format_answer")),
@@ -177,7 +179,7 @@ def _remove_legacy_files(paths: list[Path]):
 def _default_skill_md() -> str:
     return """---
 name: dataagent-nl2sql
-description: Use this built-in skill for Chinese OpenDataWorks intelligent-query and NL2SQL work across MySQL and Doris: platform metadata, workflow, lineage, datasource routing, generic table discovery, read-only SQL execution, term explanation, and chart-oriented answers. Prefer platform terms and generic data-platform rules; do not assume tenant-specific business defaults.
+description: Use this built-in skill for Chinese OpenDataWorks intelligent-query and NL2SQL work across MySQL and Doris: platform metadata, workflow, lineage, datasource routing, generic table discovery, backend-routed read-only SQL execution, term explanation, and chart-oriented answers. Prefer MCP-first via portal-mcp when `mcp__portal__portal_*` tools are visible, and fall back to CLI/scripts only when MCP is unavailable. Prefer platform terms and generic data-platform rules; do not assume tenant-specific business defaults.
 ---
 
 # DataAgent NL2SQL Skill
@@ -199,28 +201,34 @@ description: Use this built-in skill for Chinese OpenDataWorks intelligent-query
 
 1. 先判问题类型
 2. 术语、指标、数据库不清则先追问
-3. 表字段不清先 `inspect_metadata.py`
-4. 引擎不清再 `resolve_datasource.py`
-5. SQL 明确后才 `run_sql.py`
-6. 结果适合图表时再 `build_chart_spec.py`
+3. 若可见 `mcp__portal__portal_*`，优先直接调用 portal-mcp 工具
+4. 若 MCP 不可用，表字段不清先 `inspect_metadata.py`
+5. 若 MCP 不可用，引擎不清再 `resolve_datasource.py`
+6. 需要上游 / 下游 / 血缘快照时优先 `mcp__portal__portal_get_lineage`；无 MCP 时再 `get_lineage.py`
+7. 需要 live DDL 时优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时再 `get_table_ddl.py`
+8. SQL 明确后才 `run_sql.py` 或 `mcp__portal__portal_query_readonly`
+9. 结果适合图表时再 `build_chart_spec.py`
 
 ## 脚本执行规范
 
 - 本地脚本统一通过 `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...` 调用
-- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 若运行时已注入 `portal-mcp`，优先直接调用 `mcp__portal__portal_search_tables`、`mcp__portal__portal_get_lineage`、`mcp__portal__portal_resolve_datasource`、`mcp__portal__portal_export_metadata`、`mcp__portal__portal_get_table_ddl`、`mcp__portal__portal_query_readonly`
+- metadata 与只读 SQL 的 fallback 路径固定通过 `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` 转发到 backend `/api/v1/ai/*`
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 禁止自己拼 `/app/scripts/...`、`scripts/<name>.py` 或手写猜测脚本名。
+- 上游 / 下游 / 血缘问题默认先走 lineage tool；`run_sql.py` 对首轮 `data_lineage` 类 SQL 默认拒绝，只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 """
 
 
 def _default_reference_skill_map() -> str:
     return """# 技能地图
 
-先结论：先分类，再看摘要，再决定是否执行脚本。
+先结论：先分类，再看摘要，再决定是否执行 portal-mcp 工具或 fallback 脚本。
 
-- 统计：先看 `10-query-playbooks.md`、`21-metric-index.md`
-- 对比：先看 `10-query-playbooks.md`、`21-metric-index.md`
-- 趋势：先看 `10-query-playbooks.md`、`21-metric-index.md`
-- 占比：先看 `10-query-playbooks.md`、`20-term-index.md`
+- 统计：先看 `10-query-playbooks.md`、`21-metric-index.md`，优先 `mcp__portal__portal_query_readonly`
+- 对比：先看 `10-query-playbooks.md`、`21-metric-index.md`，优先 `mcp__portal__portal_search_tables`
+- 趋势：先看 `10-query-playbooks.md`、`21-metric-index.md`，优先 `mcp__portal__portal_query_readonly`
+- 占比：先看 `10-query-playbooks.md`、`20-term-index.md`，优先 `mcp__portal__portal_query_readonly`
 - 术语解释：先看 `20-term-index.md`
 - SQL 示例：先看 `22-sql-example-index.md`
 """
@@ -229,7 +237,7 @@ def _default_reference_skill_map() -> str:
 def _default_reference_playbooks() -> str:
     return """# 场景 Playbooks
 
-先结论：统计默认表格，对比默认条形图，趋势默认折线图，占比默认饼图。
+先结论：统计默认表格，对比默认条形图，趋势默认折线图，占比默认饼图。portal-mcp 可见时优先 `mcp__portal__portal_*`，否则回退脚本。
 
 - 统计：确认指标与时间范围
 - 对比：确认对比维度、指标、时间范围
@@ -237,15 +245,16 @@ def _default_reference_playbooks() -> str:
 - 占比：确认分类维度和指标
 - 明细：确认对象、过滤条件、字段
 - 诊断：确认异常指标和对比基线
+- 上游 / 下游 / 血缘问题先走 `portal_get_lineage` 或 `get_lineage.py`；`run_sql.py` 对首轮 `data_lineage` 类 SQL 默认拒绝
 """
 
 
 def _default_reference_datasource() -> str:
     return """# 数据源路由
 
-先结论：所有问数只允许单源路由。
+先结论：所有问数只允许单源路由。优先 `mcp__portal__portal_resolve_datasource`；无 MCP 时再走 `resolve_datasource.py`。
 
-- 平台元数据查询走 MySQL
+- 平台元数据查询固定使用 `database=opendataworks`、`engine=mysql` 的只读查询路径
 - 托管数据表的事实与汇总查询由 `resolve_datasource.py` 判断 MySQL 或 Doris
 - 不做跨源联查
 """
@@ -275,14 +284,19 @@ def _default_reference_sql_examples() -> str:
 def _default_reference_tools() -> str:
     return """# 工具 Recipes
 
-先结论：脚本调用必须按“先澄清、再定位、后执行”的顺序进行。
+先结论：portal-mcp 是首选工具面；只有 MCP 不可用时才走脚本调用。两条路径都必须按“先澄清、再定位、后执行”的顺序进行。
 
 - 统一命令格式：`"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
-- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
+- 首选 MCP tools：`mcp__portal__portal_search_tables`、`mcp__portal__portal_get_lineage`、`mcp__portal__portal_resolve_datasource`、`mcp__portal__portal_export_metadata`、`mcp__portal__portal_get_table_ddl`、`mcp__portal__portal_query_readonly`
+- `inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`query_opendataworks_metadata.py`、`run_sql.py` 都只通过 `odw-cli -> backend /api/v1/ai/*` 执行，不直连数据库
+- 固定脚本：`inspect_metadata.py`、`resolve_datasource.py`、`get_lineage.py`、`get_table_ddl.py`、`run_sql.py`、`build_chart_spec.py`、`format_answer.py`、`query_opendataworks_metadata.py`
 - 禁止使用 `/app/scripts/...`、`scripts/<name>.py` 或自己猜脚本名
 - `inspect_metadata.py`：定位数据库、表、字段、血缘
 - `resolve_datasource.py`：判断目标引擎与数据源
+- `get_lineage.py`：查看上游 / 下游 / 血缘快照
+- `get_table_ddl.py`：查看 live 表 DDL
 - `run_sql.py`：执行只读 SQL
+- 血缘问题里，`run_sql.py` 默认拒绝首轮 `data_lineage` 类 SQL；只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 - `build_chart_spec.py`：根据结果决定是否出图
 - `format_answer.py`：整理最终中文结论
 """
@@ -291,7 +305,10 @@ def _default_reference_tools() -> str:
 def _default_reference_runtime() -> str:
     return """# 运行时元数据与数据源说明
 
-先结论：需要动态补齐库表结构、血缘、数据源时，优先执行脚本，而不是静态快照。
+先结论：需要动态补齐库表结构、血缘、数据源或只读 SQL 时，优先走 `portal-mcp`；只有 MCP 不可用时才回退到 skill 自带 `odw-cli`，不要直连数据库。
+
+- runtime 会把原始问题注入 `DATAAGENT_ORIGINAL_QUESTION`
+- 血缘问题里 `run_sql.py` 会据此拒绝首轮 `data_lineage` 类 SQL；只有补充查询时才显式带 `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1`
 """
 
 
@@ -302,6 +319,7 @@ def _default_reference_output_contract() -> str:
 
 - `metadata_snapshot`
 - `datasource_resolution`
+- `table_ddl`
 - `sql_execution`
 - `python_execution`
 - `chart_spec`
@@ -328,78 +346,102 @@ if __name__ == "__main__":
 """
 
 
+def _default_get_table_ddl_script() -> str:
+    return '''from __future__ import annotations
+
+import argparse
+import json
+
+from _opendataworks_runtime import call_metadata_cli
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Get live table DDL through backend metadata path")
+    parser.add_argument("--database", default="")
+    parser.add_argument("--table", default="")
+    parser.add_argument("--table-id", type=int, default=None)
+    args = parser.parse_args()
+
+    database = str(args.database or "").strip()
+    table = str(args.table or "").strip()
+    table_id = args.table_id
+    if table_id is None and (not database or not table):
+        parser.error("--table-id 或 --database + --table 至少提供一组")
+
+    payload = call_metadata_cli(
+        "ddl",
+        database=database,
+        table=table,
+        table_id=table_id,
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _default_get_lineage_script() -> str:
+    return '''from __future__ import annotations
+
+import argparse
+import json
+
+from _opendataworks_runtime import call_metadata_cli
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Get lineage snapshot through backend metadata path")
+    parser.add_argument("--table", default="")
+    parser.add_argument("--db-name", default="")
+    parser.add_argument("--table-id", type=int, default=None)
+    parser.add_argument("--depth", type=int, default=None)
+    args = parser.parse_args()
+
+    table = str(args.table or "").strip()
+    db_name = str(args.db_name or "").strip()
+    table_id = args.table_id
+    depth = args.depth
+    if table_id is None and not table:
+        parser.error("--table 或 --table-id 至少提供一个")
+
+    payload = call_metadata_cli(
+        "lineage",
+        table=table,
+        db_name=db_name,
+        table_id=table_id,
+        depth=depth,
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 def _default_query_metadata_script() -> str:
     return '''from __future__ import annotations
 
 import argparse
 import json
-import os
 
-import pymysql
+from _opendataworks_runtime import call_metadata_cli
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Query OpenDataWorks metadata tables")
     parser.add_argument("--kind", choices=["tables", "lineage", "datasource"], required=True)
     parser.add_argument("--database", default="")
-    parser.add_argument("--host", default=os.getenv("ODW_MYSQL_HOST", "localhost"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("ODW_MYSQL_PORT", "3306")))
-    parser.add_argument("--user", default=os.getenv("ODW_MYSQL_USER", "root"))
-    parser.add_argument("--password", default=os.getenv("ODW_MYSQL_PASSWORD", ""))
-    parser.add_argument("--schema", default=os.getenv("ODW_MYSQL_DATABASE", "opendataworks"))
     args = parser.parse_args()
 
-    conn = pymysql.connect(
-        host=args.host,
-        port=args.port,
-        user=args.user,
-        password=args.password,
-        database=args.schema,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
+    payload = call_metadata_cli(
+        "export",
+        kind=args.kind,
+        database=str(args.database or "").strip(),
     )
-    try:
-        with conn.cursor() as cur:
-            if args.kind == "tables":
-                cur.execute(
-                    """
-                    SELECT dt.id, dt.cluster_id, dt.db_name, dt.table_name, dt.table_comment,
-                           df.field_name, df.field_type, df.field_comment
-                    FROM data_table dt
-                    LEFT JOIN data_field df ON df.table_id = dt.id AND df.deleted = 0
-                    WHERE dt.deleted = 0
-                    ORDER BY dt.db_name, dt.table_name, df.field_order, df.id
-                    """
-                )
-            elif args.kind == "lineage":
-                cur.execute(
-                    """
-                    SELECT dl.id, dl.lineage_type,
-                           ut.db_name AS upstream_db, ut.table_name AS upstream_table,
-                           dt.db_name AS downstream_db, dt.table_name AS downstream_table
-                    FROM data_lineage dl
-                    LEFT JOIN data_table ut ON ut.id = dl.upstream_table_id AND ut.deleted = 0
-                    LEFT JOIN data_table dt ON dt.id = dl.downstream_table_id AND dt.deleted = 0
-                    WHERE dl.deleted = 0
-                    ORDER BY dl.id
-                    """
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT dt.db_name, dt.cluster_id, dc.source_type, dc.fe_host, dc.fe_port,
-                           dc.username, dc.password, du.readonly_username, du.readonly_password
-                    FROM data_table dt
-                    LEFT JOIN doris_cluster dc ON dc.id = dt.cluster_id AND dc.deleted = 0
-                    LEFT JOIN doris_database_users du ON du.cluster_id = dt.cluster_id AND du.database_name = dt.db_name
-                    WHERE dt.deleted = 0 AND (%s = '' OR dt.db_name = %s)
-                    ORDER BY dt.db_name, dt.cluster_id
-                    """,
-                    (args.database, args.database),
-                )
-            print(json.dumps(cur.fetchall(), ensure_ascii=False, indent=2))
-    finally:
-        conn.close()
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

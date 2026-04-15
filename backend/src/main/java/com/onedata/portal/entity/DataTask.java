@@ -68,6 +68,8 @@ public class DataTask {
 
     private Integer dolphinTaskVersion;
 
+    private String dolphinFlag;
+
     private Long dinkyJobId;
 
     @TableField(fill = FieldFill.INSERT)

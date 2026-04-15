@@ -658,3 +658,66 @@ def test_execute_task_stream_resumes_sdk_session_without_replaying_history(monke
     assert QueryCapture.last_prompt == "最近 30 天工作流发布次数趋势"
     assert ClaudeAgentOptions.last_kwargs["resume"] == "sdk-session-continued"
     assert result.session_id == "sdk-session-continued"
+
+
+def test_execute_task_stream_injects_portal_mcp_servers(monkeypatch, tmp_path: Path):
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            ResultMessage("success", session_id="sdk-session-mcp"),
+        ],
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "get_settings",
+        lambda: SimpleNamespace(
+            claude_model="",
+            agent_timeout_seconds=60,
+            agent_background_max_turns=40,
+            agent_max_turns=20,
+            query_result_limit=100,
+            dataagent_portal_mcp_enabled=True,
+            dataagent_portal_mcp_base_url="http://portal-mcp:8801/mcp",
+            dataagent_portal_mcp_token="portal-token",
+            dataagent_portal_mcp_token_header_name="X-Portal-MCP-Token",
+        ),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_runtime_provider_selection",
+        lambda provider_id, model: {
+            "provider_id": provider_id,
+            "model": model,
+            "api_key": "",
+            "auth_token": "",
+            "base_url": "https://example.invalid",
+            "supports_partial_messages": True,
+        },
+    )
+    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    monkeypatch.setattr(
+        task_executor,
+        "_build_runtime_env",
+        lambda cfg, env_payload, params: {
+            "DATAAGENT_SKILL_ROOT": "/tmp/skill-root",
+            "DATAAGENT_PYTHON_BIN": sys.executable,
+            "PATH": str(tmp_path),
+        },
+    )
+
+    async def _run():
+        return await task_executor.execute_task_stream(_build_input(), emit=lambda record: None)
+
+    result = asyncio.run(_run())
+
+    assert result.task_status == "finished"
+    assert result.session_id == "sdk-session-mcp"
+    assert ClaudeAgentOptions.last_kwargs["mcp_servers"] == {
+        "portal": {
+            "type": "http",
+            "url": "http://portal-mcp:8801/mcp",
+            "headers": {"X-Portal-MCP-Token": "portal-token"},
+        }
+    }
+    assert "mcp__portal__portal_search_tables" in ClaudeAgentOptions.last_kwargs["allowed_tools"]
+    assert "mcp__portal__portal_query_readonly" in ClaudeAgentOptions.last_kwargs["allowed_tools"]

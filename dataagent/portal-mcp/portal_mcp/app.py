@@ -109,7 +109,7 @@ class FrontDoorTokenMiddleware:
 
 
 def build_mcp_server(service: PortalToolService) -> FastMCP:
-    mcp = FastMCP("portal_mcp", json_response=True)
+    mcp = FastMCP("portal-mcp", json_response=True)
     mcp.settings.streamable_http_path = "/"
 
     @mcp.tool(
@@ -140,7 +140,7 @@ def build_mcp_server(service: PortalToolService) -> FastMCP:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     async def portal_resolve_datasource(params: ResolveDatasourceInput) -> dict[str, Any]:
-        """Resolve the datasource connection metadata for a database."""
+        """Resolve datasource summary and routing metadata for a database."""
         payload = params.model_dump(exclude_none=True)
         if "preferred_engine" in payload:
             payload["preferredEngine"] = payload.pop("preferred_engine")
@@ -170,7 +170,7 @@ def build_mcp_server(service: PortalToolService) -> FastMCP:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     async def portal_query_readonly(params: QueryReadonlyInput) -> dict[str, Any]:
-        """Execute a single read-only SQL query through the backend agent API."""
+        """Execute a single read-only SQL query through the backend read-only query path."""
         payload = params.model_dump(exclude_none=True)
         if "preferred_engine" in payload:
             payload["preferredEngine"] = payload.pop("preferred_engine")

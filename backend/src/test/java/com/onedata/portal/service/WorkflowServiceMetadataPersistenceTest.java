@@ -144,6 +144,7 @@ class WorkflowServiceMetadataPersistenceTest {
         JsonNode root = objectMapper.readTree(updated.getDefinitionJson());
         assertFalse(root.path("processDefinition").has("releaseState"));
         JsonNode firstTask = firstTaskNode(updated.getDefinitionJson());
+        assertEquals("YES", firstTask.path("flag").asText());
         assertEquals("tg_default", firstTask.path("taskGroupName").asText());
         assertEquals(88, firstTask.path("taskGroupId").asInt());
         JsonNode params = firstTask.path("taskParams");
@@ -292,6 +293,7 @@ class WorkflowServiceMetadataPersistenceTest {
         JsonNode root = objectMapper.readTree(snapshotCaptor.getValue());
         assertFalse(root.path("processDefinition").has("releaseState"));
         JsonNode firstTask = firstTaskNode(snapshotCaptor.getValue());
+        assertEquals("YES", firstTask.path("flag").asText());
         assertEquals(88, firstTask.path("taskGroupId").asInt());
         JsonNode params = firstTask.path("taskParams");
         assertEquals(999L, params.path("datasourceId").asLong());
@@ -316,6 +318,36 @@ class WorkflowServiceMetadataPersistenceTest {
     }
 
     @Test
+    void refreshTaskRelationsShouldHardDeleteBeforeReinsertingBindings() {
+        WorkflowTaskRelation existing = new WorkflowTaskRelation();
+        existing.setWorkflowId(1L);
+        existing.setTaskId(10L);
+        existing.setIsEntry(true);
+        existing.setIsExit(true);
+        existing.setNodeAttrs("{\"x\":220,\"y\":120}");
+        existing.setVersionId(101L);
+        when(workflowTaskRelationMapper.selectList(any())).thenReturn(Collections.singletonList(existing));
+
+        DataTask task = baseTask();
+        when(dataTaskMapper.selectById(10L)).thenReturn(task);
+        when(workflowTaskRelationMapper.selectOne(any())).thenReturn(existing);
+        when(tableTaskRelationMapper.countUpstreamTasks(10L)).thenReturn(0);
+        when(tableTaskRelationMapper.countDownstreamTasks(10L)).thenReturn(0);
+
+        WorkflowTopologyResult topology = WorkflowTopologyResult.builder()
+                .entryTaskIds(Collections.singleton(10L))
+                .exitTaskIds(Collections.singleton(10L))
+                .build();
+        when(workflowTopologyService.buildTopology(anyList())).thenReturn(topology);
+
+        service.refreshTaskRelations(1L);
+
+        verify(workflowTaskRelationMapper).hardDeleteByWorkflowId(1L);
+        verify(workflowTaskRelationMapper).insert(any(WorkflowTaskRelation.class));
+        verify(workflowTaskRelationMapper, never()).delete(any());
+    }
+
+    @Test
     void deleteWorkflowShouldSoftDeleteWorkflowOnlyWhenCascadeDisabled() {
         DataWorkflow workflow = baseWorkflow("{}");
         workflow.setWorkflowCode(12345L);
@@ -336,7 +368,7 @@ class WorkflowServiceMetadataPersistenceTest {
         verify(dolphinSchedulerService).offlineWorkflowSchedule(6789L);
         verify(dolphinSchedulerService).setWorkflowReleaseState(12345L, "OFFLINE");
         verify(dolphinSchedulerService).deleteWorkflow(12345L);
-        verify(workflowTaskRelationMapper).delete(any());
+        verify(workflowTaskRelationMapper).hardDeleteByWorkflowId(1L);
         verify(dataWorkflowMapper).deleteById(1L);
         verify(dataLineageMapper, never()).delete(any());
         verify(dataTaskMapper, never()).deleteBatchIds(anyList());
@@ -373,7 +405,7 @@ class WorkflowServiceMetadataPersistenceTest {
             List<?> values = (List<?>) ids;
             return values.size() == 2 && values.contains(10L) && values.contains(20L);
         }));
-        verify(workflowTaskRelationMapper).delete(any());
+        verify(workflowTaskRelationMapper).hardDeleteByWorkflowId(1L);
         verify(dataWorkflowMapper).deleteById(1L);
     }
 
@@ -422,6 +454,7 @@ class WorkflowServiceMetadataPersistenceTest {
         task.setRetryTimes(1);
         task.setRetryInterval(1);
         task.setTimeoutSeconds(60);
+        task.setDolphinFlag("YES");
         return task;
     }
 

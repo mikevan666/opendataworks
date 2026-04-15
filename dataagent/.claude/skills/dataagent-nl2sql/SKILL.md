@@ -1,13 +1,13 @@
 ---
 name: dataagent-nl2sql
-description: "Use this built-in skill for Chinese OpenDataWorks intelligent-query and NL2SQL work: platform metadata, workflow, lineage, datasource routing, generic table discovery, read-only SQL generation/execution, metric explanation, and chart-oriented answers across MySQL and Doris. Use it whenever the user asks for 数据问答、取数、统计、对比、趋势、占比、明细、诊断、血缘排查、指标口径、术语解释 or SQL 示例 on OpenDataWorks or managed tables. Prefer platform terms and generic data-platform rules; do not assume tenant-specific business terminology, business environment defaults, or hidden business knowledge."
-compatibility: "Requires DATAAGENT_PYTHON_BIN, DATAAGENT_SKILL_ROOT, ${DATAAGENT_SKILL_ROOT}/bin/odw-cli, ODW_BACKEND_BASE_URL, ODW_AGENT_SERVICE_TOKEN, and host sh+curl+pymysql."
+description: "Use this built-in skill for Chinese OpenDataWorks intelligent-query and NL2SQL work: platform metadata, workflow, lineage, datasource routing, generic table discovery, read-only SQL generation/execution, metric explanation, and chart-oriented answers across MySQL and Doris. Use it whenever the user asks for 数据问答、取数、统计、对比、趋势、占比、明细、诊断、血缘排查、指标口径、术语解释 or SQL 示例 on OpenDataWorks or managed tables. Prefer MCP-first via portal-mcp when `mcp__portal__portal_*` tools are visible, and fall back to the built-in CLI/scripts only when MCP is unavailable. Prefer platform terms and generic data-platform rules; do not assume tenant-specific business terminology, business environment defaults, or hidden business knowledge."
+compatibility: "Requires DATAAGENT_PYTHON_BIN, DATAAGENT_SKILL_ROOT, and either visible `mcp__portal__portal_*` tools or `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` with ODW_BACKEND_BASE_URL, ODW_AGENT_SERVICE_TOKEN, and host sh+curl."
 tools: [Bash, Read]
 ---
 
 # DataAgent NL2SQL Skill
 
-Convert Chinese natural-language data questions into read-only SQL, execute against MySQL or Doris, and return structured results with optional chart specs.
+Convert Chinese natural-language data questions into read-only SQL, execute against MySQL or Doris, and return structured results with optional chart specs. Prefer `portal-mcp` tools when the runtime exposes them; otherwise fall back to the built-in Python scripts.
 
 ## Scope
 
@@ -30,9 +30,12 @@ Convert Chinese natural-language data questions into read-only SQL, execute agai
 5. **ALWAYS** include a LIMIT clause on SELECT queries (default 100).
 6. **ALWAYS** ask the user to clarify before guessing when terminology, target table, time range, comparison dimension, or tenant-specific business semantics are ambiguous.
 7. **NEVER** run `pip install`, `uv add`, `which python`, `python --version`, or any environment probing commands.
-8. **ALWAYS** verify `${DATAAGENT_SKILL_ROOT}/bin/odw-cli` exists before calling any metadata script. If missing, stop and tell the user to install it. A missing execute bit is tolerated at runtime via `sh`.
+8. **ALWAYS** use `mcp__portal__portal_*` first when these tools are visible. Only when MCP tools are unavailable may you fall back to Python scripts and `${DATAAGENT_SKILL_ROOT}/bin/odw-cli`.
 9. **ALWAYS** respond in Chinese: conclusion first, then evidence. Never echo back raw tool output verbatim.
 10. **ALWAYS** stop after the first correct `sql_execution` or `chart_spec`. Do not re-execute equivalent SQL or continue reading assets once the answer is grounded.
+11. **ALWAYS** prefer global metadata search first when the user did not explicitly provide a database. Only add `--database` after the user or metadata has already narrowed the scope.
+12. **ALWAYS** do a small synonym or related-term expansion when the first metadata search is too sparse, but keep the expansion limited and grounded in the user’s wording.
+13. **ALWAYS** treat upstream/downstream/lineage questions as lineage-tool-first. For these questions, `run_sql.py` now hard-blocks first-pass `data_lineage` SQL unless `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` is explicitly set for a clearly scoped supplemental query.
 
 ## Anti-Patterns
 
@@ -80,38 +83,66 @@ Ask before guessing when any of these apply:
 - Doris `df` table but unclear whether to query latest snapshot or historical range
 - Doris `di` table but no time range provided
 
-### Step C: Execute Scripts
+### Step C: Execute MCP Tools or Fallback Scripts
 
-Follow this script pipeline:
+Follow this priority order:
 
 1. **Terminology unclear** → consult `reference/20-*`, `21-*`, `22-*`
-2. **Platform core table with known fields** → directly execute `run_sql.py` against `opendataworks` MySQL
-3. **Managed table, fields unclear** → `inspect_metadata.py` first
-4. **Engine unclear** → `resolve_datasource.py`
-5. **SQL confirmed** → `run_sql.py`
-6. **Result suits a chart** → `build_chart_spec.py` with explicit `--chart-type bar|line|pie`
-7. **User explicitly wants a standalone table** → `build_chart_spec.py --chart-type table`
-8. **Need summary** → `format_answer.py`
+2. **If `mcp__portal__portal_*` tools are visible**:
+   - table search → `mcp__portal__portal_search_tables`
+   - lineage → `mcp__portal__portal_get_lineage`
+   - datasource summary → `mcp__portal__portal_resolve_datasource`
+   - metadata export → `mcp__portal__portal_export_metadata`
+   - table DDL → `mcp__portal__portal_get_table_ddl`
+   - read-only SQL → `mcp__portal__portal_query_readonly`
+3. **If MCP tools are unavailable**:
+   - upstream/downstream lineage → `get_lineage.py`
+   - need live table DDL → `get_table_ddl.py`
+   - platform core table with known fields → go straight to the `run_sql.py` read-only query path
+   - managed table, fields unclear → `inspect_metadata.py` first
+   - engine unclear → `resolve_datasource.py`
+   - SQL confirmed → `run_sql.py`
+4. **Result suits a chart** → `build_chart_spec.py` with explicit `--chart-type bar|line|pie`
+5. **User explicitly wants a standalone table** → `build_chart_spec.py --chart-type table`
+6. **Need summary** → `format_answer.py`
 
 Do not execute `run_sql.py` without confirmed database, metrics, and dimensions.
 
-### Step D: Script Execution Rules
+### Step D: Execution Rules
 
 All scripts execute via: `"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/<name>.py" ...`
 
-Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
+Allowed scripts only: `inspect_metadata.py`, `resolve_datasource.py`, `get_lineage.py`, `get_table_ddl.py`, `run_sql.py`, `build_chart_spec.py`, `format_answer.py`, `query_opendataworks_metadata.py`, `build_reference_digest.py`
+
+Preferred MCP tools when available:
+
+- `mcp__portal__portal_search_tables`
+- `mcp__portal__portal_get_lineage`
+- `mcp__portal__portal_resolve_datasource`
+- `mcp__portal__portal_export_metadata`
+- `mcp__portal__portal_get_table_ddl`
+- `mcp__portal__portal_query_readonly`
 
 Command templates:
 
 ```bash
 # Metadata inspection
-"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --database <db> --table <table> --keyword <keyword>
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/inspect_metadata.py" --keyword <keyword> [--table <table>] [--database <db>]
 
 # Datasource resolution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/resolve_datasource.py" --database <db_name> [--engine mysql|doris]
 
+# Lineage snapshot
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_lineage.py" --table <table_name> [--db-name <db_name>] [--depth <n>]
+
+# Live table DDL
+"$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/get_table_ddl.py" --database <db_name> --table <table_name>
+
 # SQL execution
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database <db_name> --engine <mysql|doris> --sql "<SQL>"
+
+# Lineage-only supplemental SQL after snapshot is still insufficient
+DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/run_sql.py" --database opendataworks --engine mysql --sql "<supplemental lineage SQL>"
 
 # Chart generation
 "$DATAAGENT_PYTHON_BIN" "${DATAAGENT_SKILL_ROOT}/scripts/build_chart_spec.py" --chart-type <bar|line|pie|table> --input '<sql_execution_json>'
@@ -123,16 +154,19 @@ Command templates:
 Prohibitions:
 
 - Never fabricate script paths or names (no `/app/scripts/...`, no bare `scripts/<name>.py`)
-- Never call `odw-cli` directly; it is an internal implementation detail of the Python scripts
+- Never call `odw-cli` directly unless you are already inside the documented Python-script fallback path; it is not the primary agent interface
 - Never run environment probing commands (`pip install`, `which python`, etc.)
 - If a script returns an error, diagnose from the error output; do not blindly retry with different interpreters
 - Read the corresponding `reference/*` before executing a script; do not interleave reading and executing
 - For 统计/对比/趋势/占比/明细/诊断 questions, the first real action must be a concrete script call or a clarifying question, not reading `assets/*.json`
-- Once script parameters are clear, always execute the script; do not skip execution and give SQL conclusions based solely on references
+- Once MCP or fallback-script parameters are clear, always execute the real tool; do not skip execution and give SQL conclusions based solely on references
+- Do not invent or expose datasource credentials; skill/runtime only receives datasource summary fields and all metadata / read-only SQL go through `portal-mcp` or `odw-cli -> backend /api/v1/ai/*`
+- For upstream/downstream lineage questions, prefer `portal_get_lineage` or `get_lineage.py` before writing custom SQL; only use `run_sql.py` when the lineage snapshot still lacks required fields
+- For upstream/downstream lineage questions, do not retry guessed `data_lineage` SQL after the guard fires; switch to `portal_get_lineage` or `get_lineage.py`, and only use `DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1` for a clearly scoped supplemental query
 
 ## Multi-Datasource Constraints
 
-- Platform core tables (`data_table`, `data_field`, `data_lineage`, `data_task`, `data_workflow`, `workflow_*`, `doris_*`) always route to `opendataworks` MySQL
+- Platform core tables (`data_table`, `data_field`, `data_lineage`, `data_task`, `data_workflow`, `workflow_*`, `doris_*`) always use the backend read-only query path with `database=opendataworks` and `engine=mysql`
 - Managed tables may be on MySQL or Doris; always do single-source routing first
 - If candidate tables span different engines or databases within the same answer, ask the user to narrow scope
 - If the answer depends on tenant-specific business defaults not present in this skill, ask instead of inferring
@@ -166,7 +200,9 @@ Do not generate `chart_spec` when data is unsuitable for visualization. Retain `
 
 - [`scripts/inspect_metadata.py`](scripts/inspect_metadata.py) — locate managed tables
 - [`scripts/resolve_datasource.py`](scripts/resolve_datasource.py) — resolve engine and datasource
-- [`scripts/run_sql.py`](scripts/run_sql.py) — execute read-only SQL
+- [`scripts/get_lineage.py`](scripts/get_lineage.py) — fetch lineage snapshot through the backend metadata path
+- [`scripts/get_table_ddl.py`](scripts/get_table_ddl.py) — fetch live table DDL through the backend metadata path
+- [`scripts/run_sql.py`](scripts/run_sql.py) — execute read-only SQL through the backend query path
 - [`scripts/build_chart_spec.py`](scripts/build_chart_spec.py) — generate chart spec from SQL results
 - [`scripts/format_answer.py`](scripts/format_answer.py) — summarize results for the final answer
 - [`scripts/query_opendataworks_metadata.py`](scripts/query_opendataworks_metadata.py) — export platform metadata

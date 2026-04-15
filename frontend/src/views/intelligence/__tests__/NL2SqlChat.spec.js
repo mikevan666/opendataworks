@@ -161,7 +161,7 @@ describe('NL2SqlChat', () => {
               block_id: 'think-1',
               type: 'thinking',
               status: 'streaming',
-              text: '问题类型：趋势分析。指标：workflow_publish_record 的发布记录数，按 created_at 按天聚合，最近 30 天。平台核心表，直接走 opendataworks MySQL。'
+              text: '问题类型：趋势分析。指标：workflow_publish_record 的发布记录数，按 created_at 按天聚合，最近 30 天。平台核心表，直接进入 opendataworks / mysql 的只读查询快路径。'
             },
             {
               block_id: 'tool-1',
@@ -258,7 +258,7 @@ describe('NL2SqlChat', () => {
 
     expect(wrapper.text()).toContain('问题类型：趋势分析')
     expect(wrapper.text()).toContain('workflow_publish_record')
-    expect(wrapper.text()).toContain('opendataworks MySQL')
+    expect(wrapper.text()).toContain('opendataworks / mysql 的只读查询快路径')
     expect(wrapper.text()).toContain('深度思考')
     expect(wrapper.find('.tool-output-renderer-stub').exists()).toBe(true)
     expect(wrapper.find('.query-process-panel').exists()).toBe(true)

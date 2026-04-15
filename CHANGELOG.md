@@ -9,6 +9,24 @@
 ### Changed
 - 待补充。
 
+## [1.0.0] - 2026-04-14
+
+### Added
+- 新增 Portal MCP 服务与查询 API，并将其纳入 Docker 发布矩阵与离线部署包。
+- 新增智能问数 mcp-first / backend-routed 执行链路，增强 lineage 工具优先与防护能力。
+- 新增 DolphinScheduler 任务级 `flag` 全链路同步能力。
+
+### Changed
+- 重构智能问数运行时、历史恢复与工具轨迹 UI，提升话题恢复、活动展示与交互体验。
+- 增强工作流发布预览与原始 JSON 差异展示，提升发布前可读性。
+- 发布产物扩展为 frontend、backend、dataagent-backend、portal-mcp 四个镜像，并在离线包中包含 Redis 镜像。
+- 项目许可证切换为 GPL-3.0-only。
+
+### Fixed
+- 修复 DataAgent 部署环境下 `odw-cli` 权限、可执行位与 Python 依赖相关问题。
+- 修复管理员设置代理与遗留 provider 配置加载问题。
+- 修复 Dolphin 发布链路 project code 持久化与 DDL copy fallback 问题。
+
 ## [0.8.0] - 2026-02-27
 
 ### Added
@@ -98,7 +116,8 @@
 
 以上早期版本请参考 GitHub Releases 与 Git tags 历史记录。
 
-[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.0.0
 [0.8.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.8.0
 [0.7.1]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.7.1
 [0.7.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.7.0

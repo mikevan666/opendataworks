@@ -13,6 +13,8 @@ import anyio
 from config import get_settings
 from core.nl2sql_agent import (
     _append_delta,
+    _build_allowed_tools,
+    _build_portal_mcp_servers,
     _build_prompt,
     _build_provider_env,
     _build_runtime_env,
@@ -35,7 +37,6 @@ from core.nl2sql_agent import (
 
 logger = logging.getLogger(__name__)
 
-SAFE_AUTO_ALLOWED_TOOLS = ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
 CHUNK_FLUSH_INTERVAL_SECONDS = 0.35
 CHUNK_FLUSH_MIN_CHARS = 80
 TERMINAL_TASK_STATUSES = {"finished", "error", "suspended"}
@@ -823,13 +824,17 @@ async def execute_task_stream(
     project_cwd = resolve_agent_project_cwd()
     permission_mode = _resolve_sdk_permission_mode()
     max_turns = _resolve_max_turns(cfg, params.execution_mode)
+    setting_sources = ["project"]
+    mcp_servers = _build_portal_mcp_servers(cfg)
+    allowed_tools = _build_allowed_tools(mcp_servers)
     options_kwargs = dict(
         system_prompt=system_prompt,
         model=model,
         cwd=str(project_cwd),
-        setting_sources=["project"],
+        setting_sources=setting_sources,
         max_turns=max_turns,
-        allowed_tools=list(SAFE_AUTO_ALLOWED_TOOLS),
+        allowed_tools=allowed_tools,
+        mcp_servers=mcp_servers,
         include_partial_messages=supports_partial_messages,
         env=runtime_env,
         stderr=lambda line: logger.error(
@@ -848,12 +853,15 @@ async def execute_task_stream(
     timeout_seconds = max(10, int(params.timeout_seconds or cfg.agent_timeout_seconds))
 
     logger.info(
-        "task.start task_id=%s topic_id=%s provider=%s model=%s cwd=%s max_turns=%s partial=%s base_url=%s",
+        "task.start task_id=%s topic_id=%s provider=%s model=%s cwd=%s setting_sources=%s allowed_tools=%s mcp_servers=%s max_turns=%s partial=%s base_url=%s",
         params.task_id,
         params.topic_id,
         provider_id,
         model,
         project_cwd,
+        ",".join(setting_sources),
+        ",".join(allowed_tools),
+        ",".join(sorted(mcp_servers.keys())) if mcp_servers else "(none)",
         max_turns,
         supports_partial_messages,
         _safe_base_url(env_payload.get("ANTHROPIC_BASE_URL")),

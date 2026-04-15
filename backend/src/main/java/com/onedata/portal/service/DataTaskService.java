@@ -55,6 +55,7 @@ public class DataTaskService {
     private static final int DEFAULT_TASK_RETRY_TIMES = 1;
     private static final int DEFAULT_TASK_RETRY_INTERVAL = 1;
     private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 60;
+    private static final String DEFAULT_DOLPHIN_FLAG = "YES";
     private static final String DEFAULT_OPERATOR = "system";
 
     private final DataTaskMapper dataTaskMapper;
@@ -501,6 +502,7 @@ public class DataTaskService {
                     dataTask.getSourceTable(),
                     dataTask.getTargetTable(),
                     dataTask.getColumnMapping(),
+                    dataTask.getDolphinFlag(),
                     taskGroupId,
                     null);
             definitions.add(definition);
@@ -708,6 +710,11 @@ public class DataTaskService {
             task.setTaskGroupName(taskGroupName);
             changed = true;
         }
+        String dolphinFlag = normalizeDolphinFlag(task.getDolphinFlag());
+        if (!Objects.equals(task.getDolphinFlag(), dolphinFlag)) {
+            task.setDolphinFlag(dolphinFlag);
+            changed = true;
+        }
 
         if ("dolphin".equalsIgnoreCase(task.getEngine())) {
             if (task.getDolphinTaskCode() == null || task.getDolphinTaskCode() <= 0) {
@@ -791,6 +798,17 @@ public class DataTaskService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
+    private String normalizeDolphinFlag(String value) {
+        if (!StringUtils.hasText(value)) {
+            return DEFAULT_DOLPHIN_FLAG;
+        }
+        String normalized = value.trim().toUpperCase();
+        if ("YES".equals(normalized) || "NO".equals(normalized)) {
+            return normalized;
+        }
+        throw new IllegalArgumentException("dolphinFlag 仅支持 YES 或 NO");
+    }
+
     /**
      * @deprecated 使用 testExecute 代替
      */
@@ -871,9 +889,7 @@ public class DataTaskService {
         clearTableTaskRelations(id);
 
         // 删除工作流任务关联关系
-        workflowTaskRelationMapper.delete(
-                new LambdaQueryWrapper<WorkflowTaskRelation>()
-                        .eq(WorkflowTaskRelation::getTaskId, id));
+        workflowTaskRelationMapper.hardDeleteByTaskId(id);
 
         dataTaskMapper.deleteById(id);
         log.info("Deleted task: {}", id);
@@ -928,9 +944,7 @@ public class DataTaskService {
         // Remove workflow binding.
         if (workflowId == null) {
             if (workflowRelation != null) {
-                workflowTaskRelationMapper.delete(
-                        Wrappers.<WorkflowTaskRelation>lambdaQuery()
-                                .eq(WorkflowTaskRelation::getTaskId, taskId));
+                workflowTaskRelationMapper.hardDeleteByTaskId(taskId);
             }
             if (previousWorkflowId != null) {
                 workflowService.refreshTaskRelations(previousWorkflowId);
@@ -1220,6 +1234,7 @@ public class DataTaskService {
         if (task == null) {
             throw new IllegalArgumentException("任务不能为空");
         }
+        task.setDolphinFlag(normalizeDolphinFlag(task.getDolphinFlag()));
         boolean enforceLineage = task.getId() == null || inputTableIds != null || outputTableIds != null;
         if (enforceLineage && isEmptyTableSelection(outputTableIds)) {
             if ("SQL".equalsIgnoreCase(task.getDolphinNodeType())) {

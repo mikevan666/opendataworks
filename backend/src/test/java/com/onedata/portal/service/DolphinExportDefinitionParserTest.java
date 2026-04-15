@@ -101,6 +101,7 @@ class DolphinExportDefinitionParserTest {
         task.put("code", 2101L);
         task.put("name", "task_sql_32");
         task.put("taskType", "SQL");
+        task.put("flag", "NO");
         task.put("taskParams", "{\"sql\":\"select * from ods.t1\",\"datasource\":11,\"type\":\"MYSQL\"}");
 
         ArrayNode relations = exported.putArray("processTaskRelationList");
@@ -121,6 +122,7 @@ class DolphinExportDefinitionParserTest {
         assertEquals(2101L, taskDefinition.getTaskCode());
         assertEquals("task_sql_32", taskDefinition.getTaskName());
         assertEquals("select * from ods.t1", taskDefinition.getSql());
+        assertEquals("NO", taskDefinition.getFlag());
         assertEquals(1, definition.getExplicitEdges().size());
     }
 

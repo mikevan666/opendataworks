@@ -7,7 +7,9 @@ import com.onedata.portal.dto.workflow.WorkflowVersionCompareRequest;
 import com.onedata.portal.dto.workflow.WorkflowVersionCompareResponse;
 import com.onedata.portal.dto.workflow.WorkflowVersionDeleteResponse;
 import com.onedata.portal.dto.workflow.WorkflowVersionErrorCodes;
+import com.onedata.portal.dto.workflow.WorkflowVersionRollbackResponse;
 import com.onedata.portal.dto.workflow.WorkflowVersionRollbackRequest;
+import com.onedata.portal.entity.DataTask;
 import com.onedata.portal.entity.DataWorkflow;
 import com.onedata.portal.entity.WorkflowPublishRecord;
 import com.onedata.portal.entity.WorkflowRuntimeSyncRecord;
@@ -21,6 +23,7 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -37,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -228,6 +232,69 @@ class WorkflowVersionOperationServiceTest {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.rollback(11L, 88L, request));
         assertTrue(ex.getMessage().contains(WorkflowVersionErrorCodes.VERSION_ROLLBACK_TASK_ID_REQUIRED));
+    }
+
+    @Test
+    void rollbackShouldRestoreTaskDolphinFlagFromSnapshot() {
+        DataWorkflow workflow = new DataWorkflow();
+        workflow.setId(11L);
+        workflow.setWorkflowName("wf");
+        workflow.setProjectCode(9527L);
+        workflow.setDescription("desc");
+        workflow.setGlobalParams("[]");
+        workflow.setTaskGroupName("tg");
+        workflow.setCurrentVersionId(99L);
+
+        Map<String, Object> task = taskNode(10L, "task_a", "select 1", "mysql_ds",
+                Collections.singletonList(1L), Collections.singletonList(2L));
+        task.put("dolphinFlag", "NO");
+        WorkflowVersion target = versionWithSchema(88L, 11L, 8,
+                canonicalSnapshot("wf", Collections.singletonList(task), Collections.emptyList()), 3);
+
+        DataTask existingTask = new DataTask();
+        existingTask.setId(10L);
+        existingTask.setTaskName("task_a");
+        existingTask.setTaskCode("task_a");
+        existingTask.setTaskType("batch");
+        existingTask.setEngine("dolphin");
+        existingTask.setDolphinNodeType("SQL");
+        existingTask.setTaskSql("select 1");
+        existingTask.setDatasourceName("mysql_ds");
+        existingTask.setDatasourceType("MYSQL");
+        existingTask.setTaskGroupName("tg-sql");
+        existingTask.setDolphinFlag("YES");
+        existingTask.setRetryTimes(1);
+        existingTask.setRetryInterval(1);
+        existingTask.setTimeoutSeconds(300);
+        existingTask.setPriority(5);
+        existingTask.setOwner("owner_a");
+        existingTask.setDolphinProcessCode(1001L);
+        existingTask.setDolphinTaskCode(10L);
+        existingTask.setDolphinTaskVersion(1);
+
+        DataWorkflow updatedWorkflow = new DataWorkflow();
+        updatedWorkflow.setId(11L);
+        updatedWorkflow.setCurrentVersionId(99L);
+
+        WorkflowVersion newVersion = new WorkflowVersion();
+        newVersion.setId(99L);
+        newVersion.setVersionNo(9);
+
+        when(dataWorkflowMapper.selectById(11L)).thenReturn(workflow);
+        when(workflowVersionMapper.selectById(88L)).thenReturn(target);
+        when(dataTaskMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(existingTask));
+        when(workflowService.updateWorkflow(eq(11L), any())).thenReturn(updatedWorkflow);
+        when(workflowVersionMapper.selectById(99L)).thenReturn(newVersion);
+
+        WorkflowVersionRollbackRequest request = new WorkflowVersionRollbackRequest();
+        request.setOperator("tester");
+
+        WorkflowVersionRollbackResponse response = service.rollback(11L, 88L, request);
+
+        assertEquals(99L, response.getNewVersionId());
+        ArgumentCaptor<DataTask> taskCaptor = ArgumentCaptor.forClass(DataTask.class);
+        verify(dataTaskService).update(taskCaptor.capture(), eq(Collections.singletonList(1L)), eq(Collections.singletonList(2L)));
+        assertEquals("NO", taskCaptor.getValue().getDolphinFlag());
     }
 
     @Test
@@ -856,6 +923,7 @@ class WorkflowVersionOperationServiceTest {
         node.put("taskName", taskName);
         node.put("taskSql", taskSql);
         node.put("datasourceName", datasourceName);
+        node.put("dolphinFlag", "YES");
         node.put("inputTableIds", new ArrayList<>(inputTableIds));
         node.put("outputTableIds", new ArrayList<>(outputTableIds));
         return node;
@@ -928,6 +996,7 @@ class WorkflowVersionOperationServiceTest {
                 item.put("taskName", task.get("taskName"));
                 item.put("taskType", "SQL");
                 item.put("nodeType", "SQL");
+                item.put("flag", task.get("dolphinFlag"));
                 item.put("inputTableIds", task.get("inputTableIds"));
                 item.put("outputTableIds", task.get("outputTableIds"));
 
@@ -1193,6 +1262,7 @@ class WorkflowVersionOperationServiceTest {
         task.put("taskType", "SQL");
         task.put("nodeType", "SQL");
         task.put("taskGroupName", "tg-sql");
+        task.put("flag", "YES");
         task.put("taskPriority", 5);
         task.put("failRetryTimes", 1);
         task.put("failRetryInterval", 1);

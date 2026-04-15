@@ -105,6 +105,7 @@ public class WorkflowRuntimeDiffService {
                     item.put("datasourceType", task.getDatasourceType());
                     item.put("taskGroupName", task.getTaskGroupName());
                     item.put("taskGroupId", task.getTaskGroupId());
+                    item.put("flag", task.getFlag());
                     item.put("taskPriority", task.getTaskPriority());
                     item.put("retryTimes", task.getRetryTimes());
                     item.put("retryInterval", task.getRetryInterval());

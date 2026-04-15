@@ -1,17 +1,17 @@
 # 技能地图
 
-先结论：任何问题都先分类，再决定阅读哪类摘要或执行哪类脚本。不要一上来扫描全部资产。
+先结论：任何问题都先分类，再决定阅读哪类摘要或执行哪类工具。优先 `portal-mcp`，没有 MCP 再回退脚本。不要一上来扫描全部资产。
 
 ## 问题类型到执行路径
 
-| 问题类型 | 先看什么 | 优先脚本 | 默认结果 |
+| 问题类型 | 先看什么 | 优先工具 | 默认结果 |
 | --- | --- | --- | --- |
-| 统计 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 对比 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 条形图 / 表格 |
-| 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
-| 占比 | `10-query-playbooks.md`、`20-term-index.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
-| 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | 已知平台核心表时可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
-| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `run_sql.py`，托管数据表走 `inspect_metadata.py` -> `resolve_datasource.py` -> `run_sql.py` | 表格 |
+| 统计 | `10-query-playbooks.md`、`21-metric-index.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
+| 对比 | `10-query-playbooks.md`、`21-metric-index.md` | 优先 `mcp__portal__portal_search_tables` / `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 条形图 / 表格 |
+| 趋势 | `10-query-playbooks.md`、`21-metric-index.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 折线图 / 表格 |
+| 占比 | `10-query-playbooks.md`、`20-term-index.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` -> `build_chart_spec.py` | 饼图 / 表格 |
+| 明细 | `10-query-playbooks.md`、`30-tool-recipes.md` | 优先 `mcp__portal__portal_query_readonly`；无 MCP 时已知平台核心表可直接 `run_sql.py`，否则 `inspect_metadata.py` -> `run_sql.py` | 表格 |
+| 诊断 | `10-query-playbooks.md`、`40-runtime-metadata.md` | 平台核心表优先 `mcp__portal__portal_query_readonly` / `mcp__portal__portal_get_lineage` / `mcp__portal__portal_get_table_ddl`；托管数据表优先 `mcp__portal__portal_search_tables`，无 MCP 再回退脚本 | 表格 |
 | 术语解释 | `20-term-index.md` | 无，必要时回看资产 | 中文解释 |
 | SQL 示例 | `22-sql-example-index.md` | 无，必要时回看资产 | SQL 模板示例 |
 
@@ -27,7 +27,7 @@
 
 ## 平台核心表直达规则
 
-如果问题明确指向下列平台核心表，并且字段也足够清楚，可以直接路由到 `opendataworks` MySQL 执行，不必先走 `inspect_metadata.py`：
+如果问题明确指向下列平台核心表，并且字段也足够清楚，可以直接进入 `database=opendataworks`、`engine=mysql` 的只读查询路径，不必先走 `inspect_metadata.py`。若 `mcp__portal__portal_query_readonly` 可见，优先直接调用它；无 MCP 时再走 `run_sql.py --database opendataworks --engine mysql`。这两条路径最终都经由 backend 代执行，不是 skill/runtime 直连 MySQL：
 
 - `data_table`
 - `data_field`
@@ -59,7 +59,9 @@
 
 ## 何时执行脚本
 
-- 平台核心表问题且字段已清楚：可直接 `run_sql.py`
-- 托管数据表、字段或库表不清：先 `inspect_metadata.py`
-- 引擎不清：再 `resolve_datasource.py`
+- 平台核心表问题且字段已清楚：优先 `mcp__portal__portal_query_readonly`；无 MCP 时可直接 `run_sql.py`
+- 需要上游 / 下游 / 血缘快照：优先 `mcp__portal__portal_get_lineage`；无 MCP 时用 `get_lineage.py`
+- 需要 live DDL / `SHOW CREATE TABLE`：优先 `mcp__portal__portal_get_table_ddl`；无 MCP 时用 `get_table_ddl.py`
+- 托管数据表、字段或库表不清：优先 `mcp__portal__portal_search_tables`；无 MCP 时先 `inspect_metadata.py`
+- 引擎不清：优先 `mcp__portal__portal_resolve_datasource`；无 MCP 时再 `resolve_datasource.py`
 - 结果结构适合图表：再 `build_chart_spec.py`

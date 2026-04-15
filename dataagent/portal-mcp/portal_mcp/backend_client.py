@@ -50,13 +50,18 @@ class BackendApiClient:
         }
         timeout = httpx.Timeout(self.settings.backend_timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(
-                method,
-                f"{self.settings.backend_base_url}{path}",
-                headers=headers,
-                params=_strip_none(params),
-                json=_strip_none(json),
-            )
+            try:
+                response = await client.request(
+                    method,
+                    f"{self.settings.backend_base_url}{path}",
+                    headers=headers,
+                    params=_strip_none(params),
+                    json=_strip_none(json),
+                )
+            except httpx.TimeoutException as exc:
+                raise BackendApiError("backend agent api 请求超时") from exc
+            except httpx.RequestError as exc:
+                raise BackendApiError(f"backend agent api 不可达: {exc}") from exc
 
         if response.is_error:
             raise BackendApiError(_extract_error_message(response), status_code=response.status_code)

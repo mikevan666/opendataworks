@@ -66,12 +66,22 @@ Use this method if you have internet access and are deploying directly from the 
    - 大模型供应商、Token 与候选模型在主前端配置页中维护，后端保存到 DataAgent 配置存储。
    - 可直接编辑挂载文件后生效：
      - `dataagent/.claude/skills/`
-   - 现有智能问数仍通过 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/metadata/*` 只读接口获取 metadata / lineage / datasource 解析；需保证 `AGENT_API_SERVICE_TOKEN` 在 backend 与 DataAgent 容器中一致。
-   - `portal-mcp` 继续随根部署提供，但它不是 `opendataagent` 共享平台 skill 的主链入口。
-   - `opendataagent` 不随这里的 compose 自动启动，需要单独进入 `opendataagent/deploy/` 部署。
-   - `skills/` 根目录中的共享 skill 主要服务 `opendataagent`；它不会替代当前生产智能问数使用的 `dataagent/.claude/skills/dataagent-nl2sql` 主链。
-   - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件。
-   - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id。
+     - `dataagent/.claude/skills/`（Skills 目录）
+     - 动态元数据查询示例在 skill 的 `references/` / `scripts/` 中，不再由后端同步生成 metadata 快照
+   - OpenDataWorks 内部部署默认 MCP-first：DataAgent runtime 会向当前 run 动态注入 `portal-mcp`，优先直接调用 `portal_search_tables` / `portal_get_lineage` / `portal_resolve_datasource` / `portal_export_metadata` / `portal_get_table_ddl` / `portal_query_readonly`
+   - 非 MCP 智能体或 MCP 未注入时，DataAgent 才回退到 skill 自带的 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/*` 只读接口获取 metadata / lineage / datasource 解析，并通过 `run_sql.py -> odw-cli -> /api/v1/ai/query/read` 执行只读 SQL；需保证 `AGENT_API_SERVICE_TOKEN` 在 backend 与 DataAgent 容器中一致
+   - `ODW_BACKEND_BASE_URL` 的推荐值为 `http://backend:8080/api/v1/ai`；CLI 兼容旧值 `/api/v1/ai/metadata`，但部署默认值已切到 AI 根路径
+   - DataAgent 的 MCP client 配置由 `DATAAGENT_PORTAL_MCP_ENABLED`、`DATAAGENT_PORTAL_MCP_BASE_URL`、`DATAAGENT_PORTAL_MCP_TOKEN`、`DATAAGENT_PORTAL_MCP_TOKEN_HEADER_NAME` 控制；默认值已在 compose 中接到 `portal-mcp`
+   - skill/runtime 不再需要业务库的 host / port / user / password；datasource 解析结果只保留定位摘要
+   - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
+   - `scripts/start.sh` 会在启动前对挂载的 `odw-cli` 执行一次宿主机侧 `chmod +x`；即使 bind mount 丢了执行位，DataAgent runtime 也会回退为 `sh /app/.claude/skills/dataagent-nl2sql/bin/odw-cli ...`
+   - `portal-mcp` 是 DataAgent 当前默认主链路的远程 MCP 入口，默认通过 `X-Portal-MCP-Token` 访问；它调用 backend `/api/v1/ai/metadata/*` 与 `/api/v1/ai/query/read`
+   - `portal-mcp` 继续随根部署提供，但它不是 `opendataagent` 共享平台 skill 的主链入口
+   - `opendataagent` 不随这里的 compose 自动启动，需要单独进入 `opendataagent/deploy/` 部署
+   - `skills/` 根目录中的共享 skill 主要服务 `opendataagent`；它不会替代当前生产智能问数使用的 `dataagent/.claude/skills/dataagent-nl2sql` 主链
+   - 主前端默认通过同源 `/api` 代理访问 DataAgent 后端，无需额外配置前端地址
+   - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件
+   - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id
 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
    >
@@ -124,11 +134,20 @@ Use this method for isolated environments without internet access. You will use 
    说明：
    - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑。
    - 大模型供应商、Token 与候选模型仍通过主前端配置页管理。
-   - 现有智能问数仍通过 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/metadata/*` 只读接口获取 metadata / lineage / datasource 解析。
-   - `portal-mcp` 作为独立兼容服务一并部署，但不代表 `opendataagent` 平台 skill 依赖 MCP。
-   - `opendataagent` 需要用它自己的部署包或 compose 单独部署，不包含在这里的离线包主链描述中。
-   - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件。
-   - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id。
+   - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑
+   - 大模型供应商、Token 与候选模型仍通过主前端配置页管理
+   - 动态元数据查询示例保留在 skill 的 `references/` / `scripts/` 中
+   - OpenDataWorks 内部部署默认 MCP-first：DataAgent runtime 会向当前 run 动态注入 `portal-mcp`，优先直接调用 `portal_search_tables` / `portal_get_lineage` / `portal_resolve_datasource` / `portal_export_metadata` / `portal_get_table_ddl` / `portal_query_readonly`
+   - 非 MCP 智能体或 MCP 未注入时，DataAgent 才回退到 skill 自带的 `dataagent-nl2sql/bin/odw-cli` 调 backend `/api/v1/ai/*` 只读接口获取 metadata / lineage / datasource 解析，并通过 `run_sql.py -> odw-cli -> /api/v1/ai/query/read` 执行只读 SQL；需保证 `AGENT_API_SERVICE_TOKEN` 在 backend 与 DataAgent 容器中一致
+   - `ODW_BACKEND_BASE_URL` 的推荐值为 `http://backend:8080/api/v1/ai`；CLI 兼容旧值 `/api/v1/ai/metadata`，但部署默认值已切到 AI 根路径
+   - DataAgent 的 MCP client 配置由 `DATAAGENT_PORTAL_MCP_ENABLED`、`DATAAGENT_PORTAL_MCP_BASE_URL`、`DATAAGENT_PORTAL_MCP_TOKEN`、`DATAAGENT_PORTAL_MCP_TOKEN_HEADER_NAME` 控制；默认值已在 compose 中接到 `portal-mcp`
+   - skill/runtime 不再需要业务库的 host / port / user / password；datasource 解析结果只保留定位摘要
+   - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
+   - `scripts/start.sh` 会在启动前对挂载的 `odw-cli` 执行一次宿主机侧 `chmod +x`；即使 bind mount 丢了执行位，DataAgent runtime 也会回退为 `sh /app/.claude/skills/dataagent-nl2sql/bin/odw-cli ...`
+   - `portal-mcp` 作为独立远程 MCP 服务一并部署，客户端需带 `X-Portal-MCP-Token`
+   - `opendataagent` 需要用它自己的部署包或 compose 单独部署，不包含在这里的离线包主链描述中
+   - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件
+   - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id
 
    > **💡 数据库自动初始化**: MySQL 容器首次启动时，会自动执行 `deploy/database/mysql/` 目录下的初始化脚本，创建 `opendataworks` / `dataagent` 数据库，并分别初始化 `opendataworks`、`dataagent` 两个应用用户。DataAgent 容器启动时会先执行 `alembic upgrade head`，再启动服务。
    >

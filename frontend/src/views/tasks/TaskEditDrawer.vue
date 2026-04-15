@@ -80,6 +80,13 @@
         </el-select>
       </el-form-item>
 
+      <el-form-item label="执行状态" prop="task.dolphinFlag">
+        <el-radio-group v-model="form.task.dolphinFlag">
+          <el-radio label="YES">正常执行</el-radio>
+          <el-radio label="NO">禁止执行</el-radio>
+        </el-radio-group>
+      </el-form-item>
+
       <template v-if="form.task.dolphinNodeType === 'SQL'">
         <el-form-item label="数据源" prop="task.datasourceName">
           <el-select
@@ -336,6 +343,7 @@ import { ElMessage } from 'element-plus'
 import { taskApi } from '@/api/task'
 import { workflowApi } from '@/api/workflow'
 import { tableApi } from '@/api/table'
+import { buildTaskPayload, createDefaultTaskModel, normalizeDolphinFlag } from './taskEditForm'
 
 const SqlEditor = defineAsyncComponent({
   loader: () => import('@/components/SqlEditor.vue'),
@@ -383,27 +391,7 @@ let sqlAnalyzeTimer = null
 let analyzeSeq = 0
 
 const form = reactive({
-  task: {
-    id: null,
-    taskName: '',
-    taskDesc: '',
-    taskCode: '',
-    taskType: 'batch',
-    engine: 'dolphin',
-    dolphinNodeType: 'SQL',
-    datasourceName: '',
-    datasourceType: 'DORIS',
-    taskSql: '',
-    scheduleCron: '',
-    priority: 5,
-    owner: '',
-    clusterId: null,
-    database: '',
-    targetDatasourceName: '',
-    sourceTable: '',
-    targetTable: '',
-    columnMapping: ''
-  },
+  task: createDefaultTaskModel(),
   inputTableIds: [],
   outputTableIds: []
 })
@@ -782,6 +770,7 @@ const open = async (id = null, initialData = {}) => {
     try {
       const taskData = (await taskApi.getById(id)) || {}
       Object.assign(form.task, taskData)
+      form.task.dolphinFlag = normalizeDolphinFlag(taskData.dolphinFlag)
       originalTaskName.value = form.task.taskName
 
       const lineage = await taskApi.getTaskLineage(id)
@@ -920,24 +909,7 @@ const handleSave = async () => {
 
   loading.value = true
   try {
-    const { taskGroupName, ...rawTaskPayload } = form.task
-    const normalizeOptionalText = (value) => {
-      if (typeof value !== 'string') return value ?? null
-      const trimmed = value.trim()
-      return trimmed ? trimmed : null
-    }
-    const taskPayload = {
-      ...rawTaskPayload,
-      datasourceName: normalizeOptionalText(rawTaskPayload.datasourceName),
-      datasourceType: normalizeOptionalText(rawTaskPayload.datasourceType),
-      targetDatasourceName: normalizeOptionalText(rawTaskPayload.targetDatasourceName),
-      sourceTable: normalizeOptionalText(rawTaskPayload.sourceTable),
-      targetTable: normalizeOptionalText(rawTaskPayload.targetTable),
-      columnMapping: normalizeOptionalText(rawTaskPayload.columnMapping)
-    }
-    if (!taskPayload.datasourceName) {
-      taskPayload.datasourceType = null
-    }
+    const taskPayload = buildTaskPayload(form.task)
     const payload = {
       task: taskPayload,
       inputTableIds: form.inputTableIds,
@@ -964,26 +936,7 @@ const handleSave = async () => {
 }
 
 const resetForm = () => {
-  form.task = {
-    id: null,
-    taskName: '',
-    taskDesc: '',
-    taskCode: '',
-    taskType: 'batch',
-    engine: 'dolphin',
-    dolphinNodeType: 'SQL',
-    datasourceName: '',
-    datasourceType: 'DORIS',
-    taskSql: '',
-    scheduleCron: '',
-    priority: 5,
-    owner: '',
-    workflowId: null,
-    targetDatasourceName: '',
-    sourceTable: '',
-    targetTable: '',
-    columnMapping: ''
-  }
+  form.task = createDefaultTaskModel()
 
   setTableSelections([], [])
   tableOptions.value = []

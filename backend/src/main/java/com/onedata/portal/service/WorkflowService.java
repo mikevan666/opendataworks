@@ -55,6 +55,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -839,6 +840,7 @@ public class WorkflowService {
     private void mergeTaskMetadata(ObjectNode targetTask, JsonNode seedTask) {
         copyLongIfMissing(targetTask, "version", seedTask, "version", "taskVersion");
         copyLongIfMissing(targetTask, "taskGroupId", seedTask, "taskGroupId");
+        copyTextIfMissing(targetTask, "flag", seedTask, "flag", "dolphinFlag");
         copyTextIfMissing(targetTask, "taskPriority", seedTask, "taskPriority", "priority");
         copyArrayIfMissing(targetTask, "inputTableIds", seedTask, "inputTableIds");
         copyArrayIfMissing(targetTask, "outputTableIds", seedTask, "outputTableIds");
@@ -1092,6 +1094,7 @@ public class WorkflowService {
             item.put("failRetryTimes", taskNode.get("retryTimes"));
             item.put("failRetryInterval", taskNode.get("retryInterval"));
             item.put("taskPriority", taskNode.get("priority"));
+            item.put("flag", normalizeDolphinFlag(asText(taskNode.get("dolphinFlag"))));
             String taskGroupName = normalizeText(asText(taskNode.get("taskGroupName")));
             if (!StringUtils.hasText(taskGroupName)) {
                 taskGroupName = normalizedWorkflowTaskGroupName;
@@ -1133,6 +1136,14 @@ public class WorkflowService {
 
     private String normalizeText(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String normalizeDolphinFlag(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "YES";
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return "NO".equals(normalized) ? "NO" : "YES";
     }
 
     private List<Map<String, Object>> buildProcessTaskRelationNodes(List<Map<String, Object>> taskNodes,
@@ -1313,6 +1324,7 @@ public class WorkflowService {
             node.put("datasourceName", task.getDatasourceName());
             node.put("datasourceType", task.getDatasourceType());
             node.put("taskGroupName", task.getTaskGroupName());
+            node.put("dolphinFlag", normalizeDolphinFlag(task.getDolphinFlag()));
             node.put("retryTimes", task.getRetryTimes());
             node.put("retryInterval", task.getRetryInterval());
             node.put("timeoutSeconds", task.getTimeoutSeconds());
@@ -1484,9 +1496,9 @@ public class WorkflowService {
             List<WorkflowTaskBinding> tasks,
             Long previousVersionId,
             WorkflowTopologyResult topology) {
-        workflowTaskRelationMapper.delete(
-                Wrappers.<WorkflowTaskRelation>lambdaQuery()
-                        .eq(WorkflowTaskRelation::getWorkflowId, workflowId));
+        // Rebuilding workflow topology reuses the same task ids, so logical delete would
+        // immediately conflict with workflow_task_relation.uk_task on reinsert.
+        workflowTaskRelationMapper.hardDeleteByWorkflowId(workflowId);
         if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
@@ -1669,6 +1681,11 @@ public class WorkflowService {
             }
             if (task.getTimeoutSeconds() == null || task.getTimeoutSeconds() <= 0) {
                 task.setTimeoutSeconds(DEFAULT_TASK_TIMEOUT_SECONDS);
+                changed = true;
+            }
+            String dolphinFlag = normalizeDolphinFlag(task.getDolphinFlag());
+            if (!Objects.equals(task.getDolphinFlag(), dolphinFlag)) {
+                task.setDolphinFlag(dolphinFlag);
                 changed = true;
             }
             if (StringUtils.hasText(task.getDatasourceName())) {
@@ -1932,9 +1949,7 @@ public class WorkflowService {
                 log.info("已级联软删除任务: workflowId={}, taskCount={}", workflowId, taskIds.size());
             }
 
-            workflowTaskRelationMapper.delete(
-                    Wrappers.<WorkflowTaskRelation>lambdaQuery()
-                            .eq(WorkflowTaskRelation::getWorkflowId, workflowId));
+            workflowTaskRelationMapper.hardDeleteByWorkflowId(workflowId);
             log.info("已删除工作流任务关联关系: workflowId={}", workflowId);
 
             dataWorkflowMapper.deleteById(workflowId);

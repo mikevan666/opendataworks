@@ -41,6 +41,8 @@ public class RuntimeTaskDefinition {
 
     private Integer taskGroupId;
 
+    private String flag;
+
     /**
      * SQL 推断出的输入表 ID 列表
      */

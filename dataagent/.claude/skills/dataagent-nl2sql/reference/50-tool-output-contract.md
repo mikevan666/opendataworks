@@ -10,6 +10,8 @@
   - 表、字段、血缘定位
 - `datasource_resolution`
   - engine / database / cluster 确认
+- `table_ddl`
+  - live DDL、字段摘要、来源集群信息
 - `sql_execution`
   - SQL 文本、表格结果、耗时、错误
 - `python_execution`
@@ -18,6 +20,23 @@
   - 表格、条形图、折线图、饼图
 
 ## SQL 表格承载
+
+`table_ddl` 示例：
+
+```json
+{
+  "kind": "table_ddl",
+  "database": "opendataworks",
+  "table_name": "workflow_publish_record",
+  "engine": "mysql",
+  "cluster_name": null,
+  "fields": [
+    { "field_name": "workflow_id", "field_comment": "工作流ID" }
+  ],
+  "ddl": "CREATE TABLE `workflow_publish_record` (...)",
+  "error": null
+}
+```
 
 默认明细结果仍然由 `sql_execution` 承载；只有技能明确需要独立表格展示时，才额外输出 `chart_type=table` 的 `chart_spec`。
 

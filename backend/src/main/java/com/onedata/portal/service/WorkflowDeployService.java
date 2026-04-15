@@ -49,7 +49,7 @@ public class WorkflowDeployService {
     @Transactional
     public DeploymentResult deploy(DataWorkflow workflow) {
         // Ensure project exists (force refresh/create)
-        dolphinSchedulerService.getProjectCode(true);
+        Long actualProjectCode = dolphinSchedulerService.getProjectCode(true);
 
         List<WorkflowTaskRelation> bindings = workflowTaskRelationMapper.selectList(
                 Wrappers.<WorkflowTaskRelation>lambdaQuery()
@@ -177,6 +177,7 @@ public class WorkflowDeployService {
                     nodeType,
                     datasourceId,
                     realDatasourceType != null ? realDatasourceType : task.getDatasourceType(),
+                    task.getDolphinFlag(),
                     taskGroupId,
                     null);
             definitions.add(definition);
@@ -249,13 +250,11 @@ public class WorkflowDeployService {
             log.info("Updated workflow code from {} to {}", oldWorkflowCode, deployedCode);
         }
 
-        Long projectCode = workflow.getProjectCode();
-        if (projectCode == null || projectCode <= 0) {
-            projectCode = dolphinSchedulerService.getProjectCode();
-        }
         return DeploymentResult.builder()
                 .workflowCode(deployedCode)
-                .projectCode(projectCode)
+                .projectCode(actualProjectCode != null && actualProjectCode > 0
+                        ? actualProjectCode
+                        : workflow.getProjectCode())
                 .taskCount(orderedTasks.size())
                 .existingWorkflow(existingWorkflow)
                 .build();
