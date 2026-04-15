@@ -43,6 +43,7 @@ go run ./cmd/opendataagent
 
 - [docker-compose.yml](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/deploy/docker-compose.yml)
 - [.env.example](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/deploy/.env.example)
+- [deploy/README.md](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/deploy/README.md)
 
 典型流程：
 
@@ -77,6 +78,31 @@ docker compose up -d --build
 
 ```bash
 ./opendataagent/scripts/build-release.sh --version 0.1.0
+```
+
+## 离线部署包
+
+脚本：
+
+- [create-offline-package.sh](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/scripts/create-offline-package.sh)
+- [load-package-and-start.sh](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/scripts/load-package-and-start.sh)
+
+默认会产出：
+
+- `output/releases/opendataagent/opendataagent-deployment-<tag>.tar.gz`
+
+离线包包含：
+
+- `opendataagent-server` 镜像
+- `opendataagent-web` 镜像
+- `mysql:8.0` 镜像
+- `shared-skills/` 快照
+- `deploy/` 和 `scripts/` 启动辅助文件
+
+示例：
+
+```bash
+./opendataagent/scripts/create-offline-package.sh
 ```
 
 ## 镜像构建

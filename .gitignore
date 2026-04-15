@@ -37,7 +37,11 @@ dolphinscheduler-service/*.egg-info/
 # Editor
 .vscode/
 .codex/
-/.claude/
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/opendata-frontend-skill/
+!/.claude/skills/opendata-frontend-skill/SKILL.md
 *.swp
 *.swo
 *~

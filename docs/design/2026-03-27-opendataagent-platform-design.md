@@ -29,7 +29,7 @@
   - `styles.css` 提供的企业级设计令牌
   - `MetricTrendChart.vue` 提供的 ECharts 统计卡
   - Skill 市场 / Skill 管理 / MCP / 设置 / 聊天五页统一的 hero、指标卡、侧栏和主工作区结构
-- 项目内新增 bundled skill `opendata-frontend-skill`，用于约束后续页面继续沿着企业级、商务风、可维护的前端设计方向演进；当前固定技术栈为 `Vue 3 + Tailwind CSS + ECharts + lucide-vue-next`。
+- 项目内前端设计约束改为通过仓库本地 skill `.claude/skills/opendata-frontend-skill/` 维护，用于约束后续页面继续沿着企业级、商务风、可维护的前端设计方向演进；当前固定技术栈为 `Vue 3 + Tailwind CSS + ECharts + lucide-vue-next`。
 - 供应商 `wzw.pp.ua` 同时暴露 Anthropic-compatible 与 OpenAI-compatible 接口，但两条协议的 tool calling 语义都不完全标准：
   - Anthropic 口首轮可能返回 `"<tool_call>...</tool_call>"`、`runtime_context()` 或裸工具名
   - OpenAI 口首轮可能返回 `call_runtime_context([])` 这类文本式函数调用，二轮原生 tool-result 协议不稳定

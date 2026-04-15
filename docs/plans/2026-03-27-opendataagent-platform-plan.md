@@ -12,7 +12,7 @@
 - 页面可新增供应商实例、增减模型
 - 标准 provider 主链保持干净
 - `wzw.pp.ua` 这类 Claude-compatible 但 tool-calling 非标准的网关，通过应用层 compat provider 支持
-- 前端控制台按 `opendata-frontend-skill` 收口到统一企业工作台设计系统
+- 前端控制台按仓库本地 `.claude/skills/opendata-frontend-skill` 收口到统一企业工作台设计系统
 
 ## Scope
 
@@ -166,7 +166,7 @@
 - `opendataagent/web/package.json`
 - `opendataagent/web/index.html`
 - `opendataagent/web/public/favicon.svg`
-- `opendataagent/server/skills/bundled/opendata-frontend-skill/SKILL.md`
+- `.claude/skills/opendata-frontend-skill/SKILL.md`
 
 ## Acceptance Criteria
 
