@@ -2,6 +2,21 @@
 
 This guide covers both Online (source code) and Offline (deployment package) deployment methods.
 
+## Deployment Topology
+
+当前仓库维持两条并行智能体产品线：
+
+- 主前端内嵌的“智能问数”
+  - 跟随根 `deploy/` 一起部署
+  - 运行时依赖 `dataagent-backend`
+  - 当前仍是生产可用主链
+- 独立的 `opendataagent`
+  - 使用 [opendataagent/deploy/docker-compose.yml](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/deploy/docker-compose.yml) 单独部署
+  - 不由主前端内嵌，也不通过主前端菜单跳转
+  - 与现有智能问数并行存在，不互相替换
+
+根 `deploy/` 文档只覆盖主门户与现有智能问数链路。`opendataagent` 的部署说明见 [opendataagent/README.md](/Users/guoruping/.codex/worktrees/92ff/opendataworks/opendataagent/README.md)。
+
 ## Directory Contents
 
 - `../scripts/start.sh`: Starts the application. Checks for `.env` and creates it if missing.
@@ -40,13 +55,17 @@ Use this method if you have internet access and are deploying directly from the 
    ../scripts/start.sh
    ```
 
-   DataAgent 默认地址：
+   主链路默认地址：
+   - 门户首页: `http://localhost:8081/`
    - 主前端智能问数入口: `http://localhost:8081/intelligent-query`
    - DataAgent Backend: `http://localhost:8900`
    - Portal MCP Health: `http://localhost:8801/health`
    - Portal MCP Streamable HTTP: `http://localhost:8801/mcp`
-   - 大模型供应商、Token 与候选模型请在主前端配置页中维护，后端保存到 DataAgent 配置存储
+
+   说明：
+   - 大模型供应商、Token 与候选模型在主前端配置页中维护，后端保存到 DataAgent 配置存储。
    - 可直接编辑挂载文件后生效：
+     - `dataagent/.claude/skills/`
      - `dataagent/.claude/skills/`（Skills 目录）
      - 动态元数据查询示例在 skill 的 `references/` / `scripts/` 中，不再由后端同步生成 metadata 快照
    - OpenDataWorks 内部部署默认 MCP-first：DataAgent runtime 会向当前 run 动态注入 `portal-mcp`，优先直接调用 `portal_search_tables` / `portal_get_lineage` / `portal_resolve_datasource` / `portal_export_metadata` / `portal_get_table_ddl` / `portal_query_readonly`
@@ -57,6 +76,9 @@ Use this method if you have internet access and are deploying directly from the 
    - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
    - `scripts/start.sh` 会在启动前对挂载的 `odw-cli` 执行一次宿主机侧 `chmod +x`；即使 bind mount 丢了执行位，DataAgent runtime 也会回退为 `sh /app/.claude/skills/dataagent-nl2sql/bin/odw-cli ...`
    - `portal-mcp` 是 DataAgent 当前默认主链路的远程 MCP 入口，默认通过 `X-Portal-MCP-Token` 访问；它调用 backend `/api/v1/ai/metadata/*` 与 `/api/v1/ai/query/read`
+   - `portal-mcp` 继续随根部署提供，但它不是 `opendataagent` 共享平台 skill 的主链入口
+   - `opendataagent` 不随这里的 compose 自动启动，需要单独进入 `opendataagent/deploy/` 部署
+   - `skills/` 根目录中的共享 skill 主要服务 `opendataagent`；它不会替代当前生产智能问数使用的 `dataagent/.claude/skills/dataagent-nl2sql` 主链
    - 主前端默认通过同源 `/api` 代理访问 DataAgent 后端，无需额外配置前端地址
    - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件
    - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id
@@ -102,11 +124,16 @@ Use this method for isolated environments without internet access. You will use 
    scripts/start.sh
    ```
 
-   DataAgent 默认地址：
+   离线包中的主链地址：
+   - 门户首页: `http://localhost:8081/`
    - 主前端智能问数入口: `http://localhost:8081/intelligent-query`
    - DataAgent Backend: `http://localhost:8900`
    - Portal MCP Health: `http://localhost:8801/health`
    - Portal MCP Streamable HTTP: `http://localhost:8801/mcp`
+
+   说明：
+   - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑。
+   - 大模型供应商、Token 与候选模型仍通过主前端配置页管理。
    - 离线包内保留 `deploy/dataagent-runtime/skills/` 可直接编辑
    - 大模型供应商、Token 与候选模型仍通过主前端配置页管理
    - 动态元数据查询示例保留在 skill 的 `references/` / `scripts/` 中
@@ -118,6 +145,7 @@ Use this method for isolated environments without internet access. You will use 
    - 若对应 skill 目录下缺少 `dataagent-nl2sql/bin/odw-cli`，需由用户先自行安装到该固定路径，再启动 DataAgent
    - `scripts/start.sh` 会在启动前对挂载的 `odw-cli` 执行一次宿主机侧 `chmod +x`；即使 bind mount 丢了执行位，DataAgent runtime 也会回退为 `sh /app/.claude/skills/dataagent-nl2sql/bin/odw-cli ...`
    - `portal-mcp` 作为独立远程 MCP 服务一并部署，客户端需带 `X-Portal-MCP-Token`
+   - `opendataagent` 需要用它自己的部署包或 compose 单独部署，不包含在这里的离线包主链描述中
    - DataAgent 额外持久化一个名为 `dataagent-home` 的 Docker volume，用于保存 Claude Agent SDK 写入 `HOME` 下的本地 session 文件。当前镜像内 `HOME=/tmp/dataagent-home`，SDK 会将会话落到 `~/.claude/projects/<sanitized-cwd>/`，因此该 volume 可覆盖历史智能问数话题的 `resume` 所需文件
    - 若执行 `docker compose down -v` 或手动删除 `dataagent-home` volume，Claude SDK 本地 session 文件会被清空；此时旧话题会退回到“重放历史 prompt”的兼容路径，直到该话题再次跑出新的真实 SDK session id
 

@@ -39,7 +39,7 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DataBoard, DataLine, Connection, Collection, Warning, Setting, Share, Link, Message } from '@element-plus/icons-vue'
+import { DataBoard, DataLine, Connection, Collection, Warning, Setting, Share, Link, ChatDotRound } from '@element-plus/icons-vue'
 import { isDemoMode } from '@/demo/runtime'
 import { preloadRouteComponents, scheduleRouteWarmup } from '@/router/routeWarmup'
 
@@ -48,27 +48,24 @@ const router = useRouter()
 const menuItems = computed(() => {
   const items = [
     { index: '/dashboard', label: '控制台', icon: DataBoard },
-    { index: '/intelligent-query', label: '智能问数', icon: Message },
     { index: '/datastudio', label: 'Data Studio', icon: DataLine },
     { index: '/workflows', label: '任务调度', icon: Share },
     { index: '/domains', label: '数据建模', icon: Collection },
     { index: '/lineage', label: '数据血缘', icon: Connection },
     { index: '/inspection', label: '数据质量', icon: Warning },
     { index: '/integration', label: '数据集成', icon: Link },
+    { index: '/intelligent-query', label: '智能问数', icon: ChatDotRound },
     { index: '/settings', label: '管理员', icon: Setting }
   ]
   if (!isDemoMode) {
     return items
   }
-  return items.filter((item) => ['/dashboard', '/domains', '/datastudio', '/workflows', '/lineage'].includes(item.index))
+  return items.filter((item) => ['/dashboard', '/domains', '/datastudio', '/workflows', '/lineage', '/intelligent-query'].includes(item.index))
 })
 const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/dashboard')) {
     return '/dashboard'
-  }
-  if (path.startsWith('/intelligent-query') || path.startsWith('/nl2sql')) {
-    return '/intelligent-query'
   }
   if (path.startsWith('/datastudio')) {
     return '/datastudio'
@@ -87,6 +84,9 @@ const activeMenu = computed(() => {
   }
   if (path.startsWith('/integration')) {
     return '/integration'
+  }
+  if (path.startsWith('/intelligent-query') || path.startsWith('/nl2sql')) {
+    return '/intelligent-query'
   }
   if (path.startsWith('/settings')) {
     return '/settings'
@@ -206,4 +206,5 @@ onMounted(() => {
   overflow-y: auto;
   min-height: 0;
 }
+
 </style>
