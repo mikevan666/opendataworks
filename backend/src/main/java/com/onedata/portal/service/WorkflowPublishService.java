@@ -1028,7 +1028,7 @@ public class WorkflowPublishService {
             ObjectNode taskParams = ensureObject(taskObject, "taskParams");
             Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
             String datasourceName = readText(taskParams, "datasourceName");
-            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
+            if (StringUtils.hasText(datasourceName) || (datasourceId != null && datasourceId > 0)) {
                 needDatasourceResolve = true;
             }
             Integer taskGroupId = readInt(taskObject, "taskGroupId");
@@ -1039,12 +1039,23 @@ public class WorkflowPublishService {
         }
 
         Map<String, DolphinDatasourceOption> datasourceByName;
+        Map<Long, DolphinDatasourceOption> datasourceById;
         try {
-            datasourceByName = dolphinSchedulerService.listDatasources(null, null)
-                    .stream()
-                    .filter(Objects::nonNull)
-                    .filter(item -> StringUtils.hasText(item.getName()) && item.getId() != null && item.getId() > 0)
-                    .collect(Collectors.toMap(item -> item.getName().trim(), item -> item, (left, right) -> left));
+            List<DolphinDatasourceOption> datasourceOptions = dolphinSchedulerService.listDatasources(null, null);
+            datasourceByName = new LinkedHashMap<>();
+            datasourceById = new LinkedHashMap<>();
+            if (!CollectionUtils.isEmpty(datasourceOptions)) {
+                for (DolphinDatasourceOption item : datasourceOptions) {
+                    if (item == null || item.getId() == null || item.getId() <= 0) {
+                        continue;
+                    }
+                    String name = normalizeText(item.getName());
+                    if (StringUtils.hasText(name)) {
+                        datasourceByName.putIfAbsent(name, item);
+                    }
+                    datasourceById.putIfAbsent(item.getId(), item);
+                }
+            }
         } catch (Exception ex) {
             throw new IllegalStateException(String.format(
                     "修复 definition 元数据失败(来源=catalog, workflowId=%s): 无法读取 Dolphin 数据源目录: %s",
@@ -1065,7 +1076,7 @@ public class WorkflowPublishService {
                     workflow.getId(),
                     ex.getMessage()), ex);
         }
-        if (needDatasourceResolve && datasourceByName.isEmpty()) {
+        if (needDatasourceResolve && datasourceByName.isEmpty() && datasourceById.isEmpty()) {
             throw new IllegalStateException(String.format(
                     "修复 definition 元数据失败(来源=catalog, workflowId=%s): Dolphin 数据源目录为空，无法按名称补齐 datasourceId",
                     workflow.getId()));
@@ -1085,14 +1096,13 @@ public class WorkflowPublishService {
             ObjectNode taskParams = ensureObject(taskObject, "taskParams");
             Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
             String datasourceName = readText(taskParams, "datasourceName");
-            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
-                DolphinDatasourceOption datasourceOption = datasourceByName.get(datasourceName.trim());
-                if (datasourceOption != null && datasourceOption.getId() != null && datasourceOption.getId() > 0) {
-                    changed |= putLong(taskParams, "datasourceId", datasourceOption.getId());
-                    changed |= putLong(taskParams, "datasource", datasourceOption.getId());
-                    changed |= putText(taskParams, "datasourceType", datasourceOption.getType());
-                    changed |= putText(taskParams, "type", datasourceOption.getType());
-                }
+            DolphinDatasourceOption datasourceOption = resolveDatasourceOption(
+                    datasourceByName, datasourceById, datasourceId, datasourceName);
+            if (datasourceOption != null && datasourceOption.getId() != null && datasourceOption.getId() > 0) {
+                changed |= putLong(taskParams, "datasourceId", datasourceOption.getId());
+                changed |= putLong(taskParams, "datasource", datasourceOption.getId());
+                changed |= putText(taskParams, "datasourceType", datasourceOption.getType());
+                changed |= putText(taskParams, "type", datasourceOption.getType());
             }
             Integer taskGroupId = readInt(taskObject, "taskGroupId");
             String taskGroupName = readText(taskObject, "taskGroupName");
@@ -1295,6 +1305,27 @@ public class WorkflowPublishService {
             }
         }
         return null;
+    }
+
+    private DolphinDatasourceOption resolveDatasourceOption(Map<String, DolphinDatasourceOption> datasourceByName,
+            Map<Long, DolphinDatasourceOption> datasourceById,
+            Long datasourceId,
+            String datasourceName) {
+        String normalizedName = normalizeText(datasourceName);
+        if (StringUtils.hasText(normalizedName)) {
+            DolphinDatasourceOption option = datasourceByName.get(normalizedName);
+            if (option != null) {
+                return option;
+            }
+        }
+        if (datasourceId != null && datasourceId > 0) {
+            return datasourceById.get(datasourceId);
+        }
+        return null;
+    }
+
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private static class DefinitionTaskMetadata {

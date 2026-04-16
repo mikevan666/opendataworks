@@ -650,7 +650,7 @@ public class WorkflowService {
             ObjectNode taskParams = ensureObjectNode(taskObject, "taskParams");
             Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
             String datasourceName = normalizeText(readText(taskParams, "datasourceName"));
-            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
+            if (StringUtils.hasText(datasourceName) || (datasourceId != null && datasourceId > 0)) {
                 needDatasourceResolve = true;
             }
 
@@ -670,9 +670,9 @@ public class WorkflowService {
             return;
         }
 
-        Map<String, DolphinDatasourceOption> datasourceByName = needDatasourceResolve
-                ? loadDatasourceCatalogByName()
-                : Collections.emptyMap();
+        DatasourceCatalog datasourceCatalog = needDatasourceResolve
+                ? loadDatasourceCatalog()
+                : DatasourceCatalog.empty();
         Map<String, DolphinTaskGroupOption> taskGroupByName = needTaskGroupResolve
                 ? loadTaskGroupCatalogByName()
                 : Collections.emptyMap();
@@ -686,17 +686,15 @@ public class WorkflowService {
 
             Long datasourceId = readLong(taskParams, "datasourceId", "datasource");
             String datasourceName = normalizeText(readText(taskParams, "datasourceName"));
-            if ((datasourceId == null || datasourceId <= 0) && StringUtils.hasText(datasourceName)) {
-                DolphinDatasourceOption datasourceOption = datasourceByName.get(datasourceName);
-                if (datasourceOption != null && datasourceOption.getId() != null && datasourceOption.getId() > 0) {
-                    taskParams.put("datasourceId", datasourceOption.getId());
-                    taskParams.put("datasource", datasourceOption.getId());
-                    if (!StringUtils.hasText(readText(taskParams, "datasourceType", "type"))
-                            && StringUtils.hasText(datasourceOption.getType())) {
-                        String datasourceType = datasourceOption.getType().trim();
-                        taskParams.put("datasourceType", datasourceType);
-                        taskParams.put("type", datasourceType);
-                    }
+            DolphinDatasourceOption datasourceOption = resolveDatasourceOption(
+                    datasourceCatalog, datasourceId, datasourceName);
+            if (datasourceOption != null && datasourceOption.getId() != null && datasourceOption.getId() > 0) {
+                taskParams.put("datasourceId", datasourceOption.getId());
+                taskParams.put("datasource", datasourceOption.getId());
+                String datasourceType = normalizeText(datasourceOption.getType());
+                if (StringUtils.hasText(datasourceType)) {
+                    taskParams.put("datasourceType", datasourceType);
+                    taskParams.put("type", datasourceType);
                 }
             }
 
@@ -714,28 +712,54 @@ public class WorkflowService {
         }
     }
 
-    private Map<String, DolphinDatasourceOption> loadDatasourceCatalogByName() {
+    private DatasourceCatalog loadDatasourceCatalog() {
         try {
             List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(null, null);
             if (CollectionUtils.isEmpty(options)) {
-                return Collections.emptyMap();
+                return DatasourceCatalog.empty();
             }
-            Map<String, DolphinDatasourceOption> result = new LinkedHashMap<>();
+            Map<String, DolphinDatasourceOption> byName = new LinkedHashMap<>();
+            Map<Long, DolphinDatasourceOption> byId = new LinkedHashMap<>();
             for (DolphinDatasourceOption option : options) {
                 if (option == null || option.getId() == null || option.getId() <= 0) {
                     continue;
                 }
                 String name = normalizeText(option.getName());
                 if (StringUtils.hasText(name)) {
-                    result.putIfAbsent(name, option);
+                    byName.putIfAbsent(name, option);
                 }
+                byId.putIfAbsent(option.getId(), option);
             }
-            return result;
+            return new DatasourceCatalog(byName, byId);
         } catch (Exception ex) {
             log.warn("Failed to load datasource catalog while enriching workflow definition metadata: {}",
                     ex.getMessage());
-            return Collections.emptyMap();
+            return DatasourceCatalog.empty();
         }
+    }
+
+    private DolphinDatasourceOption resolveDatasourceOption(DatasourceCatalog datasourceCatalog,
+            Long datasourceId,
+            String datasourceName) {
+        if (datasourceCatalog == null) {
+            return null;
+        }
+        String normalizedName = normalizeText(datasourceName);
+        if (StringUtils.hasText(normalizedName)) {
+            DolphinDatasourceOption option = datasourceCatalog.byName.get(normalizedName);
+            if (option != null) {
+                return option;
+            }
+        }
+        if (datasourceId != null && datasourceId > 0) {
+            return datasourceCatalog.byId.get(datasourceId);
+        }
+        return null;
+    }
+
+    private String resolveDatasourceType(DolphinDatasourceOption datasourceOption, String fallbackType) {
+        String catalogType = datasourceOption == null ? null : normalizeText(datasourceOption.getType());
+        return StringUtils.hasText(catalogType) ? catalogType : normalizeText(fallbackType);
     }
 
     private Map<String, DolphinTaskGroupOption> loadTaskGroupCatalogByName() {
@@ -1644,6 +1668,12 @@ public class WorkflowService {
         if (CollectionUtils.isEmpty(tasks)) {
             return;
         }
+        DatasourceCatalog datasourceCatalog = tasks.stream()
+                .filter(Objects::nonNull)
+                .map(DataTask::getDatasourceName)
+                .anyMatch(StringUtils::hasText)
+                        ? loadDatasourceCatalog()
+                        : DatasourceCatalog.empty();
         List<Long> existingDolphinTaskCodes = tasks.stream()
                 .map(DataTask::getDolphinTaskCode)
                 .filter(Objects::nonNull)
@@ -1688,23 +1718,36 @@ public class WorkflowService {
                 task.setDolphinFlag(dolphinFlag);
                 changed = true;
             }
-            if (StringUtils.hasText(task.getDatasourceName())) {
-                String trimmed = task.getDatasourceName().trim();
-                if (!Objects.equals(task.getDatasourceName(), trimmed)) {
-                    task.setDatasourceName(trimmed);
-                    changed = true;
-                }
+            String datasourceName = normalizeText(task.getDatasourceName());
+            if (!Objects.equals(task.getDatasourceName(), datasourceName)) {
+                task.setDatasourceName(datasourceName);
+                changed = true;
             }
-            if (StringUtils.hasText(task.getDatasourceType())) {
-                String trimmed = task.getDatasourceType().trim();
-                if (!Objects.equals(task.getDatasourceType(), trimmed)) {
-                    task.setDatasourceType(trimmed);
-                    changed = true;
-                }
+            String datasourceType = resolveDatasourceType(
+                    resolveDatasourceOption(datasourceCatalog, null, datasourceName),
+                    task.getDatasourceType());
+            if (!Objects.equals(task.getDatasourceType(), datasourceType)) {
+                task.setDatasourceType(datasourceType);
+                changed = true;
             }
             if (changed) {
                 dataTaskMapper.updateById(task);
             }
+        }
+    }
+
+    private static final class DatasourceCatalog {
+        private final Map<String, DolphinDatasourceOption> byName;
+        private final Map<Long, DolphinDatasourceOption> byId;
+
+        private DatasourceCatalog(Map<String, DolphinDatasourceOption> byName,
+                Map<Long, DolphinDatasourceOption> byId) {
+            this.byName = byName;
+            this.byId = byId;
+        }
+
+        private static DatasourceCatalog empty() {
+            return new DatasourceCatalog(Collections.emptyMap(), Collections.emptyMap());
         }
     }
 

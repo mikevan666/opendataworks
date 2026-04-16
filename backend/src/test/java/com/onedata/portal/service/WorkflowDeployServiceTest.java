@@ -141,7 +141,7 @@ class WorkflowDeployServiceTest {
         taskA.setDolphinTaskCode(1001L);
         taskA.setDolphinTaskVersion(3);
         taskA.setDatasourceName("ds_main");
-        taskA.setDatasourceType("MYSQL");
+        taskA.setDatasourceType("DORIS");
         taskA.setTaskGroupName("tg_sql");
         taskA.setDolphinFlag("NO");
         taskA.setPriority(8);
@@ -159,7 +159,7 @@ class WorkflowDeployServiceTest {
         taskB.setDolphinTaskCode(2002L);
         taskB.setDolphinTaskVersion(5);
         taskB.setDatasourceName("ds_main");
-        taskB.setDatasourceType("MYSQL");
+        taskB.setDatasourceType("DORIS");
         taskB.setTaskGroupName("tg_sql");
         taskB.setDolphinFlag("YES");
         taskB.setPriority(5);

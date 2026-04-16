@@ -1,5 +1,6 @@
 package com.onedata.portal.service;
 
+import com.onedata.portal.dto.DolphinDatasourceOption;
 import com.onedata.portal.entity.DataTask;
 import com.onedata.portal.entity.DataWorkflow;
 import com.onedata.portal.entity.WorkflowTaskRelation;
@@ -11,6 +12,7 @@ import com.onedata.portal.mapper.TaskExecutionLogMapper;
 import com.onedata.portal.mapper.WorkflowTaskRelationMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -21,8 +23,12 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -285,6 +291,54 @@ class DataTaskServiceWorkflowMetadataTest {
 
         assertNotNull(result);
         assertEquals(301L, result.getId());
+    }
+
+    @Test
+    void publishShouldUseCatalogDatasourceTypeAndPersistCorrection() {
+        DataTask target = new DataTask();
+        target.setId(10L);
+        target.setTaskName("task-publish-oceanbase");
+        target.setTaskCode("task-publish-oceanbase-code");
+        target.setEngine("dolphin");
+        target.setDolphinNodeType("SQL");
+        target.setDolphinTaskCode(1001L);
+        target.setDolphinTaskVersion(1);
+        target.setDatasourceName("oceanbase_prod");
+        target.setDatasourceType("DORIS");
+        target.setTaskSql("insert into dwd.t_order select * from ods.t_order");
+        target.setPriority(5);
+        target.setRetryTimes(1);
+        target.setRetryInterval(1);
+        target.setTimeoutSeconds(60);
+        target.setDolphinFlag("YES");
+
+        when(dataTaskMapper.selectById(10L)).thenReturn(target);
+        when(dataTaskMapper.selectList(any())).thenReturn(Collections.singletonList(target));
+        when(dataLineageMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(dolphinSchedulerService.listTaskGroups(null)).thenReturn(Collections.emptyList());
+
+        DolphinDatasourceOption option = new DolphinDatasourceOption();
+        option.setId(901L);
+        option.setName("oceanbase_prod");
+        option.setType("OCEANBASE");
+        when(dolphinSchedulerService.listDatasources(null, null)).thenReturn(Collections.singletonList(option));
+        when(dataTaskMapper.updateById(any(DataTask.class))).thenReturn(1);
+
+        dataTaskService.publish(10L);
+
+        ArgumentCaptor<String> datasourceTypeCaptor = ArgumentCaptor.forClass(String.class);
+        verify(dolphinSchedulerService).buildTaskDefinition(
+                anyLong(), anyInt(), anyString(), isNull(), anyString(),
+                anyString(), anyInt(), anyInt(), anyInt(), eq("SQL"), eq(901L), datasourceTypeCaptor.capture(),
+                any(), any(), any(), any(), anyString(), any(), any());
+        assertEquals("OCEANBASE", datasourceTypeCaptor.getValue());
+
+        ArgumentCaptor<DataTask> updateCaptor = ArgumentCaptor.forClass(DataTask.class);
+        verify(dataTaskMapper, atLeastOnce()).updateById(updateCaptor.capture());
+        boolean corrected = updateCaptor.getAllValues().stream()
+                .filter(task -> task != null && Long.valueOf(10L).equals(task.getId()))
+                .anyMatch(task -> "OCEANBASE".equals(task.getDatasourceType()));
+        assertEquals(true, corrected);
     }
 
     @Test

@@ -367,6 +367,10 @@ public class DataTaskService {
         }
         log.info("找到 {} 个 Dolphin 引擎任务", dolphinTasks.size());
         validatePublishMetadata(dolphinTasks);
+        target = dolphinTasks.stream()
+                .filter(task -> Objects.equals(task.getId(), taskId))
+                .findFirst()
+                .orElse(target);
 
         // 强制刷新 project code 缓存,确保使用最新的项目信息
         // 这对于 DolphinScheduler 重置后获取正确的 projectCode 很重要
@@ -396,6 +400,11 @@ public class DataTaskService {
         Map<String, DolphinTaskGroupOption> taskGroupMap = allTaskGroups.stream()
                 .collect(Collectors.toMap(DolphinTaskGroupOption::getName, opt -> opt,
                         (v1, v2) -> v1));
+        Map<String, DolphinDatasourceOption> datasourceByName = dolphinTasks.stream()
+                .anyMatch(task -> StringUtils.hasText(task.getDatasourceName())
+                        || StringUtils.hasText(task.getTargetDatasourceName()))
+                                ? loadDatasourceCatalogByName()
+                                : Collections.emptyMap();
 
         int index = 0;
         for (DataTask dataTask : dolphinTasks) {
@@ -418,13 +427,9 @@ public class DataTaskService {
             if ("DATAX".equalsIgnoreCase(nodeType)) {
                 // For DataX, get both source and target datasource IDs
                 if (StringUtils.hasText(dataTask.getDatasourceName())) {
-                    List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(
-                            null, dataTask.getDatasourceName());
-                    datasourceId = options.stream()
-                            .filter(opt -> Objects.equals(opt.getName(), dataTask.getDatasourceName()))
-                            .map(DolphinDatasourceOption::getId)
-                            .findFirst()
-                            .orElse(null);
+                    DolphinDatasourceOption sourceOption = resolveDatasourceOptionByName(
+                            datasourceByName, dataTask.getDatasourceName());
+                    datasourceId = sourceOption != null ? sourceOption.getId() : null;
                     if (datasourceId == null) {
                         throw new IllegalStateException(String.format(
                                 "Source datasource '%s' not found for task '%s'",
@@ -432,13 +437,9 @@ public class DataTaskService {
                     }
                 }
                 if (StringUtils.hasText(dataTask.getTargetDatasourceName())) {
-                    List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(
-                            null, dataTask.getTargetDatasourceName());
-                    targetDatasourceId = options.stream()
-                            .filter(opt -> Objects.equals(opt.getName(), dataTask.getTargetDatasourceName()))
-                            .map(DolphinDatasourceOption::getId)
-                            .findFirst()
-                            .orElse(null);
+                    DolphinDatasourceOption targetOption = resolveDatasourceOptionByName(
+                            datasourceByName, dataTask.getTargetDatasourceName());
+                    targetDatasourceId = targetOption != null ? targetOption.getId() : null;
                     if (targetDatasourceId == null) {
                         throw new IllegalStateException(String.format(
                                 "Target datasource '%s' not found for task '%s'",
@@ -452,13 +453,10 @@ public class DataTaskService {
                 }
             } else if (StringUtils.hasText(dataTask.getDatasourceName())) {
                 // For SQL, only get source datasource
-                List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(
-                        null, dataTask.getDatasourceName());
-                datasourceId = options.stream()
-                        .filter(opt -> Objects.equals(opt.getName(), dataTask.getDatasourceName()))
-                        .map(DolphinDatasourceOption::getId)
-                        .findFirst()
-                        .orElse(null);
+                DolphinDatasourceOption datasourceOption = resolveDatasourceOptionByName(
+                        datasourceByName, dataTask.getDatasourceName());
+                datasourceId = datasourceOption != null ? datasourceOption.getId() : null;
+                syncTaskDatasourceTypeFromCatalog(dataTask, datasourceOption);
             }
             if ("SQL".equalsIgnoreCase(nodeType) && datasourceId == null) {
                 throw new IllegalStateException(String.format(
@@ -497,7 +495,8 @@ public class DataTaskService {
                     dataTask.getTimeoutSeconds(),
                     nodeType,
                     datasourceId,
-                    dataTask.getDatasourceType(),
+                    resolveDatasourceType(resolveDatasourceOptionByName(datasourceByName, dataTask.getDatasourceName()),
+                            dataTask.getDatasourceType()),
                     targetDatasourceId,
                     dataTask.getSourceTable(),
                     dataTask.getTargetTable(),
@@ -571,6 +570,48 @@ public class DataTaskService {
             log.error("发布任务失败: taskId={}, taskName={}, error={}",
                     taskId, target.getTaskName(), e.getMessage(), e);
             throw new RuntimeException("发布任务到 DolphinScheduler 失败: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, DolphinDatasourceOption> loadDatasourceCatalogByName() {
+        List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(null, null);
+        if (CollectionUtils.isEmpty(options)) {
+            return Collections.emptyMap();
+        }
+        Map<String, DolphinDatasourceOption> datasourceByName = new LinkedHashMap<>();
+        for (DolphinDatasourceOption option : options) {
+            if (option == null || option.getId() == null || option.getId() <= 0) {
+                continue;
+            }
+            String name = normalizeText(option.getName());
+            if (StringUtils.hasText(name)) {
+                datasourceByName.putIfAbsent(name, option);
+            }
+        }
+        return datasourceByName;
+    }
+
+    private DolphinDatasourceOption resolveDatasourceOptionByName(Map<String, DolphinDatasourceOption> datasourceByName,
+            String datasourceName) {
+        if (CollectionUtils.isEmpty(datasourceByName) || !StringUtils.hasText(datasourceName)) {
+            return null;
+        }
+        return datasourceByName.get(datasourceName.trim());
+    }
+
+    private String resolveDatasourceType(DolphinDatasourceOption datasourceOption, String fallbackType) {
+        String catalogType = datasourceOption == null ? null : normalizeText(datasourceOption.getType());
+        return StringUtils.hasText(catalogType) ? catalogType : normalizeText(fallbackType);
+    }
+
+    private void syncTaskDatasourceTypeFromCatalog(DataTask task, DolphinDatasourceOption datasourceOption) {
+        if (task == null) {
+            return;
+        }
+        String resolvedType = resolveDatasourceType(datasourceOption, task.getDatasourceType());
+        if (!Objects.equals(task.getDatasourceType(), resolvedType)) {
+            task.setDatasourceType(resolvedType);
+            dataTaskMapper.updateById(task);
         }
     }
 
