@@ -12,6 +12,8 @@
 - 新增 `opendataagent` 离线镜像加载与启动脚本
 - 新增离线包目录结构与共享 skills 复制逻辑
 - 更新 `opendataagent` 部署文档和 README
+- 更新 GitHub release workflow，把 `opendataagent` 离线包纳入 tag/latest release 附件与正文链接
+- 更新 GitHub release workflow，把 `opendataagent-server/web` 镜像纳入构建推送矩阵与 release 正文链接
 - 做脚本 help / compose config / 打包级别验证
 
 本轮不覆盖：
@@ -64,13 +66,35 @@
   - 离线包生成
   - 离线包安装与启动
 
-### Phase 4: 验证
+### Phase 4: GitHub Release 集成
+
+- 更新 `.github/workflows/docker-build.yml`
+- 在 `build-and-push` 矩阵中新增：
+  - `opendataagent-server`
+  - `opendataagent-web`
+- `opendataagent-server` 构建前执行 `opendataagent/scripts/sync-root-skills.sh`
+- 在 tag release 中新增：
+  - `opendataagent/scripts/create-offline-package.sh`
+  - `opendataagent-deployment-<version>.tar.gz`
+  - 对应 checksum
+  - release body 下载链接
+  - `opendataagent-server/web` 镜像链接与 `docker pull` 示例
+- 在 latest release 中新增：
+  - `opendataagent-deployment-latest.tar.gz`
+  - 对应 checksum
+  - latest release body 下载链接
+  - `opendataagent-server/web` latest 镜像链接与 `docker pull` 示例
+
+### Phase 5: 验证
 
 - 脚本帮助输出：
   - `create-offline-package.sh --help`
   - `load-package-and-start.sh --help`
 - compose 配置校验：
   - `docker compose config` 或 `podman compose config`
+- workflow 结构校验：
+  - YAML 可解析
+  - release job 包含 `opendataagent` 资产变量和文件列表
 - 打包级验证：
   - 在可用容器运行时下执行一次离线包生成
   - 检查 tar.gz 内是否包含 `deploy/docker-images`、`shared-skills`
