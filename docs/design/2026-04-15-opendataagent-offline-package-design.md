@@ -36,6 +36,8 @@
 - 离线包包含根 `skills/` 的只读快照，供 `opendataagent` 使用
 - 离线包提供 `load-images.sh`、`start.sh`、`stop.sh`、`restart.sh`、`load-package-and-start.sh`
 - 文档明确离线包格式、生成命令、安装命令和路径约定
+- GitHub Release 在 tag 发布与 latest 发布时都上传 `opendataagent` 离线包，并在 release body 中提供下载链接
+- GitHub Actions 同时构建并推送 `mikefan2019/opendataagent-server` 与 `mikefan2019/opendataagent-web`，并在 release body 中提供镜像链接与 `docker pull` 命令
 
 ## Non-Goals
 
@@ -127,6 +129,16 @@ opendataagent-deployment/
 - 现有 `build-release.sh` 继续负责源码发布包
 - 新增离线包脚本单独负责镜像型交付物
 - 两者互补，不强行合并成单一脚本，避免把“无容器环境的源码构建”和“需要容器运行时的镜像导出”绑死在一起
+- GitHub Actions `docker-build.yml` 继续负责主仓库的镜像与主离线包，同时额外调用 `opendataagent/scripts/create-offline-package.sh`
+- 同一 workflow 额外把 `opendataagent-server` 与 `opendataagent-web` 纳入 build-and-push 矩阵
+- Release 附件中同时保留：
+  - `opendataworks-deployment-<tag>.tar.gz`
+  - `opendataagent-deployment-<tag>.tar.gz`
+  - 对应 `.sha256` 文件
+- Release 正文中的 Docker 镜像区同时保留：
+  - `opendataworks-*`
+  - `opendataagent-server`
+  - `opendataagent-web`
 
 ## Tradeoffs
 

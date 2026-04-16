@@ -79,9 +79,10 @@ git push origin v1.0.0
 
 工作流将依次执行：
 
-1. **构建并推送 Docker 镜像**：`mikefan2019/opendataworks-frontend`、`mikefan2019/opendataworks-backend`、`mikefan2019/opendataworks-dataagent-backend`、`mikefan2019/opendataworks-portal-mcp`，打上版本 tag
+1. **构建并推送 Docker 镜像**：`mikefan2019/opendataworks-frontend`、`mikefan2019/opendataworks-backend`、`mikefan2019/opendataworks-dataagent-backend`、`mikefan2019/opendataworks-portal-mcp`、`mikefan2019/opendataagent-server`、`mikefan2019/opendataagent-web`，打上版本 tag
 2. **生成离线部署包**：调用 `scripts/create-offline-package.sh --tag 1.0.0`
-3. **创建 GitHub Release**：上传离线包为 Release 附件，并自动生成 Release Notes（含提交记录）
+3. **生成 Opendataagent 离线部署包**：调用 `opendataagent/scripts/create-offline-package.sh --tag 1.0.0`
+4. **创建 GitHub Release**：上传两份离线包为 Release 附件，并自动生成 Release Notes（含提交记录）
 
 ---
 
@@ -101,10 +102,13 @@ scripts/create-offline-package.sh --tag 1.0.0 --output opendataworks-deployment-
 GitHub Release 中应包含：
 
 - **Release Notes**：GitHub Actions 自动生成（包含提交记录）
-- **下载区块**：由工作流写入 Release 正文，包含 Docker 镜像拉取命令与离线包链接
+- **下载区块**：由工作流写入 Release 正文，包含 Docker 镜像拉取命令与两份离线包链接
+- **Docker 镜像区块**：包含 `opendataworks-*` 和 `opendataagent-*` 的 Docker Hub 链接与 `docker pull` 示例
 - **附件**：
   - `opendataworks-deployment-1.0.0.tar.gz`（离线部署包）
+  - `opendataagent-deployment-1.0.0.tar.gz`（独立 `opendataagent` 离线部署包）
   - 可选：`opendataworks-deployment-1.0.0.tar.gz.sha256`（校验和）
+  - 可选：`opendataagent-deployment-1.0.0.tar.gz.sha256`（校验和）
 
 ### 4.3 用户下载方式
 
@@ -114,9 +118,12 @@ GitHub Release 中应包含：
    docker pull mikefan2019/opendataworks-backend:1.0.0
    docker pull mikefan2019/opendataworks-dataagent-backend:1.0.0
    docker pull mikefan2019/opendataworks-portal-mcp:1.0.0
+   docker pull mikefan2019/opendataagent-server:1.0.0
+   docker pull mikefan2019/opendataagent-web:1.0.0
    ```
 
-2. **离线部署包**：在 Release 页面下载 `opendataworks-deployment-1.0.0.tar.gz`，按 [deploy/README.md](../../deploy/README.md) 进行离线部署。
+2. **主系统离线部署包**：在 Release 页面下载 `opendataworks-deployment-1.0.0.tar.gz`，按 [deploy/README.md](../../deploy/README.md) 进行离线部署。
+3. **Opendataagent 离线部署包**：在 Release 页面下载 `opendataagent-deployment-1.0.0.tar.gz`，按 [opendataagent/deploy/README.md](../../opendataagent/deploy/README.md) 进行离线部署。
 
 ---
 
@@ -137,7 +144,7 @@ GitHub Release 中应包含：
        ↓
 3. git commit、git tag v1.0.0、git push
        ↓
-4. CI 构建镜像、生成离线包、创建 Release 并上传附件
+4. CI 构建镜像、生成两份离线包、创建 Release 并上传附件
        ↓
 5. 检查 Release 页面，确认下载可用
 ```
