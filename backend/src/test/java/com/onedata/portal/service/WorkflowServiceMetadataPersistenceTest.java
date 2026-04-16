@@ -153,15 +153,22 @@ class WorkflowServiceMetadataPersistenceTest {
     }
 
     @Test
-    void normalizeAndPersistMetadataShouldKeepExistingIdsWhenPresent() throws Exception {
+    void normalizeAndPersistMetadataShouldOverwriteExistingDatasourceTypeFromCatalog() throws Exception {
         String seedDefinition = "{\"taskDefinitionList\":[{\"taskCode\":1001,\"taskGroupId\":88,"
                 + "\"taskParams\":{\"datasourceId\":999,\"datasource\":999,\"datasourceName\":\"ds_main\","
-                + "\"datasourceType\":\"POSTGRES\",\"type\":\"POSTGRES\"}}]}";
+                + "\"datasourceType\":\"DORIS\",\"type\":\"DORIS\"}}]}";
         DataWorkflow workflow = baseWorkflow(seedDefinition);
         DataTask task = baseTask();
-        task.setDatasourceType(null);
+        task.setDatasourceType("DORIS");
 
         mockNormalizeContext(workflow, task);
+
+        DolphinDatasourceOption datasourceOption = new DolphinDatasourceOption();
+        datasourceOption.setId(999L);
+        datasourceOption.setName("ds_main");
+        datasourceOption.setType("OCEANBASE");
+        when(dolphinSchedulerService.listDatasources(null, null))
+                .thenReturn(Collections.singletonList(datasourceOption));
 
         service.normalizeAndPersistMetadata(1L, "tester");
 
@@ -173,8 +180,12 @@ class WorkflowServiceMetadataPersistenceTest {
         JsonNode params = firstTask.path("taskParams");
         assertEquals(999L, params.path("datasourceId").asLong());
         assertEquals(999L, params.path("datasource").asLong());
+        assertEquals("OCEANBASE", params.path("datasourceType").asText());
+        assertEquals("OCEANBASE", params.path("type").asText());
 
-        verify(dolphinSchedulerService, never()).listDatasources(any(), any());
+        ArgumentCaptor<DataTask> taskCaptor = ArgumentCaptor.forClass(DataTask.class);
+        verify(dataTaskMapper).updateById(taskCaptor.capture());
+        assertEquals("OCEANBASE", taskCaptor.getValue().getDatasourceType());
         verify(dolphinSchedulerService, never()).listTaskGroups(any());
     }
 

@@ -343,7 +343,7 @@ import { ElMessage } from 'element-plus'
 import { taskApi } from '@/api/task'
 import { workflowApi } from '@/api/workflow'
 import { tableApi } from '@/api/table'
-import { buildTaskPayload, createDefaultTaskModel, normalizeDolphinFlag } from './taskEditForm'
+import { buildTaskPayload, createDefaultTaskModel, normalizeDolphinFlag, syncTaskDatasourceType } from './taskEditForm'
 
 const SqlEditor = defineAsyncComponent({
   loader: () => import('@/components/SqlEditor.vue'),
@@ -409,10 +409,21 @@ const fetchDatasourceOptions = async () => {
   try {
     const res = await taskApi.fetchDatasources()
     datasourceOptions.value = res || []
+    syncSqlDatasourceType()
   } catch (error) {
     console.error('获取数据源失败:', error)
     ElMessage.warning('数据源目录加载失败，可继续编辑并保存')
   }
+}
+
+const syncSqlDatasourceType = () => {
+  if (form.task.dolphinNodeType !== 'SQL') {
+    if (!form.task.datasourceName) {
+      form.task.datasourceType = null
+    }
+    return null
+  }
+  return syncTaskDatasourceType(form.task, datasourceOptions.value)
 }
 
 const outputTableRule = [{ type: 'array', required: true, min: 1, message: '请选择至少一个输出表', trigger: 'change' }]
@@ -771,6 +782,7 @@ const open = async (id = null, initialData = {}) => {
       const taskData = (await taskApi.getById(id)) || {}
       Object.assign(form.task, taskData)
       form.task.dolphinFlag = normalizeDolphinFlag(taskData.dolphinFlag)
+      syncSqlDatasourceType()
       originalTaskName.value = form.task.taskName
 
       const lineage = await taskApi.getTaskLineage(id)
@@ -951,7 +963,7 @@ const resetForm = () => {
 const handleNodeTypeChange = (newType) => {
   if (newType !== 'SQL') {
     form.task.datasourceName = ''
-    form.task.datasourceType = 'DORIS'
+    form.task.datasourceType = null
     clearSqlAnalysis()
   }
   if (newType !== 'DATAX') {
@@ -966,6 +978,17 @@ const handleNodeTypeChange = (newType) => {
 
   scheduleSqlAnalyze()
 }
+
+watch(
+  () => form.task.datasourceName,
+  () => {
+    if (form.task.dolphinNodeType === 'SQL') {
+      syncSqlDatasourceType()
+    } else if (!form.task.datasourceName) {
+      form.task.datasourceType = null
+    }
+  }
+)
 
 watch(
   () => [...(form.inputTableIds || [])],

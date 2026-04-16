@@ -21,7 +21,7 @@ export const createDefaultTaskModel = () => ({
   dolphinNodeType: 'SQL',
   dolphinFlag: DEFAULT_DOLPHIN_FLAG,
   datasourceName: '',
-  datasourceType: 'DORIS',
+  datasourceType: null,
   taskSql: '',
   scheduleCron: '',
   priority: 5,
@@ -34,6 +34,32 @@ export const createDefaultTaskModel = () => ({
   targetTable: '',
   columnMapping: ''
 })
+
+export const findDatasourceOption = (options, datasourceName) => {
+  const normalizedName = normalizeOptionalText(datasourceName)
+  if (!normalizedName || !Array.isArray(options)) return null
+
+  return options.find((item) => normalizeOptionalText(item?.name) === normalizedName) || null
+}
+
+export const syncTaskDatasourceType = (task, options = []) => {
+  if (!task || typeof task !== 'object') return null
+
+  const normalizedName = normalizeOptionalText(task.datasourceName)
+  task.datasourceName = normalizedName || ''
+  if (!normalizedName) {
+    task.datasourceType = null
+    return null
+  }
+
+  const option = findDatasourceOption(options, normalizedName)
+  if (option?.type != null) {
+    task.datasourceType = normalizeOptionalText(option.type)
+  } else {
+    task.datasourceType = normalizeOptionalText(task.datasourceType)
+  }
+  return option
+}
 
 export const buildTaskPayload = (task) => {
   const { taskGroupName, ...rawTaskPayload } = task || {}

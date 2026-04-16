@@ -649,12 +649,16 @@ class WorkflowPublishServiceTest {
                 Arrays.asList(401L),
                 Arrays.asList(501L));
         runtimeTaskA.setDescription("task-a");
+        runtimeTaskA.setDatasourceName("doris_ds");
+        runtimeTaskA.setDatasourceType("DORIS");
         RuntimeTaskDefinition runtimeTaskB = runtimeTask(2002L,
                 "task_b",
                 "INSERT INTO dws.order_user_di SELECT * FROM dwd.order_user",
                 Arrays.asList(501L),
                 Arrays.asList(601L));
         runtimeTaskB.setDescription("task-b");
+        runtimeTaskB.setDatasourceName("doris_ds");
+        runtimeTaskB.setDatasourceType("DORIS");
         runtimeDefinition.setTasks(Arrays.asList(
                 runtimeTaskA,
                 runtimeTaskB));
@@ -830,6 +834,35 @@ class WorkflowPublishServiceTest {
         assertTrue(response.getUpdatedWorkflowFields().contains("definition.taskDefinitionList"));
         assertTrue(workflow.getDefinitionJson().contains("\"datasourceId\":501"));
         assertTrue(workflow.getDefinitionJson().contains("\"taskGroupId\":71"));
+        verify(dataWorkflowMapper, times(1)).updateById(any(DataWorkflow.class));
+        verify(workflowService, times(1)).normalizeAndPersistMetadata(1L, "tester");
+    }
+
+    @Test
+    void repairPublishMetadataShouldOverwriteWrongDatasourceTypeFromCatalog() {
+        WorkflowPublishService publishService = buildPreviewServiceWithRealDiff();
+        DataWorkflow workflow = workflow(1L, null, 101L);
+        workflow.setDefinitionJson("{\"taskDefinitionList\":[{\"taskCode\":10001,\"taskGroupId\":71,"
+                + "\"taskParams\":{\"datasourceId\":501,\"datasource\":501,\"datasourceName\":\"ds_a\","
+                + "\"datasourceType\":\"DORIS\",\"type\":\"DORIS\"}}]}");
+        when(dataWorkflowMapper.selectById(1L)).thenReturn(workflow);
+
+        DolphinDatasourceOption datasourceOption = new DolphinDatasourceOption();
+        datasourceOption.setId(501L);
+        datasourceOption.setName("ds_a");
+        datasourceOption.setType("OCEANBASE");
+        when(dolphinSchedulerService.listDatasources(null, null))
+                .thenReturn(Collections.singletonList(datasourceOption));
+        when(dolphinSchedulerService.listTaskGroups(null))
+                .thenReturn(Collections.singletonList(new DolphinTaskGroupOption()));
+
+        WorkflowPublishRepairRequest request = new WorkflowPublishRepairRequest();
+        request.setOperator("tester");
+        WorkflowPublishRepairResponse response = publishService.repairPublishMetadata(1L, request);
+
+        assertTrue(Boolean.TRUE.equals(response.getRepaired()));
+        assertTrue(workflow.getDefinitionJson().contains("\"datasourceType\":\"OCEANBASE\""));
+        assertTrue(workflow.getDefinitionJson().contains("\"type\":\"OCEANBASE\""));
         verify(dataWorkflowMapper, times(1)).updateById(any(DataWorkflow.class));
         verify(workflowService, times(1)).normalizeAndPersistMetadata(1L, "tester");
     }
