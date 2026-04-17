@@ -212,6 +212,47 @@ def test_skill_document_routes_contract(monkeypatch):
     )
     monkeypatch.setattr(
         admin_routes,
+        "import_skill_from_zip",
+        lambda file_name, content: {
+            "skill_id": "marketing-insights",
+            "source": "managed",
+            "enabled": False,
+            "imported_documents": [
+                {
+                    **summary,
+                    "id": 2,
+                    "folder": "marketing-insights",
+                    "relative_path": "SKILL.md",
+                    "file_name": "SKILL.md",
+                    "source": "managed",
+                    "enabled": False,
+                }
+            ],
+            "document_count": 2,
+        },
+    )
+    monkeypatch.setattr(
+        admin_routes,
+        "uninstall_skill",
+        lambda folder: {
+            "skill_id": folder,
+            "removed_documents": [
+                {
+                    **summary,
+                    "id": 2,
+                    "folder": folder,
+                    "relative_path": "SKILL.md",
+                    "file_name": "SKILL.md",
+                    "source": "managed",
+                    "enabled": False,
+                }
+            ],
+            "was_enabled": False,
+            "document_count": 1,
+        },
+    )
+    monkeypatch.setattr(
+        admin_routes,
         "sync_from_opendataworks",
         lambda: {
             "skills_root_dir": "/tmp/.claude/skills/dataagent-nl2sql",
@@ -271,6 +312,34 @@ def test_skill_document_routes_contract(monkeypatch):
     assert runtime_disable_response.status_code == 200
     assert runtime_disable_response.json()["enabled"] is False
 
+    import_response = client.post(
+        "/api/v1/dataagent/skills/imports",
+        files={"file": ("marketing-insights.zip", b"zip-content", "application/zip")},
+    )
+    assert import_response.status_code == 200
+    assert import_response.json()["skill_id"] == "marketing-insights"
+    assert import_response.json()["source"] == "managed"
+    assert import_response.json()["enabled"] is False
+    assert import_response.json()["imported_documents"][0]["source"] == "managed"
+
+    uninstall_response = client.delete("/api/v1/dataagent/skills/marketing-insights")
+    assert uninstall_response.status_code == 200
+    assert uninstall_response.json()["skill_id"] == "marketing-insights"
+    assert uninstall_response.json()["removed_documents"][0]["folder"] == "marketing-insights"
+
     sync_response = client.post("/api/v1/dataagent/skills/sync")
     assert sync_response.status_code == 200
     assert sync_response.json()["document_count"] == 1
+
+
+def test_skill_uninstall_route_rejects_service_errors(monkeypatch):
+    def _reject_uninstall(folder):
+        raise ValueError("内置 Skill 不支持卸载")
+
+    monkeypatch.setattr(admin_routes, "uninstall_skill", _reject_uninstall)
+
+    client = TestClient(app)
+    response = client.delete("/api/v1/dataagent/skills/dataagent-nl2sql")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "内置 Skill 不支持卸载"

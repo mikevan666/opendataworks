@@ -31,6 +31,17 @@
               />
             </div>
 
+            <el-button
+              v-if="skillItem.source === 'managed'"
+              class="skill-panel__uninstall"
+              type="danger"
+              plain
+              :loading="uninstallLoading"
+              @click="confirmUninstallCurrentSkill"
+            >
+              卸载 Skill
+            </el-button>
+
             <div class="skill-panel__tree-head">
               <span>文件树</span>
               <span>{{ visibleDocuments.length }}</span>
@@ -226,6 +237,7 @@ const detailLoading = ref(false)
 const saveLoading = ref(false)
 const compareLoading = ref(false)
 const runtimeUpdating = ref(false)
+const uninstallLoading = ref(false)
 
 const documents = ref([])
 const selectedDocumentId = ref(null)
@@ -416,6 +428,34 @@ const toggleSkillEnabled = async (enabled) => {
   }
 }
 
+const confirmUninstallCurrentSkill = async () => {
+  if (!folder.value || skillItem.value?.source !== 'managed') return
+  try {
+    await ElMessageBox.prompt(
+      `请输入 ${folder.value} 确认卸载。`,
+      '卸载 Skill',
+      {
+        type: 'warning',
+        confirmButtonText: '确认卸载',
+        cancelButtonText: '取消',
+        inputPlaceholder: folder.value,
+        inputValidator: (value) => String(value || '').trim() === folder.value || `请输入 ${folder.value}`
+      }
+    )
+  } catch {
+    return
+  }
+
+  uninstallLoading.value = true
+  try {
+    await dataagentApi.uninstallSkill(folder.value)
+    ElMessage.success(`Skill「${folder.value}」已卸载`)
+    goBack()
+  } finally {
+    uninstallLoading.value = false
+  }
+}
+
 watch(
   () => folder.value,
   async () => {
@@ -538,6 +578,10 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+}
+
+.skill-panel__uninstall {
+  width: 100%;
 }
 
 .detail-panel__meta-text {

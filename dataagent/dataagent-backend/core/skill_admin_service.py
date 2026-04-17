@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import io
 import json
 import logging
 import os
+import re
+import shutil
+import stat
+import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +36,8 @@ SUPPORTED_PROVIDER_SET = set(SUPPORTED_PROVIDERS)
 MANAGED_FILE_SUFFIXES = {".json", ".md", ".markdown", ".py"}
 DEFAULT_PROVIDER_ID = "openrouter"
 MODEL_DETECTION_TIMEOUT_SECONDS = 30
+BUILTIN_SKILL_FOLDERS = {"dataagent-nl2sql"}
+SKILL_FOLDER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 PROVIDER_DEFINITIONS: dict[str, dict[str, Any]] = {
     "anthropic": {
@@ -835,8 +843,19 @@ def _relative_path_within_skill(relative_path: str) -> str:
     return parts[1]
 
 
+def _validate_skill_folder_name(folder: str) -> str:
+    value = str(folder or "").strip()
+    if not value or value in {".", ".."} or "/" in value or "\\" in value or not SKILL_FOLDER_RE.match(value):
+        raise ValueError("skill folder must match A-Za-z0-9._-")
+    return value
+
+
+def _is_builtin_skill_folder(folder: str) -> bool:
+    return str(folder or "").strip() in BUILTIN_SKILL_FOLDERS
+
+
 def _skill_source(folder: str) -> str:
-    return "bundled" if folder else "bundled"
+    return "bundled" if _is_builtin_skill_folder(folder) else "managed"
 
 
 def _current_skill_folder() -> str:
@@ -1021,10 +1040,205 @@ def rollback_document(document_id: int, version_id: int) -> dict[str, Any]:
     return get_document_detail(int(saved["id"])) or {}
 
 
-def update_skill_runtime(folder: str, enabled: bool) -> dict[str, Any]:
+def _normalize_zip_member_path(raw_name: str) -> str:
+    raw = str(raw_name or "").replace("\\", "/")
+    if not raw:
+        return ""
+    if raw.startswith("/") or raw.startswith("\\") or (len(raw) >= 2 and raw[1] == ":"):
+        raise ValueError("ZIP contains unsafe absolute path")
+    parts: list[str] = []
+    for part in raw.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise ValueError("ZIP contains unsafe parent path")
+        parts.append(part)
+    return "/".join(parts)
+
+
+def _is_ignored_zip_member(relative_path: str) -> bool:
+    parts = str(relative_path or "").split("/")
+    return bool(parts and (parts[0] == "__MACOSX" or parts[-1] == ".DS_Store"))
+
+
+def _zip_member_is_symlink(info: zipfile.ZipInfo) -> bool:
+    mode = info.external_attr >> 16
+    return stat.S_IFMT(mode) == stat.S_IFLNK
+
+
+def _safe_extract_skill_zip(content: bytes, extract_root: Path):
+    if not content:
+        raise ValueError("ZIP 文件不能为空")
+    buffer = io.BytesIO(content)
+    if not zipfile.is_zipfile(buffer):
+        raise ValueError("仅支持 ZIP 格式的 Skill 包")
+
+    buffer.seek(0)
+    extract_root_resolved = extract_root.resolve()
+    extracted_files = 0
+    with zipfile.ZipFile(buffer) as archive:
+        if not archive.infolist():
+            raise ValueError("ZIP 包为空")
+        for info in archive.infolist():
+            relative_path = _normalize_zip_member_path(info.filename)
+            if not relative_path or _is_ignored_zip_member(relative_path):
+                continue
+            if _zip_member_is_symlink(info):
+                raise ValueError("ZIP 包不允许包含符号链接")
+
+            target = (extract_root_resolved / relative_path).resolve()
+            if extract_root_resolved not in target.parents and target != extract_root_resolved:
+                raise ValueError("ZIP contains unsafe path")
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+            extracted_files += 1
+
+    if not extracted_files:
+        raise ValueError("ZIP 包未包含可导入文件")
+
+
+def _skill_name_from_front_matter(skill_md: Path) -> str:
+    try:
+        lines = skill_md.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError("SKILL.md must be UTF-8 encoded") from exc
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("根目录 SKILL.md 必须包含 front matter name")
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        key, separator, value = line.partition(":")
+        if separator and key.strip() == "name":
+            return value.strip().strip("'\"")
+    raise ValueError("根目录 SKILL.md 必须包含 front matter name")
+
+
+def _resolve_imported_skill_root(extract_root: Path) -> tuple[Path, str]:
+    root_skill_md = extract_root / "SKILL.md"
+    if root_skill_md.is_file():
+        return extract_root, _validate_skill_folder_name(_skill_name_from_front_matter(root_skill_md))
+
+    candidates = [
+        entry
+        for entry in extract_root.iterdir()
+        if entry.is_dir() and entry.name != "__MACOSX" and (entry / "SKILL.md").is_file()
+    ]
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        return candidate, _validate_skill_folder_name(candidate.name)
+    if len(candidates) > 1:
+        raise ValueError("ZIP 包只能包含一个 Skill")
+    raise ValueError("ZIP 包缺少 SKILL.md")
+
+
+def _resolve_skill_target_dir(folder: str) -> Path:
+    target_folder = _validate_skill_folder_name(folder)
+    discovery_root = resolve_skill_discovery_root_dir().resolve()
+    target = (discovery_root / target_folder).resolve()
+    if discovery_root not in target.parents:
+        raise ValueError("invalid skill folder path")
+    return target
+
+
+def _raw_documents_for_skill(folder: str) -> list[dict[str, Any]]:
     target_folder = str(folder or "").strip()
-    if not target_folder:
-        raise ValueError("skill folder is required")
+    return [
+        document
+        for document in get_skill_admin_store().list_documents()
+        if _skill_folder_name(str(document.get("relative_path") or "")) == target_folder
+    ]
+
+
+def import_skill_from_zip(file_name: str, content: bytes) -> dict[str, Any]:
+    ensure_static_skills_bundle()
+    with tempfile.TemporaryDirectory(prefix="odw-skill-import-") as tmp_dir:
+        extract_root = Path(tmp_dir) / "extracted"
+        extract_root.mkdir(parents=True, exist_ok=True)
+        _safe_extract_skill_zip(content, extract_root)
+        skill_root, folder = _resolve_imported_skill_root(extract_root)
+
+        target = _resolve_skill_target_dir(folder)
+        if target.exists() or target.is_symlink():
+            raise ValueError("skill folder already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(skill_root), str(target))
+
+    current = current_settings_payload()
+    primary_folder = _folder_from_skills_output_dir(str(current.get("skills_output_dir") or "")) or _current_skill_folder()
+    skill_runtime = _normalize_skill_runtime(current.get("skill_runtime"), fallback_folder=primary_folder)
+    skill_runtime[folder] = {"enabled": False}
+    persist_admin_settings({"skill_runtime": skill_runtime})
+
+    imported = sync_documents_from_disk(change_source="upload", change_summary=f"导入 Skill {folder}")
+    imported_documents = [item for item in imported if item.get("folder") == folder]
+    if not imported_documents:
+        imported_documents = [_document_api_payload(item) for item in _raw_documents_for_skill(folder)]
+
+    return {
+        "skill_id": folder,
+        "source": _skill_source(folder),
+        "enabled": False,
+        "imported_documents": imported_documents,
+        "document_count": len(get_skill_admin_store().list_documents()),
+    }
+
+
+def uninstall_skill(folder: str) -> dict[str, Any]:
+    target_folder = _validate_skill_folder_name(folder)
+    if _is_builtin_skill_folder(target_folder):
+        raise ValueError("内置 Skill 不支持卸载")
+
+    sync_documents_from_disk()
+    available_folders = _discovered_skill_folders()
+    if target_folder not in available_folders:
+        raise ValueError("skill folder not found")
+
+    target = _resolve_skill_target_dir(target_folder)
+    if not target.is_dir() or target.is_symlink():
+        raise ValueError("invalid skill folder path")
+
+    current = current_settings_payload()
+    primary_folder = _folder_from_skills_output_dir(str(current.get("skills_output_dir") or "")) or _current_skill_folder()
+    skill_runtime = _normalize_skill_runtime(current.get("skill_runtime"), fallback_folder=primary_folder)
+    was_enabled = bool((skill_runtime.get(target_folder) or {}).get("enabled"))
+    enabled_folders = [
+        item
+        for item in _enabled_skill_folders(skill_runtime)
+        if item in available_folders and item != target_folder
+    ]
+    if was_enabled and not enabled_folders:
+        raise ValueError("当前运行时至少需要保留一个启用 Skill")
+
+    raw_removed_documents = _raw_documents_for_skill(target_folder)
+    removed_documents = [_document_api_payload(item) for item in raw_removed_documents]
+    shutil.rmtree(target)
+
+    store = get_skill_admin_store()
+    for document in raw_removed_documents:
+        store.delete_document_by_path(str(document.get("relative_path") or ""))
+
+    skill_runtime.pop(target_folder, None)
+    payload: dict[str, Any] = {"skill_runtime": skill_runtime}
+    if primary_folder == target_folder and enabled_folders:
+        payload["skills_output_dir"] = _settings_path_for_skill_folder(enabled_folders[0])
+    persist_admin_settings(payload)
+    refresh_skill_runtime()
+
+    return {
+        "skill_id": target_folder,
+        "removed_documents": removed_documents,
+        "was_enabled": was_enabled,
+        "document_count": len(store.list_documents()),
+    }
+
+
+def update_skill_runtime(folder: str, enabled: bool) -> dict[str, Any]:
+    target_folder = _validate_skill_folder_name(folder)
     available_folders = _discovered_skill_folders()
     if target_folder not in available_folders:
         raise ValueError("skill folder not found")
