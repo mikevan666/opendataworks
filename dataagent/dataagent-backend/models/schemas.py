@@ -308,6 +308,21 @@ class SkillRuntimeConfig(BaseModel):
     enabled: bool = False
 
 
+class SkillImportResponse(BaseModel):
+    skill_id: str
+    source: str = "managed"
+    enabled: bool = False
+    imported_documents: List[SkillDocumentSummary] = Field(default_factory=list)
+    document_count: int = 0
+
+
+class SkillUninstallResponse(BaseModel):
+    skill_id: str
+    removed_documents: List[SkillDocumentSummary] = Field(default_factory=list)
+    was_enabled: bool = False
+    document_count: int = 0
+
+
 class SkillDocumentCompareRequest(BaseModel):
     left_version_id: Optional[int] = None
     right_version_id: Optional[int] = None

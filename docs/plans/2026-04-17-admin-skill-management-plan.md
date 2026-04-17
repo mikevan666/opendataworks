@@ -2,7 +2,7 @@
 
 ## Summary
 
-Upgrade Skill management from a single-active Skill model to multi-active Skill runtime management, and simplify the list/detail UI to a concise admin-console layout.
+Upgrade Skill management from a single-active Skill model to multi-active Skill runtime management, simplify the list/detail UI, and add controlled ZIP import plus local imported Skill uninstall.
 
 ## Key Changes
 
@@ -13,18 +13,22 @@ Upgrade Skill management from a single-active Skill model to multi-active Skill 
 - Add `DATAAGENT_ENABLED_SKILLS` and `DATAAGENT_ENABLED_SKILL_ROOTS`; keep `DATAAGENT_SKILL_ROOT` for existing scripts.
 - Extract shared provider/prompt/env helpers into `core/agent_runtime.py` and remove the unused direct `stream_agent_reply` executor so only the task executor owns agent execution.
 - Simplify frontend copy and layout: `已启用 / 未启用`, compact cards, custom detail title bar, merged left overview/file tree, `SKILL.md` first, lower-weight version history.
+- Add `POST /api/v1/dataagent/skills/imports` for ZIP upload. Safely extract one Skill, reject unsafe paths/symlinks/folder conflicts, index files, and keep the imported Skill disabled by default.
+- Add `DELETE /api/v1/dataagent/skills/{folder}` for managed Skill uninstall. Reject built-in Skill removal and last-enabled removal, remove indexed documents, clean `skill_runtime`, and reassign primary Skill when needed.
+- Add list/detail UI actions for importing ZIP packages and uninstalling `source=managed` Skills with typed folder confirmation.
 
 ## Test Plan
 
 - Backend:
-  - contract tests for enriched document fields and runtime toggle API
+  - contract tests for enriched document fields, runtime toggle API, import API, uninstall API, and uninstall error mapping
   - service tests for multi-enable, disabling one Skill, rejecting last-disable, and primary Skill reassignment
+  - service tests for root ZIP import, folder ZIP import, unsafe archive rejection, duplicate folder rejection, missing `SKILL.md`, managed uninstall cleanup, built-in uninstall rejection, and last-enabled uninstall rejection
   - loader test proving runtime cwd exposes only enabled Skills
   - agent runtime-env test for enabled Skill env variables
   - task executor test covering the generated multi-Skill runtime cwd
 - Frontend:
-  - list tests for grouped Skill cards, enabled count, enable and disable calls
-  - detail tests for `SKILL.md` default selection, no `Back Back`, and enable/disable behavior
+  - list tests for grouped Skill cards, enabled count, enable/disable calls, ZIP import, managed uninstall, and hidden bundled uninstall
+  - detail tests for `SKILL.md` default selection, no `Back Back`, enable/disable behavior, and managed uninstall navigation
 - Verification:
   - DataAgent targeted `pytest`
   - `nvm use`
@@ -37,4 +41,5 @@ Upgrade Skill management from a single-active Skill model to multi-active Skill 
 - No new database table in this iteration.
 - At least one Skill must remain enabled.
 - Multi-active means Claude Skill discovery sees all enabled Skills; the existing semantic layer still uses the primary `skills_output_dir`.
-- Skill marketplace/import/delete remain out of scope.
+- Only browser ZIP upload is supported for import; server paths, Git URLs, and marketplace discovery remain out of scope.
+- Imported Skills default to disabled and are the only Skills that can be uninstalled.

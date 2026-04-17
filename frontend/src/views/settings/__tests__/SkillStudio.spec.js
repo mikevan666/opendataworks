@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const apiMocks = vi.hoisted(() => ({
   listSkillDocuments: vi.fn(),
   syncSkills: vi.fn(),
-  updateSkillRuntime: vi.fn()
+  updateSkillRuntime: vi.fn(),
+  importSkill: vi.fn(),
+  uninstallSkill: vi.fn()
 }))
 
 const routerPush = vi.hoisted(() => vi.fn())
@@ -15,7 +17,8 @@ const messageMocks = vi.hoisted(() => ({
 }))
 
 const messageBoxMocks = vi.hoisted(() => ({
-  confirm: vi.fn()
+  confirm: vi.fn(),
+  prompt: vi.fn()
 }))
 
 vi.mock('@/api/dataagent', () => ({
@@ -54,6 +57,9 @@ const stubs = {
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
     template: '<button :disabled="disabled" @click="$emit(\'update:modelValue\', !modelValue)"><slot /></button>'
+  },
+  'el-upload': {
+    template: '<div><slot /></div>'
   }
 }
 
@@ -91,7 +97,7 @@ const documentsPayload = () => ([
     file_name: 'SKILL.md',
     category: 'root',
     content_type: 'markdown',
-    source: 'bundled',
+    source: 'managed',
     version_count: 4,
     updated_at: '2026-04-17T11:00:00',
     editable: true,
@@ -108,8 +114,11 @@ describe('SkillStudio', () => {
     apiMocks.listSkillDocuments.mockReset()
     apiMocks.syncSkills.mockReset()
     apiMocks.updateSkillRuntime.mockReset()
+    apiMocks.importSkill.mockReset()
+    apiMocks.uninstallSkill.mockReset()
     messageMocks.success.mockReset()
     messageBoxMocks.confirm.mockReset()
+    messageBoxMocks.prompt.mockReset()
     routerPush.mockReset()
 
     apiMocks.listSkillDocuments.mockResolvedValue(documentsPayload())
@@ -117,6 +126,20 @@ describe('SkillStudio', () => {
       skill_id: 'marketing-insights',
       enabled: true
     })
+    apiMocks.importSkill.mockResolvedValue({
+      skill_id: 'customer-care',
+      source: 'managed',
+      enabled: false,
+      imported_documents: [],
+      document_count: 3
+    })
+    apiMocks.uninstallSkill.mockResolvedValue({
+      skill_id: 'marketing-insights',
+      removed_documents: [],
+      was_enabled: false,
+      document_count: 1
+    })
+    messageBoxMocks.prompt.mockResolvedValue({ value: 'marketing-insights' })
   })
 
   it('groups documents into skill cards and routes to detail view', async () => {
@@ -127,6 +150,7 @@ describe('SkillStudio', () => {
     expect(wrapper.vm.enabledSummary).toBe('已启用 1 / 共 2')
     expect(wrapper.text()).toContain('dataagent-nl2sql')
     expect(wrapper.text()).toContain('marketing-insights')
+    expect(wrapper.text()).toContain('本地导入')
     expect(wrapper.text()).toContain('已启用')
     expect(wrapper.text()).toContain('未启用')
     expect(wrapper.text()).not.toContain('当前运行')
@@ -160,5 +184,44 @@ describe('SkillStudio', () => {
 
     expect(apiMocks.updateSkillRuntime).toHaveBeenCalledWith('dataagent-nl2sql', { enabled: false })
     expect(messageMocks.success).toHaveBeenCalledWith('Skill「dataagent-nl2sql」已禁用')
+  })
+
+  it('imports a skill zip and reloads the list', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const file = new File(['zip'], 'customer-care.zip', { type: 'application/zip' })
+    await wrapper.vm.handleSkillUpload({ file })
+    await flushPromises()
+
+    expect(apiMocks.importSkill).toHaveBeenCalledWith(file)
+    expect(apiMocks.listSkillDocuments).toHaveBeenCalledTimes(2)
+    expect(messageMocks.success).toHaveBeenCalledWith('Skill「customer-care」已导入，默认未启用')
+  })
+
+  it('uninstalls managed skills only after folder confirmation', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const managedSkill = wrapper.vm.filteredSkills.find((item) => item.folder === 'marketing-insights')
+    await wrapper.vm.confirmUninstallSkill(managedSkill)
+    await flushPromises()
+
+    expect(messageBoxMocks.prompt).toHaveBeenCalledWith(
+      '请输入 marketing-insights 确认卸载。',
+      '卸载 Skill',
+      expect.objectContaining({
+        confirmButtonText: '确认卸载',
+        cancelButtonText: '取消',
+        inputPlaceholder: 'marketing-insights'
+      })
+    )
+    expect(apiMocks.uninstallSkill).toHaveBeenCalledWith('marketing-insights')
+    expect(apiMocks.listSkillDocuments).toHaveBeenCalledTimes(2)
+    expect(messageMocks.success).toHaveBeenCalledWith('Skill「marketing-insights」已卸载')
+
+    const builtinSkill = wrapper.vm.filteredSkills.find((item) => item.folder === 'dataagent-nl2sql')
+    await wrapper.vm.confirmUninstallSkill(builtinSkill)
+    expect(apiMocks.uninstallSkill).toHaveBeenCalledTimes(1)
   })
 })

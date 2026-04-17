@@ -12,6 +12,15 @@
           placeholder="搜索 Skill 名称或文件路径"
           class="skill-studio__search"
         />
+        <el-upload
+          accept=".zip,application/zip"
+          :show-file-list="false"
+          :disabled="importLoading"
+          :before-upload="beforeSkillUpload"
+          :http-request="handleSkillUpload"
+        >
+          <el-button type="primary" :loading="importLoading">导入 Skill</el-button>
+        </el-upload>
         <el-button :loading="syncLoading" @click="triggerSync">刷新目录</el-button>
       </div>
     </div>
@@ -67,6 +76,14 @@
 
         <div class="skill-card__footer">
           <el-button text type="primary" @click="openSkillDetail(skill.folder)">查看详情</el-button>
+          <el-button
+            v-if="skill.source === 'managed'"
+            text
+            type="danger"
+            @click="confirmUninstallSkill(skill)"
+          >
+            卸载
+          </el-button>
         </div>
       </div>
     </div>
@@ -91,6 +108,7 @@ const router = useRouter()
 
 const listLoading = ref(false)
 const syncLoading = ref(false)
+const importLoading = ref(false)
 const searchKeyword = ref('')
 const documents = ref([])
 const syncResult = ref(null)
@@ -150,6 +168,50 @@ const setSkillEnabled = async (skill, enabled) => {
   } finally {
     runtimeUpdatingFolder.value = ''
   }
+}
+
+const beforeSkillUpload = (file) => {
+  const fileName = String(file?.name || '').toLowerCase()
+  if (!fileName.endsWith('.zip')) {
+    ElMessage.error('请上传 ZIP 格式的 Skill 包')
+    return false
+  }
+  return true
+}
+
+const handleSkillUpload = async ({ file }) => {
+  if (!file) return
+  importLoading.value = true
+  try {
+    const payload = await dataagentApi.importSkill(file)
+    await loadDocuments()
+    ElMessage.success(`Skill「${payload.skill_id}」已导入，默认未启用`)
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const confirmUninstallSkill = async (skill) => {
+  if (!skill?.folder || skill.source !== 'managed') return
+  try {
+    await ElMessageBox.prompt(
+      `请输入 ${skill.folder} 确认卸载。`,
+      '卸载 Skill',
+      {
+        type: 'warning',
+        confirmButtonText: '确认卸载',
+        cancelButtonText: '取消',
+        inputPlaceholder: skill.folder,
+        inputValidator: (value) => String(value || '').trim() === skill.folder || `请输入 ${skill.folder}`
+      }
+    )
+  } catch {
+    return
+  }
+
+  await dataagentApi.uninstallSkill(skill.folder)
+  await loadDocuments()
+  ElMessage.success(`Skill「${skill.folder}」已卸载`)
 }
 
 const triggerSync = async () => {
@@ -305,6 +367,7 @@ onMounted(async () => {
 .skill-card__footer {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: auto;
 }
 

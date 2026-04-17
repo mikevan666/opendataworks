@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from core.skill_admin_service import (
     compare_document_versions,
     current_settings_payload,
     detect_model_availability,
     get_document_detail,
+    import_skill_from_zip,
     list_documents,
     list_provider_configs,
     persist_admin_settings,
     rollback_document,
     save_document_content,
     sync_from_opendataworks,
+    uninstall_skill,
     update_skill_runtime,
 )
 from core.skills_loader import resolve_skills_root_dir
@@ -27,9 +29,11 @@ from models.schemas import (
     SkillDocumentDetail,
     SkillDocumentSummary,
     SkillDocumentUpdateRequest,
+    SkillImportResponse,
     SkillRuntimeConfig,
     SkillRuntimeUpdateRequest,
     SkillSyncResponse,
+    SkillUninstallResponse,
 )
 
 router = APIRouter()
@@ -123,6 +127,27 @@ async def update_skill_runtime_config(folder: str, request: SkillRuntimeUpdateRe
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return SkillRuntimeConfig.model_validate(result)
+
+
+@skills_router.post("/skills/imports", response_model=SkillImportResponse)
+async def import_skill(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        result = import_skill_from_zip(file.filename or "", content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SkillImportResponse.model_validate(result)
+
+
+@skills_router.delete("/skills/{folder}", response_model=SkillUninstallResponse)
+async def delete_skill(folder: str):
+    try:
+        result = uninstall_skill(folder)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return SkillUninstallResponse.model_validate(result)
 
 
 @skills_router.post("/skills/documents/{document_id}/compare", response_model=SkillDocumentCompareResponse)

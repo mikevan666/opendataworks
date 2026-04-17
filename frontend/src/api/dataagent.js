@@ -44,6 +44,18 @@ export const dataagentApi = {
     return dataagentRequest.put(`/v1/dataagent/skills/runtime/${encodeURIComponent(folder)}`, data)
   },
 
+  importSkill(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return dataagentRequest.post('/v1/dataagent/skills/imports', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  uninstallSkill(folder) {
+    return dataagentRequest.delete(`/v1/dataagent/skills/${encodeURIComponent(folder)}`)
+  },
+
   compareSkillDocument(documentId, data) {
     return dataagentRequest.post(`/v1/dataagent/skills/documents/${documentId}/compare`, data)
   },

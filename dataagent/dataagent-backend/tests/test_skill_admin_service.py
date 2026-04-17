@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import sys
 import types
+import zipfile
 from pathlib import Path
 
 import anyio
+import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -12,6 +16,97 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from core import skill_admin_service
 from core.skill_admin_service import _merge_provider_settings, _merge_settings_payload
+
+
+class FakeSkillStore:
+    def __init__(self):
+        self.documents: dict[str, dict] = {}
+        self.next_id = 1
+
+    def list_documents(self):
+        return list(self.documents.values())
+
+    def get_document_by_path(self, relative_path):
+        return self.documents.get(str(relative_path or "").replace("\\", "/").strip("/"))
+
+    def save_document(
+        self,
+        *,
+        relative_path,
+        content,
+        change_source,
+        change_summary=None,
+        actor=None,
+        metadata=None,
+        parent_version_id=None,
+    ):
+        normalized_path = str(relative_path or "").replace("\\", "/").strip("/")
+        existing = self.documents.get(normalized_path)
+        document_id = existing["id"] if existing else self.next_id
+        if not existing:
+            self.next_id += 1
+        version_count = int(existing.get("version_count") or 0) + 1 if existing else 1
+        document = {
+            "id": document_id,
+            "relative_path": normalized_path,
+            "file_name": Path(normalized_path).name,
+            "category": "root" if "/" not in normalized_path else normalized_path.split("/")[1],
+            "content_type": "markdown",
+            "current_content": content,
+            "current_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "current_version_id": version_count,
+            "version_count": version_count,
+            "last_change_source": change_source,
+            "last_change_summary": change_summary or "",
+            "created_at": "2026-04-17T10:00:00",
+            "updated_at": "2026-04-17T10:00:00",
+        }
+        self.documents[normalized_path] = document
+        return dict(document)
+
+    def delete_document_by_path(self, relative_path):
+        self.documents.pop(str(relative_path or "").replace("\\", "/").strip("/"), None)
+
+    def rename_document_path(self, old_relative_path, new_relative_path):
+        old_path = str(old_relative_path or "").replace("\\", "/").strip("/")
+        new_path = str(new_relative_path or "").replace("\\", "/").strip("/")
+        document = self.documents.pop(old_path, None)
+        if document:
+            document["relative_path"] = new_path
+            document["file_name"] = Path(new_path).name
+            self.documents[new_path] = document
+
+
+def make_zip(entries: dict[str, str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path, content in entries.items():
+            archive.writestr(path, content)
+    return buffer.getvalue()
+
+
+def configure_skill_filesystem(monkeypatch, tmp_path, store=None, *, settings=None):
+    discovery_root = tmp_path / ".claude" / "skills"
+    discovery_root.mkdir(parents=True)
+    fake_store = store or FakeSkillStore()
+    persisted = {}
+
+    monkeypatch.setattr(skill_admin_service, "ensure_static_skills_bundle", lambda: {})
+    monkeypatch.setattr(skill_admin_service, "resolve_skill_discovery_root_dir", lambda: discovery_root)
+    monkeypatch.setattr(skill_admin_service, "resolve_skills_root_dir", lambda: discovery_root / "dataagent-nl2sql")
+    monkeypatch.setattr(skill_admin_service, "get_skill_admin_store", lambda: fake_store)
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: settings
+        or {
+            "skills_output_dir": "../.claude/skills/dataagent-nl2sql",
+            "skill_runtime": {"dataagent-nl2sql": {"enabled": True}},
+        },
+    )
+    monkeypatch.setattr(skill_admin_service, "persist_admin_settings", lambda payload: persisted.update(payload) or payload)
+    monkeypatch.setattr(skill_admin_service, "refresh_skill_runtime", lambda: None)
+    return discovery_root, fake_store, persisted
 
 
 def test_merge_provider_settings_can_reenable_provider_with_models():
@@ -440,3 +535,134 @@ def test_update_skill_runtime_moves_primary_when_disabling_current(monkeypatch):
     assert captured["payload"]["skill_runtime"]["dataagent-nl2sql"]["enabled"] is False
     assert captured["payload"]["skill_runtime"]["marketing-insights"]["enabled"] is True
     assert result == {"skill_id": "dataagent-nl2sql", "enabled": False}
+
+
+def test_import_skill_from_root_zip_defaults_to_disabled(monkeypatch, tmp_path):
+    discovery_root, store, persisted = configure_skill_filesystem(monkeypatch, tmp_path)
+
+    payload = skill_admin_service.import_skill_from_zip(
+        "marketing-insights.zip",
+        make_zip(
+            {
+                "SKILL.md": "---\nname: marketing-insights\n---\n# Marketing\n",
+                "reference/guide.md": "# Guide\n",
+            }
+        ),
+    )
+
+    assert (discovery_root / "marketing-insights" / "SKILL.md").exists()
+    assert payload["skill_id"] == "marketing-insights"
+    assert payload["source"] == "managed"
+    assert payload["enabled"] is False
+    assert persisted["skill_runtime"]["marketing-insights"]["enabled"] is False
+    assert "marketing-insights/SKILL.md" in store.documents
+
+
+def test_import_skill_from_folder_zip(monkeypatch, tmp_path):
+    discovery_root, store, persisted = configure_skill_filesystem(monkeypatch, tmp_path)
+
+    payload = skill_admin_service.import_skill_from_zip(
+        "marketing-insights.zip",
+        make_zip(
+            {
+                "marketing-insights/SKILL.md": "# Marketing\n",
+                "marketing-insights/scripts/run.py": "print('ok')\n",
+            }
+        ),
+    )
+
+    assert (discovery_root / "marketing-insights" / "scripts" / "run.py").exists()
+    assert payload["imported_documents"]
+    assert persisted["skill_runtime"]["marketing-insights"]["enabled"] is False
+    assert "marketing-insights/scripts/run.py" in store.documents
+
+
+def test_import_skill_rejects_unsafe_zip_path(monkeypatch, tmp_path):
+    configure_skill_filesystem(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="unsafe parent path"):
+        skill_admin_service.import_skill_from_zip(
+            "bad.zip",
+            make_zip({"../evil/SKILL.md": "# Evil\n"}),
+        )
+
+
+def test_import_skill_rejects_duplicate_folder(monkeypatch, tmp_path):
+    discovery_root, _, _ = configure_skill_filesystem(monkeypatch, tmp_path)
+    (discovery_root / "marketing-insights").mkdir()
+
+    with pytest.raises(ValueError, match="already exists"):
+        skill_admin_service.import_skill_from_zip(
+            "marketing-insights.zip",
+            make_zip({"marketing-insights/SKILL.md": "# Marketing\n"}),
+        )
+
+
+def test_import_skill_rejects_missing_skill_md(monkeypatch, tmp_path):
+    configure_skill_filesystem(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="缺少 SKILL.md"):
+        skill_admin_service.import_skill_from_zip(
+            "bad.zip",
+            make_zip({"reference/guide.md": "# Guide\n"}),
+        )
+
+
+def test_uninstall_skill_removes_managed_folder_and_runtime(monkeypatch, tmp_path):
+    settings = {
+        "skills_output_dir": "../.claude/skills/marketing-insights",
+        "skill_runtime": {
+            "dataagent-nl2sql": {"enabled": True},
+            "marketing-insights": {"enabled": True},
+        },
+    }
+    discovery_root, store, persisted = configure_skill_filesystem(monkeypatch, tmp_path, settings=settings)
+    (discovery_root / "dataagent-nl2sql").mkdir()
+    (discovery_root / "dataagent-nl2sql" / "SKILL.md").write_text("# Builtin\n", encoding="utf-8")
+    (discovery_root / "marketing-insights").mkdir()
+    (discovery_root / "marketing-insights" / "SKILL.md").write_text("# Marketing\n", encoding="utf-8")
+    store.save_document(
+        relative_path="marketing-insights/SKILL.md",
+        content="# Marketing\n",
+        change_source="upload",
+    )
+    monkeypatch.setattr(skill_admin_service, "sync_documents_from_disk", lambda *args, **kwargs: [])
+    monkeypatch.setattr(skill_admin_service, "_settings_path_for_skill_folder", lambda folder: f"../.claude/skills/{folder}")
+
+    result = skill_admin_service.uninstall_skill("marketing-insights")
+
+    assert not (discovery_root / "marketing-insights").exists()
+    assert result["skill_id"] == "marketing-insights"
+    assert result["was_enabled"] is True
+    assert result["removed_documents"][0]["folder"] == "marketing-insights"
+    assert "marketing-insights/SKILL.md" not in store.documents
+    assert "marketing-insights" not in persisted["skill_runtime"]
+    assert persisted["skills_output_dir"] == "../.claude/skills/dataagent-nl2sql"
+
+
+def test_uninstall_skill_rejects_builtin(monkeypatch, tmp_path):
+    configure_skill_filesystem(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="内置 Skill 不支持卸载"):
+        skill_admin_service.uninstall_skill("dataagent-nl2sql")
+
+
+def test_uninstall_skill_rejects_last_enabled(monkeypatch, tmp_path):
+    settings = {
+        "skills_output_dir": "../.claude/skills/marketing-insights",
+        "skill_runtime": {
+            "marketing-insights": {"enabled": True},
+        },
+    }
+    discovery_root, store, _ = configure_skill_filesystem(monkeypatch, tmp_path, settings=settings)
+    (discovery_root / "marketing-insights").mkdir()
+    (discovery_root / "marketing-insights" / "SKILL.md").write_text("# Marketing\n", encoding="utf-8")
+    store.save_document(
+        relative_path="marketing-insights/SKILL.md",
+        content="# Marketing\n",
+        change_source="upload",
+    )
+    monkeypatch.setattr(skill_admin_service, "sync_documents_from_disk", lambda *args, **kwargs: [])
+
+    with pytest.raises(ValueError, match="至少需要保留一个启用 Skill"):
+        skill_admin_service.uninstall_skill("marketing-insights")

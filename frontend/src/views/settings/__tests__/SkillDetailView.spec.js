@@ -5,6 +5,7 @@ const apiMocks = vi.hoisted(() => ({
   listSkillDocuments: vi.fn(),
   getSkillDocument: vi.fn(),
   updateSkillRuntime: vi.fn(),
+  uninstallSkill: vi.fn(),
   updateSkillDocument: vi.fn(),
   compareSkillDocument: vi.fn(),
   rollbackSkillDocument: vi.fn(),
@@ -87,7 +88,7 @@ const documentsPayload = () => ([
     file_name: 'run.py',
     category: 'scripts',
     content_type: 'python',
-    source: 'bundled',
+    source: 'managed',
     version_count: 1,
     updated_at: '2026-04-17T09:00:00',
     editable: true,
@@ -100,7 +101,7 @@ const documentsPayload = () => ([
     file_name: 'SKILL.md',
     category: 'root',
     content_type: 'markdown',
-    source: 'bundled',
+    source: 'managed',
     version_count: 3,
     updated_at: '2026-04-17T10:00:00',
     editable: true,
@@ -115,7 +116,7 @@ const detailPayload = {
   file_name: 'SKILL.md',
   category: 'root',
   content_type: 'markdown',
-  source: 'bundled',
+  source: 'managed',
   current_content: '# marketing-insights',
   version_count: 3,
   versions: [
@@ -142,6 +143,7 @@ describe('SkillDetailView', () => {
     apiMocks.listSkillDocuments.mockReset()
     apiMocks.getSkillDocument.mockReset()
     apiMocks.updateSkillRuntime.mockReset()
+    apiMocks.uninstallSkill.mockReset()
     apiMocks.updateSkillDocument.mockReset()
     apiMocks.compareSkillDocument.mockReset()
     apiMocks.rollbackSkillDocument.mockReset()
@@ -155,6 +157,12 @@ describe('SkillDetailView', () => {
     apiMocks.updateSkillRuntime.mockResolvedValue({
       skill_id: 'marketing-insights',
       enabled: true
+    })
+    apiMocks.uninstallSkill.mockResolvedValue({
+      skill_id: 'marketing-insights',
+      removed_documents: [],
+      was_enabled: false,
+      document_count: 1
     })
     apiMocks.updateSkillDocument.mockResolvedValue({
       ...detailPayload,
@@ -223,5 +231,30 @@ describe('SkillDetailView', () => {
 
     expect(apiMocks.updateSkillRuntime).toHaveBeenCalledWith('marketing-insights', { enabled: false })
     expect(messageMocks.success).toHaveBeenCalledWith('Skill「marketing-insights」已禁用')
+  })
+
+  it('uninstalls a managed skill from the detail page and returns to the list', async () => {
+    messageBoxMocks.prompt.mockResolvedValue({ value: 'marketing-insights' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.vm.confirmUninstallCurrentSkill()
+    await flushPromises()
+
+    expect(messageBoxMocks.prompt).toHaveBeenCalledWith(
+      '请输入 marketing-insights 确认卸载。',
+      '卸载 Skill',
+      expect.objectContaining({
+        confirmButtonText: '确认卸载',
+        cancelButtonText: '取消',
+        inputPlaceholder: 'marketing-insights'
+      })
+    )
+    expect(apiMocks.uninstallSkill).toHaveBeenCalledWith('marketing-insights')
+    expect(messageMocks.success).toHaveBeenCalledWith('Skill「marketing-insights」已卸载')
+    expect(routerPush).toHaveBeenCalledWith({
+      path: '/settings',
+      query: { tab: 'skills' }
+    })
   })
 })
