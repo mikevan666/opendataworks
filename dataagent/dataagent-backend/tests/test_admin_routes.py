@@ -64,8 +64,16 @@ def test_admin_settings_contract(monkeypatch):
                 supported_models=["anthropic/claude-sonnet-4.5"],
                 default_model="anthropic/claude-sonnet-4.5",
                 enabled=True,
+                provider_enabled=True,
                 supports_partial_messages=False,
                 validation_status="verified",
+                model_detections={
+                    "anthropic/claude-sonnet-4.5": {
+                        "status": "verified",
+                        "message": "模型检测通过",
+                        "checked_at": "2026-04-17T10:00:00",
+                    }
+                },
             )
         ],
     )
@@ -81,6 +89,7 @@ def test_admin_settings_contract(monkeypatch):
     assert response.status_code == 200
     assert response.json()["provider_id"] == "openrouter"
     assert response.json()["providers"][0]["supports_partial_messages"] is False
+    assert response.json()["providers"][0]["model_detections"]["anthropic/claude-sonnet-4.5"]["status"] == "verified"
 
     update = client.put(
         "/api/v1/nl2sql-admin/settings",
@@ -100,6 +109,38 @@ def test_admin_settings_contract(monkeypatch):
     assert update.json()["updated_at"] == "2026-03-06T12:00:00"
     assert captured["payload"]["providers"][0]["supports_partial_messages"] is False
     assert client.get("/api/v1/dataagent/settings").status_code == 404
+
+
+def test_model_detection_route_contract(monkeypatch):
+    captured = {}
+
+    async def _detect(payload):
+        captured["payload"] = payload
+        return {
+            "provider_id": payload["provider_id"],
+            "model": payload["model"],
+            "status": "verified",
+            "message": "模型检测通过",
+            "checked_at": "2026-04-17T10:00:00",
+        }
+
+    monkeypatch.setattr(admin_routes, "detect_model_availability", _detect)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/nl2sql-admin/model-detections",
+        json={
+            "provider_id": "openrouter",
+            "model": "anthropic/claude-sonnet-4.5",
+            "auth_token": "token",
+            "base_url": "https://openrouter.ai/api",
+            "supports_partial_messages": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "verified"
+    assert captured["payload"]["supports_partial_messages"] is False
 
 
 def test_skill_document_routes_contract(monkeypatch):

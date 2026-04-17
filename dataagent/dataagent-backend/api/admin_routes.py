@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from core.skill_admin_service import (
     compare_document_versions,
     current_settings_payload,
+    detect_model_availability,
     get_document_detail,
     list_documents,
     list_provider_configs,
@@ -17,6 +18,8 @@ from core.skills_loader import resolve_skills_root_dir
 from models.schemas import (
     AdminSettingsResponse,
     AdminSettingsUpdateRequest,
+    ModelDetectionRequest,
+    ModelDetectionResponse,
     ProviderConfig,
     SkillDocumentCompareRequest,
     SkillDocumentCompareResponse,
@@ -71,10 +74,19 @@ async def get_admin_settings():
 @settings_router.put("/settings", response_model=AdminSettingsResponse)
 async def update_admin_settings(request: AdminSettingsUpdateRequest):
     try:
-        saved = persist_admin_settings(request.model_dump(exclude_none=True))
+        saved = persist_admin_settings(request.model_dump(exclude_none=True, exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _build_admin_settings_response(updated_at=str(saved.get("updated_at") or ""))
+
+
+@settings_router.post("/model-detections", response_model=ModelDetectionResponse)
+async def create_model_detection(request: ModelDetectionRequest):
+    try:
+        result = await detect_model_availability(request.model_dump(exclude_none=True, exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ModelDetectionResponse.model_validate(result)
 
 
 @skills_router.get("/skills/documents", response_model=list[SkillDocumentSummary])

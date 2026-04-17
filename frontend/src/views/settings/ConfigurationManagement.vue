@@ -12,7 +12,7 @@
         <el-tab-pane label="MinIO 环境" name="minio">
           <MinioConfigManagement />
         </el-tab-pane>
-        <el-tab-pane label="智能问数" name="dataagent">
+        <el-tab-pane label="模型服务" name="dataagent">
           <DataAgentConfig />
         </el-tab-pane>
         <el-tab-pane label="Skill 管理" name="skills">

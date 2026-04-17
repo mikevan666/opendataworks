@@ -115,12 +115,14 @@ class MessageScheduleLogsQueryRequest(BaseModel):
 class ProviderSettingsUpdate(BaseModel):
     provider_id: str
     enabled: Optional[bool] = None
+    provider_enabled: Optional[bool] = None
     enabled_models: List[str] = Field(default_factory=list)
     custom_models: List[str] = Field(default_factory=list)
     api_key: Optional[str] = None
     auth_token: Optional[str] = None
     base_url: Optional[str] = None
     supports_partial_messages: Optional[bool] = None
+    model_detections: Optional[Dict[str, "ModelDetectionState"]] = None
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -153,6 +155,12 @@ class SqlExecutionResult(BaseModel):
     error: Optional[str] = None
 
 
+class ModelDetectionState(BaseModel):
+    status: str = "unverified"
+    message: str = ""
+    checked_at: str = ""
+
+
 class ProviderConfig(BaseModel):
     provider_id: str
     display_name: str
@@ -165,9 +173,28 @@ class ProviderConfig(BaseModel):
     custom_models: List[str] = Field(default_factory=list)
     default_model: str = ""
     enabled: bool = False
+    provider_enabled: bool = False
     supports_partial_messages: bool = True
     validation_status: str = "unverified"
     validation_message: str = ""
+    model_detections: Dict[str, ModelDetectionState] = Field(default_factory=dict)
+
+
+class ModelDetectionRequest(BaseModel):
+    provider_id: str
+    model: str
+    api_key: Optional[str] = None
+    auth_token: Optional[str] = None
+    base_url: Optional[str] = None
+    supports_partial_messages: Optional[bool] = None
+
+
+class ModelDetectionResponse(BaseModel):
+    provider_id: str
+    model: str
+    status: str
+    message: str
+    checked_at: str
 
 
 class SettingsResponse(BaseModel):
