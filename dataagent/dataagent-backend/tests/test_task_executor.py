@@ -115,6 +115,28 @@ def _build_input(*, history=None, resume_session_id=None):
     )
 
 
+def _patch_skill_runtime(monkeypatch, tmp_path: Path) -> dict[str, list[str]]:
+    enabled_folders = ["dataagent-nl2sql", "marketing-insights"]
+    captured: dict[str, list[str]] = {}
+
+    monkeypatch.setattr(
+        task_executor,
+        "resolve_enabled_skill_runtime",
+        lambda: {
+            "primary_root": str(tmp_path / "dataagent-nl2sql"),
+            "enabled_folders": enabled_folders,
+            "enabled_roots": {folder: str(tmp_path / folder) for folder in enabled_folders},
+        },
+    )
+
+    def fake_prepare_enabled_skills_project_cwd(folders):
+        captured["folders"] = list(folders)
+        return tmp_path
+
+    monkeypatch.setattr(task_executor, "prepare_enabled_skills_project_cwd", fake_prepare_enabled_skills_project_cwd)
+    return captured
+
+
 def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch, tmp_path: Path):
     _install_fake_sdk(
         monkeypatch,
@@ -166,7 +188,7 @@ def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch
             "supports_partial_messages": True,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    runtime = _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -180,6 +202,8 @@ def test_execute_task_stream_converts_claude_events_to_magic_records(monkeypatch
     assert result.usage == {"input_tokens": 10, "output_tokens": 5}
     assert result.session_id == "sdk-session-1"
     assert ClaudeAgentOptions.last_kwargs["include_partial_messages"] is True
+    assert ClaudeAgentOptions.last_kwargs["cwd"] == str(tmp_path)
+    assert runtime["folders"] == ["dataagent-nl2sql", "marketing-insights"]
     assert ClaudeAgentOptions.last_kwargs["env"]["DISABLE_PROMPT_CACHING"] == ""
 
     lifecycle = [record["event_type"] for record in emitted if record.get("record_type") == "event"]
@@ -262,7 +286,7 @@ def test_execute_task_stream_buffers_partial_text_until_turn_end(monkeypatch, tm
             "supports_partial_messages": True,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -306,7 +330,7 @@ def test_execute_task_stream_uses_message_level_magic_events_when_partial_disabl
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -360,7 +384,7 @@ def test_execute_task_stream_keeps_one_shot_answer_out_of_reasoning_when_thinkin
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -405,7 +429,7 @@ def test_execute_task_stream_keeps_tool_loop_in_compatibility_mode(monkeypatch, 
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -464,7 +488,7 @@ def test_execute_task_stream_treats_pre_tool_text_as_reasoning_in_compatibility_
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -526,7 +550,7 @@ def test_execute_task_stream_treats_text_before_later_tool_as_reasoning_in_compa
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -592,7 +616,7 @@ def test_execute_task_stream_surfaces_provider_error_instead_of_exit_code(monkey
             "supports_partial_messages": False,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     emitted: list[dict] = []
 
@@ -639,7 +663,7 @@ def test_execute_task_stream_resumes_sdk_session_without_replaying_history(monke
             "supports_partial_messages": True,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
 
     async def _run():
         return await task_executor.execute_task_stream(
@@ -694,11 +718,11 @@ def test_execute_task_stream_injects_portal_mcp_servers(monkeypatch, tmp_path: P
             "supports_partial_messages": True,
         },
     )
-    monkeypatch.setattr(task_executor, "resolve_agent_project_cwd", lambda: tmp_path)
+    _patch_skill_runtime(monkeypatch, tmp_path)
     monkeypatch.setattr(
         task_executor,
         "_build_runtime_env",
-        lambda cfg, env_payload, params: {
+        lambda cfg, env_payload, params, skill_runtime=None: {
             "DATAAGENT_SKILL_ROOT": "/tmp/skill-root",
             "DATAAGENT_PYTHON_BIN": sys.executable,
             "PATH": str(tmp_path),

@@ -13,6 +13,7 @@ import pymysql
 from config import get_settings
 
 logger = logging.getLogger(__name__)
+KNOWN_SKILL_CATEGORIES = {"reference", "scripts", "assets"}
 
 
 def _to_iso(value: Any) -> str:
@@ -47,6 +48,22 @@ def _normalize_provider_settings_blob(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _normalize_skill_runtime_blob(value: Any) -> dict[str, dict[str, bool]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, dict[str, bool]] = {}
+    for folder, entry in value.items():
+        folder_name = str(folder or "").strip()
+        if not folder_name:
+            continue
+        if isinstance(entry, dict):
+            enabled = bool(entry.get("enabled"))
+        else:
+            enabled = bool(entry)
+        normalized[folder_name] = {"enabled": enabled}
+    return normalized
+
+
 def _content_type_for_path(relative_path: str) -> str:
     suffix = Path(relative_path).suffix.lower()
     if suffix == ".json":
@@ -60,9 +77,16 @@ def _content_type_for_path(relative_path: str) -> str:
 
 def _category_for_path(relative_path: str) -> str:
     normalized = str(relative_path or "").replace("\\", "/").strip("/")
-    if not normalized or "/" not in normalized:
+    if not normalized:
         return "root"
-    return normalized.split("/", 1)[0]
+    parts = normalized.split("/")
+    if len(parts) == 1:
+        return "root"
+    if parts[0] in KNOWN_SKILL_CATEGORIES:
+        return parts[0]
+    if len(parts) >= 3 and parts[1] in KNOWN_SKILL_CATEGORIES:
+        return parts[1]
+    return "root"
 
 
 class SkillAdminStore:
@@ -245,6 +269,37 @@ class SkillAdminStore:
         finally:
             conn.close()
         return self._normalize_document_row(row, include_content=True) if row else None
+
+    def rename_document_path(self, old_relative_path: str, new_relative_path: str):
+        self._ensure_ready()
+        old_path = str(old_relative_path or "").replace("\\", "/").strip("/")
+        new_path = str(new_relative_path or "").replace("\\", "/").strip("/")
+        if not old_path or not new_path or old_path == new_path:
+            return
+        conn = self._connect(database=self._schema_name())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE da_skill_document
+                    SET relative_path = %s,
+                        file_name = %s,
+                        category = %s,
+                        content_type = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE relative_path = %s
+                    """,
+                    (
+                        new_path,
+                        Path(new_path).name,
+                        _category_for_path(new_path),
+                        _content_type_for_path(new_path),
+                        old_path,
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
     def list_versions(self, document_id: int) -> list[dict[str, Any]]:
         self._ensure_ready()
@@ -456,11 +511,14 @@ class SkillAdminStore:
             "provider_validated_at",
             "provider_settings",
             "providers",
+            "skill_runtime",
         }
         for key in extra_keys:
             if key in data:
                 if key in {"provider_settings", "providers"}:
                     normalized["provider_settings"] = _normalize_provider_settings_blob(data.get(key))
+                elif key == "skill_runtime":
+                    normalized["skill_runtime"] = _normalize_skill_runtime_blob(data.get(key))
                 else:
                     normalized[key] = str(data.get(key) or "")
         return normalized
@@ -500,10 +558,13 @@ class SkillAdminStore:
                         "provider_validated_at",
                         "provider_settings",
                         "providers",
+                        "skill_runtime",
                     }:
                         if key in payload:
                             if key in {"provider_settings", "providers"}:
                                 normalized["provider_settings"] = _normalize_provider_settings_blob(payload.get(key))
+                            elif key == "skill_runtime":
+                                normalized["skill_runtime"] = _normalize_skill_runtime_blob(payload.get(key))
                             else:
                                 normalized[key] = str(payload.get(key) or "")
             except Exception:

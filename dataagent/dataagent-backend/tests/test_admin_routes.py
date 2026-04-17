@@ -146,10 +146,12 @@ def test_model_detection_route_contract(monkeypatch):
 def test_skill_document_routes_contract(monkeypatch):
     summary = {
         "id": 1,
+        "folder": "dataagent-nl2sql",
         "relative_path": "reference/40-runtime-metadata.md",
         "file_name": "40-runtime-metadata.md",
         "category": "reference",
         "content_type": "markdown",
+        "source": "bundled",
         "current_hash": "hash",
         "current_version_id": 3,
         "version_count": 3,
@@ -157,6 +159,8 @@ def test_skill_document_routes_contract(monkeypatch):
         "last_change_summary": "manual sync",
         "created_at": "2026-03-06T10:00:00",
         "updated_at": "2026-03-06T12:00:00",
+        "editable": True,
+        "enabled": True,
     }
     detail = {
         **summary,
@@ -200,6 +204,14 @@ def test_skill_document_routes_contract(monkeypatch):
     monkeypatch.setattr(admin_routes, "rollback_document", lambda document_id, version_id: detail)
     monkeypatch.setattr(
         admin_routes,
+        "update_skill_runtime",
+        lambda folder, enabled: {
+            "skill_id": folder,
+            "enabled": enabled,
+        },
+    )
+    monkeypatch.setattr(
+        admin_routes,
         "sync_from_opendataworks",
         lambda: {
             "skills_root_dir": "/tmp/.claude/skills/dataagent-nl2sql",
@@ -222,7 +234,11 @@ def test_skill_document_routes_contract(monkeypatch):
 
     list_response = client.get("/api/v1/dataagent/skills/documents")
     assert list_response.status_code == 200
+    assert list_response.json()[0]["folder"] == "dataagent-nl2sql"
     assert list_response.json()[0]["relative_path"] == "reference/40-runtime-metadata.md"
+    assert list_response.json()[0]["source"] == "bundled"
+    assert list_response.json()[0]["enabled"] is True
+    assert list_response.json()[0]["editable"] is True
 
     detail_response = client.get("/api/v1/dataagent/skills/documents/1")
     assert detail_response.status_code == 200
@@ -245,6 +261,15 @@ def test_skill_document_routes_contract(monkeypatch):
     rollback_response = client.post("/api/v1/dataagent/skills/documents/1/versions/2/rollback")
     assert rollback_response.status_code == 200
     assert rollback_response.json()["id"] == 1
+
+    runtime_response = client.put("/api/v1/dataagent/skills/runtime/dataagent-nl2sql", json={"enabled": True})
+    assert runtime_response.status_code == 200
+    assert runtime_response.json()["skill_id"] == "dataagent-nl2sql"
+    assert runtime_response.json()["enabled"] is True
+
+    runtime_disable_response = client.put("/api/v1/dataagent/skills/runtime/dataagent-nl2sql", json={"enabled": False})
+    assert runtime_disable_response.status_code == 200
+    assert runtime_disable_response.json()["enabled"] is False
 
     sync_response = client.post("/api/v1/dataagent/skills/sync")
     assert sync_response.status_code == 200

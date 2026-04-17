@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from core import agent_runtime
+
+
+def test_build_runtime_env_does_not_expose_direct_db_connection_settings(monkeypatch):
+    monkeypatch.setattr(agent_runtime, "resolve_builtin_skill_root_dir", lambda: Path("/tmp/skill-root"))
+
+    cfg = SimpleNamespace(query_result_limit=120)
+    params = SimpleNamespace(
+        question="workflow_publish_record 的上游表有哪些",
+        sql_read_timeout_seconds=45,
+        sql_write_timeout_seconds=90,
+    )
+
+    runtime_env = agent_runtime._build_runtime_env(
+        cfg,
+        {"CUSTOM_FLAG": "1"},
+        params,
+        {
+            "primary_root": "/tmp/skill-root",
+            "enabled_folders": ["dataagent-nl2sql", "marketing-insights"],
+            "enabled_roots": {
+                "dataagent-nl2sql": "/tmp/skill-root",
+                "marketing-insights": "/tmp/marketing-insights",
+            },
+        },
+    )
+
+    assert runtime_env["CUSTOM_FLAG"] == "1"
+    assert runtime_env["DATAAGENT_QUERY_LIMIT"] == "120"
+    assert runtime_env["DATAAGENT_RESULT_PREVIEW_ROWS"] == "20"
+    assert runtime_env["DATAAGENT_SQL_READ_TIMEOUT_SECONDS"] == "45"
+    assert runtime_env["DATAAGENT_ORIGINAL_QUESTION"] == "workflow_publish_record 的上游表有哪些"
+    assert runtime_env["DATAAGENT_SKILL_ROOT"] == str(Path("/tmp/skill-root").resolve())
+    assert runtime_env["DATAAGENT_ENABLED_SKILLS"] == "dataagent-nl2sql,marketing-insights"
+    assert "marketing-insights" in runtime_env["DATAAGENT_ENABLED_SKILL_ROOTS"]
+    assert "ODW_MYSQL_HOST" not in runtime_env
+    assert "ODW_MYSQL_PORT" not in runtime_env
+    assert "ODW_MYSQL_USER" not in runtime_env
+    assert "ODW_MYSQL_PASSWORD" not in runtime_env
+    assert "ODW_MYSQL_DATABASE" not in runtime_env
+    assert "DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS" not in runtime_env
+
+
+def test_build_portal_mcp_servers_returns_http_config():
+    cfg = SimpleNamespace(
+        dataagent_portal_mcp_enabled=True,
+        dataagent_portal_mcp_base_url="http://portal-mcp:8801/mcp/",
+        dataagent_portal_mcp_token="portal-token",
+        dataagent_portal_mcp_token_header_name="X-Portal-MCP-Token",
+    )
+
+    actual = agent_runtime._build_portal_mcp_servers(cfg)
+
+    assert actual == {
+        "portal": {
+            "type": "http",
+            "url": "http://portal-mcp:8801/mcp",
+            "headers": {"X-Portal-MCP-Token": "portal-token"},
+        }
+    }
+
+
+def test_build_portal_mcp_servers_returns_empty_when_disabled_or_incomplete():
+    disabled = SimpleNamespace(
+        dataagent_portal_mcp_enabled=False,
+        dataagent_portal_mcp_base_url="http://portal-mcp:8801/mcp",
+        dataagent_portal_mcp_token="portal-token",
+    )
+    missing_token = SimpleNamespace(
+        dataagent_portal_mcp_enabled=True,
+        dataagent_portal_mcp_base_url="http://portal-mcp:8801/mcp",
+        dataagent_portal_mcp_token="",
+    )
+
+    assert agent_runtime._build_portal_mcp_servers(disabled) == {}
+    assert agent_runtime._build_portal_mcp_servers(missing_token) == {}
+
+
+def test_build_allowed_tools_includes_portal_mcp_tools_once():
+    allowed_tools = agent_runtime._build_allowed_tools(
+        {
+            "portal": {
+                "type": "http",
+                "url": "http://portal-mcp:8801/mcp",
+                "headers": {"X-Portal-MCP-Token": "portal-token"},
+            }
+        }
+    )
+
+    assert allowed_tools[:6] == ["Skill", "Bash", "Read", "LS", "Glob", "Grep"]
+    assert "mcp__portal__portal_search_tables" in allowed_tools
+    assert "mcp__portal__portal_query_readonly" in allowed_tools
+    assert len(allowed_tools) == len(set(allowed_tools))
+
+
+def test_build_system_prompt_prefers_lineage_and_ddl_tools():
+    prompt = agent_runtime._build_system_prompt(None, {"enabled_folders": ["dataagent-nl2sql", "marketing-insights"]})
+
+    assert "当前已启用：dataagent-nl2sql、marketing-insights" in prompt
+    assert "mcp__portal__portal_get_lineage" in prompt
+    assert "get_lineage.py" in prompt
+    assert "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK=1" in prompt
+    assert "mcp__portal__portal_get_table_ddl" in prompt
+    assert "get_table_ddl.py" in prompt

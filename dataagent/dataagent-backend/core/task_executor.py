@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 import anyio
 
 from config import get_settings
-from core.nl2sql_agent import (
+from core.agent_runtime import (
     _append_delta,
     _build_allowed_tools,
     _build_portal_mcp_servers,
@@ -31,7 +31,8 @@ from core.nl2sql_agent import (
     _result_subtype_to_reason,
     _safe_base_url,
     _safe_stringify,
-    resolve_agent_project_cwd,
+    prepare_enabled_skills_project_cwd,
+    resolve_enabled_skill_runtime,
     resolve_runtime_provider_selection,
 )
 
@@ -761,7 +762,8 @@ async def execute_task_stream(
     adapter = ClaudeToMagicAdapter(params, provider_id=provider_id, model=model)
 
     prompt = str(params.question or "").strip() if params.resume_session_id else _build_prompt(params.history, params.question)
-    system_prompt = _build_system_prompt(params.database_hint)
+    skill_runtime = resolve_enabled_skill_runtime()
+    system_prompt = _build_system_prompt(params.database_hint, skill_runtime)
 
     if params.debug:
         await _emit_records(
@@ -817,11 +819,11 @@ async def execute_task_stream(
         auth_token=str(runtime_target.get("auth_token") or ""),
         base_url=str(runtime_target.get("base_url") or ""),
     )
-    runtime_env = _build_runtime_env(cfg, env_payload, params)
+    runtime_env = _build_runtime_env(cfg, env_payload, params, skill_runtime)
     for key, value in runtime_env.items():
         os.environ[key] = value
 
-    project_cwd = resolve_agent_project_cwd()
+    project_cwd = prepare_enabled_skills_project_cwd(skill_runtime.get("enabled_folders") or [])
     permission_mode = _resolve_sdk_permission_mode()
     max_turns = _resolve_max_turns(cfg, params.execution_mode)
     setting_sources = ["project"]
