@@ -24,6 +24,10 @@ export const dataagentApi = {
     return dataagentRequest.put('/v1/nl2sql-admin/settings', data)
   },
 
+  detectModel(data) {
+    return dataagentRequest.post('/v1/nl2sql-admin/model-detections', data)
+  },
+
   listSkillDocuments() {
     return dataagentRequest.get('/v1/dataagent/skills/documents')
   },

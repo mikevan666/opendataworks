@@ -4,6 +4,8 @@ import sys
 import types
 from pathlib import Path
 
+import anyio
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -18,20 +20,30 @@ def test_merge_provider_settings_can_reenable_provider_with_models():
             "provider_id": "anyrouter",
             "auth_token": "existing-token",
             "base_url": "https://a-ocnfniawgw.cn-shanghai.fcapp.run",
+            "provider_enabled": True,
             "enabled_models": [],
             "custom_models": [],
+            "model_detections": {},
             "enabled": False,
             "validation_status": "unverified",
-            "validation_message": "请至少开启一个模型",
+            "validation_message": "请先检测并启用至少一个模型",
         }
     }
     patch = {
         "anyrouter": {
             "provider_id": "anyrouter",
+            "provider_enabled": True,
             "auth_token": "existing-token",
             "base_url": "https://a-ocnfniawgw.cn-shanghai.fcapp.run",
             "enabled_models": ["claude-opus-4-6"],
             "custom_models": [],
+            "model_detections": {
+                "claude-opus-4-6": {
+                    "status": "verified",
+                    "message": "模型检测通过",
+                    "checked_at": "2026-04-17T10:00:00",
+                }
+            },
         }
     }
 
@@ -54,7 +66,15 @@ def test_merge_provider_settings_preserves_partial_capability_flag():
                 "provider_id": "anthropic_compatible",
                 "auth_token": "relay-token",
                 "base_url": "https://relay.example.invalid",
+                "provider_enabled": True,
                 "enabled_models": ["claude-sonnet-4.5"],
+                "model_detections": {
+                    "claude-sonnet-4.5": {
+                        "status": "verified",
+                        "message": "模型检测通过",
+                        "checked_at": "2026-04-17T10:00:00",
+                    }
+                },
                 "supports_partial_messages": True,
             }
         },
@@ -70,6 +90,27 @@ def test_merge_provider_settings_preserves_partial_capability_flag():
     assert provider["supports_partial_messages"] is False
     assert provider["validation_status"] == "verified"
     assert provider["enabled"] is True
+
+
+def test_merge_provider_settings_requires_verified_model_detection():
+    merged = _merge_provider_settings(
+        {},
+        {
+            "openrouter": {
+                "provider_id": "openrouter",
+                "provider_enabled": True,
+                "auth_token": "token",
+                "base_url": "https://openrouter.ai/api",
+                "enabled_models": ["anthropic/claude-sonnet-4.5"],
+                "model_detections": {},
+            }
+        },
+    )
+
+    provider = merged["openrouter"]
+    assert provider["enabled_models"] == []
+    assert provider["validation_status"] == "unverified"
+    assert provider["enabled"] is False
 
 
 def test_merge_settings_payload_keeps_provider_and_model_empty_without_enabled_provider():
@@ -147,9 +188,17 @@ def test_resolve_runtime_provider_selection_returns_partial_capability(monkeypat
             "provider_settings": {
                 "anthropic_compatible": {
                     "provider_id": "anthropic_compatible",
+                    "provider_enabled": True,
                     "auth_token": "relay-token",
                     "base_url": "https://relay.example.invalid",
                     "enabled_models": ["claude-sonnet-4.5"],
+                    "model_detections": {
+                        "claude-sonnet-4.5": {
+                            "status": "verified",
+                            "message": "模型检测通过",
+                            "checked_at": "2026-04-17T10:00:00",
+                        }
+                    },
                     "supports_partial_messages": False,
                 }
             },
@@ -179,3 +228,86 @@ def test_resolve_runtime_provider_selection_requires_enabled_provider(monkeypatc
         assert str(exc) == "尚未配置可用大模型供应商"
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_detect_model_availability_returns_verified_detection(monkeypatch):
+    captured = {}
+
+    class FakeOptions:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    async def fake_query(prompt, options):
+        captured["prompt"] = prompt
+        captured["options"] = options.kwargs
+        yield types.SimpleNamespace(subtype="")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "claude_agent_sdk",
+        types.SimpleNamespace(ClaudeAgentOptions=FakeOptions, query=fake_query),
+    )
+    monkeypatch.setattr(skill_admin_service, "resolve_agent_project_cwd", lambda: Path("/tmp"))
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "provider_id": "openrouter",
+            "model": "",
+            "provider_settings": {
+                "openrouter": {
+                    "provider_id": "openrouter",
+                    "provider_enabled": True,
+                    "auth_token": "saved-token",
+                    "base_url": "https://openrouter.ai/api",
+                    "enabled_models": [],
+                    "custom_models": [],
+                    "model_detections": {},
+                }
+            },
+        },
+    )
+
+    result = anyio.run(
+        skill_admin_service.detect_model_availability,
+        {
+            "provider_id": "openrouter",
+            "model": "anthropic/claude-sonnet-4.5",
+        },
+    )
+
+    assert result["status"] == "verified"
+    assert captured["options"]["model"] == "anthropic/claude-sonnet-4.5"
+
+
+def test_detect_model_availability_returns_failed_without_token(monkeypatch):
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "provider_id": "openrouter",
+            "model": "",
+            "provider_settings": {
+                "openrouter": {
+                    "provider_id": "openrouter",
+                    "provider_enabled": True,
+                    "auth_token": "",
+                    "base_url": "https://openrouter.ai/api",
+                    "enabled_models": [],
+                    "custom_models": [],
+                    "model_detections": {},
+                }
+            },
+        },
+    )
+
+    result = anyio.run(
+        skill_admin_service.detect_model_availability,
+        {
+            "provider_id": "openrouter",
+            "model": "anthropic/claude-sonnet-4.5",
+        },
+    )
+
+    assert result["status"] == "failed"
+    assert "Token" in result["message"]

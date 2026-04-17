@@ -1,305 +1,243 @@
 <template>
   <div class="dataagent-config">
-    <el-row :gutter="16" class="summary-row">
-      <el-col :xs="24" :md="8">
-        <el-card shadow="never" class="summary-card">
-          <div class="summary-label">配置存储</div>
-          <div class="summary-value">DataAgent 数据库 / 运行时</div>
-          <div class="summary-hint">不再依赖 project `.claude/settings.json`</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="8">
-        <el-card shadow="never" class="summary-card">
-          <div class="summary-label">内置 Skill 目录</div>
-          <div class="summary-value path">{{ settingsMeta.skills_root_dir || '-' }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="8">
-        <el-card shadow="never" class="summary-card">
-          <div class="summary-label">DataAgent 库</div>
-          <div class="summary-value">{{ settingsMeta.session_mysql_database || 'dataagent' }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div v-loading="loading" class="provider-workbench">
+      <aside class="provider-nav">
+        <div
+          v-for="group in groupedProviders"
+          :key="group.group"
+          class="provider-group"
+        >
+          <div class="provider-group-title">{{ group.group }}</div>
+          <button
+            v-for="provider in group.items"
+            :key="provider.provider_id"
+            type="button"
+            class="provider-card"
+            :class="{ active: provider.provider_id === selectedProviderId }"
+            @click="selectProvider(provider.provider_id)"
+          >
+            <div class="provider-card-head">
+              <div class="provider-card-main">
+                <div class="provider-card-name-row">
+                  <div class="provider-card-name">{{ provider.display_name }}</div>
+                  <span
+                    v-if="provider.provider_id === selectedProviderId && isProviderDirty(provider.provider_id)"
+                    class="provider-dirty-mark"
+                  >
+                    未保存
+                  </span>
+                </div>
+                <div class="provider-card-id">{{ provider.provider_id }}</div>
+              </div>
+              <span class="provider-status" :class="statusClass(providerPreview(provider).status)">
+                {{ statusLabel(providerPreview(provider).status, providerPreview(provider).providerEnabled) }}
+              </span>
+            </div>
+            <div class="provider-card-meta">
+              <span>{{ providerPreview(provider).enabledModels.length }} 个已启用模型</span>
+              <span>{{ credentialSummary(provider) }}</span>
+            </div>
+          </button>
+        </div>
+      </aside>
 
-    <el-card shadow="never" class="config-card">
-      <template #header>
-        <div class="card-header">
-          <div>
-            <div class="card-title">模型接入与候选管理</div>
-            <div class="card-subtitle">按供应商分组管理 Token 与模型候选。Token 不回显，留空表示保持现有值。</div>
+      <section v-if="currentProvider && currentDraft" class="provider-detail">
+        <div class="provider-titlebar">
+          <div class="provider-title-main">
+            <div class="provider-kicker">{{ currentProvider.provider_group || '模型供应商' }}</div>
+            <h3>{{ currentProvider.display_name }}</h3>
+            <p>{{ currentProviderPreview.message }}</p>
           </div>
-          <div class="actions">
-            <el-button @click="loadSettings" :loading="loading">刷新</el-button>
-            <el-button type="primary" @click="saveSettings" :loading="saving">保存配置</el-button>
+          <div class="provider-title-actions">
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="isSavingCurrentProvider"
+              :disabled="!currentProviderDirty || isSavingCurrentProvider"
+              @click="saveCurrentProvider"
+            >
+              {{ saveButtonText }}
+            </el-button>
+            <div class="provider-switch">
+              <span>启用供应商</span>
+              <el-switch v-model="currentDraft.provider_enabled" />
+            </div>
           </div>
         </div>
-      </template>
 
-      <div v-loading="loading" class="provider-workbench">
-        <aside class="provider-nav">
-          <div
-            v-for="group in groupedProviders"
-            :key="group.group"
-            class="provider-group"
-          >
-            <div class="provider-group-title">{{ group.group }}</div>
-            <button
-              v-for="provider in group.items"
-              :key="provider.provider_id"
-              type="button"
-              class="provider-card"
-              :class="{ active: provider.provider_id === selectedProviderId }"
-              @click="selectedProviderId = provider.provider_id"
-            >
-              <div class="provider-card-head">
-                <div>
-                  <div class="provider-card-name">{{ provider.display_name }}</div>
-                  <div class="provider-card-id">{{ provider.provider_id }}</div>
-                </div>
-                <span class="provider-status" :class="statusClass(providerPreview(provider).status)">
-                  {{ statusLabel(providerPreview(provider).status) }}
-                </span>
-              </div>
-              <div class="provider-card-meta">
-                <span>{{ getDraft(provider.provider_id).enabled_models.length }} 个已开模型</span>
-                <span>{{ credentialSummary(provider) }}</span>
-              </div>
-            </button>
-          </div>
-        </aside>
-
-        <section v-if="currentProvider && currentDraft" class="provider-detail">
-          <div class="provider-hero">
-            <div>
-              <div class="provider-kicker">{{ currentProvider.provider_group }}</div>
-              <h3>{{ currentProvider.display_name }}</h3>
-              <p>{{ currentProviderPreview.message }}</p>
-              <div v-if="currentProviderCompatibilityHint" class="provider-compatibility-note">
-                {{ currentProviderCompatibilityHint }}
-              </div>
-            </div>
-            <div class="provider-hero-status">
-              <span class="provider-status" :class="statusClass(currentProviderPreview.status)">
-                {{ statusLabel(currentProviderPreview.status) }}
-              </span>
-              <strong>{{ currentProviderPreview.enabled ? '会出现在问数对话框' : '暂不会出现在问数对话框' }}</strong>
-            </div>
+        <div class="service-section">
+          <div class="section-heading">
+            <div class="section-title">连接配置</div>
           </div>
 
-          <div class="provider-settings-grid">
-            <div class="provider-panel">
-              <div class="panel-title">供应商配置</div>
-              <div class="panel-subtitle">预留凭证由用户填写，保存时仅在后端配置存储中更新。</div>
-
-              <el-form label-position="top" class="provider-form">
-                <el-form-item :label="credentialLabel(currentProvider.provider_id)">
+          <el-form label-position="top" class="provider-form">
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item>
+                  <template #label>
+                    <span class="field-label">
+                      {{ credentialLabel(currentProvider.provider_id) }}
+                      <el-tooltip content="供应商控制台生成的访问凭证。留空表示继续使用后端已保存的凭证。" placement="top">
+                        <el-icon><QuestionFilled /></el-icon>
+                      </el-tooltip>
+                    </span>
+                  </template>
                   <el-input
                     v-model="currentDraft.token"
                     type="password"
                     show-password
                     :placeholder="credentialPlaceholder(currentProvider.provider_id)"
+                    @input="clearCurrentDetections"
                   />
                 </el-form-item>
-                <el-form-item label="Base URL">
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item>
+                  <template #label>
+                    <span class="field-label">
+                      Base URL
+                      <el-tooltip content="供应商或兼容网关的 API 服务地址。官方供应商可使用默认地址。" placement="top">
+                        <el-icon><QuestionFilled /></el-icon>
+                      </el-tooltip>
+                    </span>
+                  </template>
                   <el-input
                     v-model="currentDraft.base_url"
                     :placeholder="baseUrlPlaceholder(currentProvider.provider_id)"
+                    @input="clearCurrentDetections"
                   />
                 </el-form-item>
-                <el-form-item label="流式能力">
-                  <div class="provider-capability-row">
-                    <el-switch
-                      v-model="currentDraft.supports_partial_messages"
-                      inline-prompt
-                      active-text="细粒度"
-                      inactive-text="兼容"
-                    />
-                    <div class="provider-capability-copy">
-                      <strong>{{ currentDraft.supports_partial_messages ? '开启 Claude partial stream' : '兼容模式' }}</strong>
-                      <span>
-                        {{ currentDraft.supports_partial_messages
-                          ? '展示实时思考增量和更细粒度的流式事件。'
-                          : '关闭实时思考增量，保留工具调用和最终回答。' }}
-                      </span>
-                    </div>
-                  </div>
-                </el-form-item>
-                <div class="provider-inline-hints">
-                  <span>{{ storedCredentialHint(currentProvider) }}</span>
-                  <span v-if="currentProvider.provider_id === 'anthropic_compatible'">兼容网关必须填写 Base URL</span>
-                </div>
-              </el-form>
-            </div>
+              </el-col>
+            </el-row>
 
-            <div class="provider-panel">
-              <div class="panel-title">支持模型列表</div>
-              <div class="panel-subtitle">参考 Cherry Studio 的供应商分组方式，模型启用由用户自己控制。</div>
-
-              <div class="custom-model-row">
-                <el-input
-                  v-model="customModelInput"
-                  placeholder="追加自定义模型，例如 qwen/qwen3-coder"
-                  @keyup.enter="addCustomModel"
+            <el-form-item>
+              <template #label>
+                <span class="field-label">
+                  流式能力
+                  <el-tooltip content="用于控制模型响应事件粒度。供应商兼容性不完整时可切换为兼容模式。" placement="top">
+                    <el-icon><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </span>
+              </template>
+              <div class="stream-mode-row">
+                <el-switch
+                  v-model="currentDraft.supports_partial_messages"
+                  inline-prompt
+                  active-text="细粒度"
+                  inactive-text="兼容"
                 />
-                <el-button @click="addCustomModel">追加</el-button>
+                <span>{{ currentDraft.supports_partial_messages ? '细粒度响应事件' : '兼容响应事件' }}</span>
               </div>
+            </el-form-item>
+          </el-form>
+        </div>
 
-              <div v-if="currentDraft.custom_models.length" class="custom-model-list">
-                <div
-                  v-for="model in currentDraft.custom_models"
-                  :key="model"
-                  class="custom-model-item"
-                >
-                  <span>{{ model }}</span>
-                  <button type="button" class="candidate-remove" @click="removeCustomModel(model)">
-                    删除
-                  </button>
-                </div>
-              </div>
-
-              <div class="model-chip-grid">
-                <button
-                  v-for="model in currentSupportedModels"
-                  :key="model"
-                  type="button"
-                  class="model-chip"
-                  :class="{ active: currentDraft.enabled_models.includes(model) }"
-                  @click="toggleModel(model)"
-                >
-                  <span>{{ model }}</span>
-                  <strong>{{ currentDraft.enabled_models.includes(model) ? '已开启' : '加入候选' }}</strong>
-                </button>
-              </div>
+        <div class="service-section">
+          <div class="section-heading model-heading">
+            <div class="section-title">模型列表</div>
+            <div class="custom-model-row">
+              <el-input
+                v-model="customModelInput"
+                placeholder="追加自定义模型"
+                @keyup.enter="addCustomModel"
+              />
+              <el-button :icon="Plus" @click="addCustomModel">追加</el-button>
             </div>
           </div>
 
-          <div class="provider-panel candidate-panel">
-            <div class="panel-title">已验证候选</div>
-            <div class="panel-subtitle">只有通过校验且已开启的模型，才会进入智能问数对话框。</div>
-
-            <div v-if="currentProviderPreview.enabledModels.length && currentProviderPreview.enabled" class="candidate-list">
-              <div
-                v-for="model in currentProviderPreview.enabledModels"
-                :key="model"
-                class="candidate-item"
-              >
+          <div v-if="currentSupportedModels.length" class="model-table">
+            <div class="model-row model-row-head">
+              <span>模型</span>
+              <span>检测状态</span>
+              <span>检测</span>
+              <span>启用</span>
+            </div>
+            <div
+              v-for="model in currentSupportedModels"
+              :key="model"
+              class="model-row"
+            >
+              <div class="model-name-cell">
                 <span>{{ model }}</span>
                 <button
                   v-if="currentDraft.custom_models.includes(model)"
                   type="button"
-                  class="candidate-remove"
+                  class="text-danger"
                   @click="removeCustomModel(model)"
                 >
-                  移除自定义
+                  删除
                 </button>
               </div>
-            </div>
-            <div v-else class="candidate-empty">
-              <div class="candidate-empty-title">当前供应商还没有可用候选</div>
-              <div class="candidate-empty-text">{{ currentProviderPreview.message }}</div>
+              <div>
+                <span class="model-detection" :class="detectionClass(model)">
+                  {{ detectionLabel(model) }}
+                </span>
+              </div>
+              <div>
+                <el-button
+                  size="small"
+                  :loading="isDetecting(model)"
+                  :disabled="!canDetectCurrentProvider"
+                  @click="detectModel(model)"
+                >
+                  检测
+                </el-button>
+              </div>
+              <div>
+                <el-switch
+                  :model-value="isModelEnabled(model)"
+                  :disabled="!canEnableModel(model)"
+                  @update:model-value="setModelEnabled(model, $event)"
+                />
+              </div>
             </div>
           </div>
-        </section>
-      </div>
-
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        class="config-form"
-      >
-        <div class="form-section">
-          <div class="section-title">问数默认入口</div>
-          <div class="section-subtitle">对话框只展示这里可见的供应商与模型。</div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="默认供应商">
-                <el-select v-model="form.provider_id" placeholder="请先开启可用供应商" :disabled="!validatedProviders.length">
-                  <el-option
-                    v-for="provider in validatedProviders"
-                    :key="provider.provider_id"
-                    :label="provider.display_name"
-                    :value="provider.provider_id"
-                  />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="默认模型">
-                <el-select v-model="form.model" placeholder="请先开启可用模型" :disabled="!validatedModels.length">
-                  <el-option
-                    v-for="model in validatedModels"
-                    :key="model"
-                    :label="model"
-                    :value="model"
-                  />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <div v-if="!validatedProviders.length" class="section-note">
-            还没有通过校验的候选模型。请先为供应商填写 Token，并在“支持模型列表”中开启模型。
-          </div>
+          <div v-else class="empty-block">当前供应商暂无模型，请追加自定义模型。</div>
         </div>
 
-        <div class="form-section">
-          <div class="section-title">数据源说明与内置 Skill</div>
-          <div class="section-subtitle">MySQL / Doris 连接信息不在此页维护；这里配置的是 DataAgent 当前使用的内置 skill 目录。</div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="内置 Skill 输出目录" prop="skills_output_dir">
-                <el-input v-model="form.skills_output_dir" placeholder="../.claude/skills/dataagent-nl2sql" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="DataAgent 库">
-                <el-input :model-value="settingsMeta.session_mysql_database" disabled />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <div class="datasource-notes">
-            <div class="datasource-note-title">执行与推理约束</div>
-            <div class="datasource-note-item">托管数据表与数据库归属优先从 `opendataworks.data_table` 判断。</div>
-            <div class="datasource-note-item">数据源主机、端口、类型、用户名从 `opendataworks.doris_cluster` 查询。</div>
-            <div class="datasource-note-item">若需要库级只读账号，再查询 `opendataworks.doris_database_users`。</div>
-            <div class="datasource-note-item">仓库根目录的本地扩展 skill 不在此页管理，也不会自动进入当前运行时。</div>
-          </div>
+        <div class="service-section default-section">
+          <div class="section-title">默认模型</div>
+          <el-select
+            v-model="currentDefaultModel"
+            placeholder="请先启用可用模型"
+            :disabled="!currentEnabledModels.length"
+          >
+            <el-option
+              v-for="model in currentEnabledModels"
+              :key="model"
+              :label="model"
+              :value="model"
+            />
+          </el-select>
         </div>
-      </el-form>
-    </el-card>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Check, Plus, QuestionFilled } from '@element-plus/icons-vue'
 import { dataagentApi } from '@/api/dataagent'
 
-const formRef = ref(null)
 const loading = ref(false)
-const saving = ref(false)
+const savingProviderId = ref('')
 const providers = ref([])
 const selectedProviderId = ref('')
 const customModelInput = ref('')
 
 const providerDrafts = reactive({})
-const settingsMeta = reactive({
-  skills_root_dir: '',
-  session_mysql_database: '',
-  updated_at: ''
-})
-
+const providerSnapshots = reactive({})
+const detectingModels = reactive({})
 const form = reactive({
   provider_id: '',
-  model: '',
-  skills_output_dir: ''
+  model: ''
 })
-
-const rules = {
-  skills_output_dir: [{ required: true, message: '请输入 Skills 输出目录', trigger: 'blur' }]
-}
+const savedSelection = reactive({
+  provider_id: '',
+  model: ''
+})
 
 const uniqueStrings = (values = []) => {
   const result = []
@@ -313,15 +251,64 @@ const uniqueStrings = (values = []) => {
   return result
 }
 
-const statusLabel = (status) => {
-  if (status === 'verified') return '已验证'
-  if (status === 'invalid') return '异常'
-  return '待校验'
+const normalizeDetections = (raw = {}) => {
+  const result = {}
+  if (!raw || typeof raw !== 'object') return result
+  Object.entries(raw)
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .forEach(([model, item]) => {
+      if (!model || !item || typeof item !== 'object') return
+      result[model] = {
+        status: item.status || 'unverified',
+        message: item.message || '',
+        checked_at: item.checked_at || ''
+      }
+    })
+  return result
+}
+
+const buildProviderDraft = (provider) => {
+  const customModels = uniqueStrings(provider.custom_models || [])
+  const modelDetections = normalizeDetections(provider.model_detections || {})
+  return {
+    provider_id: provider.provider_id,
+    provider_enabled: Boolean(provider.provider_enabled || provider.enabled),
+    token: '',
+    base_url: provider.base_url || '',
+    supports_partial_messages: provider.supports_partial_messages !== false,
+    enabled_models: uniqueStrings(provider.models || []).filter((model) => modelDetections[model]?.status === 'verified'),
+    custom_models: customModels,
+    base_supported_models: uniqueStrings(provider.supported_models || []).filter((model) => !customModels.includes(model)),
+    model_detections: modelDetections
+  }
+}
+
+const buildProviderSnapshot = (draft) => {
+  const modelDetections = normalizeDetections(draft?.model_detections)
+  const enabledModels = uniqueStrings(draft?.enabled_models).filter((model) => modelDetections[model]?.status === 'verified')
+  return {
+    provider_enabled: Boolean(draft?.provider_enabled),
+    token: String(draft?.token || '').trim(),
+    base_url: String(draft?.base_url || '').trim(),
+    supports_partial_messages: draft?.supports_partial_messages !== false,
+    enabled_models: enabledModels,
+    custom_models: uniqueStrings(draft?.custom_models),
+    model_detections: modelDetections
+  }
+}
+
+const snapshotEquals = (left, right) => JSON.stringify(left) === JSON.stringify(right)
+
+const statusLabel = (status, providerEnabled = true) => {
+  if (!providerEnabled) return '未启用'
+  if (status === 'verified') return '可用'
+  if (status === 'invalid' || status === 'failed') return '异常'
+  return '待配置'
 }
 
 const statusClass = (status) => {
   if (status === 'verified') return 'is-verified'
-  if (status === 'invalid') return 'is-invalid'
+  if (status === 'invalid' || status === 'failed') return 'is-invalid'
   return 'is-pending'
 }
 
@@ -339,15 +326,10 @@ const groupedProviders = computed(() => {
   const groups = new Map()
   providers.value.forEach((provider) => {
     const groupName = provider.provider_group || '其他'
-    if (!groups.has(groupName)) {
-      groups.set(groupName, [])
-    }
+    if (!groups.has(groupName)) groups.set(groupName, [])
     groups.get(groupName).push(provider)
   })
-  return Array.from(groups.entries()).map(([group, items]) => ({
-    group,
-    items
-  }))
+  return Array.from(groups.entries()).map(([group, items]) => ({ group, items }))
 })
 
 const currentProvider = computed(() => {
@@ -359,15 +341,57 @@ const currentDraft = computed(() => {
   return providerDrafts[currentProvider.value.provider_id] || null
 })
 
+const currentProviderId = computed(() => currentProvider.value?.provider_id || '')
+
+const currentDefaultModel = computed({
+  get() {
+    if (!currentProvider.value || form.provider_id !== currentProvider.value.provider_id) return ''
+    return currentEnabledModels.value.includes(form.model) ? form.model : ''
+  },
+  set(model) {
+    if (!currentProvider.value) return
+    form.provider_id = currentProvider.value.provider_id
+    form.model = model || ''
+  }
+})
+
+const currentProviderDirty = computed(() => {
+  return Boolean(currentProviderId.value) && isProviderDirty(currentProviderId.value)
+})
+
+const saveButtonText = computed(() => (currentProviderDirty.value ? '保存改动' : '保存配置'))
+const isSavingCurrentProvider = computed(() => savingProviderId.value === currentProviderId.value)
+
 const getDraft = (providerId) => {
   return providerDrafts[providerId] || {
+    provider_enabled: false,
     enabled_models: [],
     custom_models: [],
     base_supported_models: [],
     token: '',
     base_url: '',
-    supports_partial_messages: true
+    supports_partial_messages: true,
+    model_detections: {}
   }
+}
+
+const defaultModelForProvider = (selection, providerId) => {
+  return selection.provider_id === providerId ? String(selection.model || '') : ''
+}
+
+const hasProviderFieldChanges = (providerId) => {
+  const draft = providerDrafts[providerId]
+  const snapshot = providerSnapshots[providerId]
+  if (!draft || !snapshot) return false
+  return !snapshotEquals(buildProviderSnapshot(draft), snapshot)
+}
+
+const hasProviderSelectionChanges = (providerId) => {
+  return defaultModelForProvider(form, providerId) !== defaultModelForProvider(savedSelection, providerId)
+}
+
+function isProviderDirty(providerId) {
+  return hasProviderFieldChanges(providerId) || hasProviderSelectionChanges(providerId)
 }
 
 const supportedModelsFor = (providerId) => {
@@ -375,7 +399,8 @@ const supportedModelsFor = (providerId) => {
   return uniqueStrings([
     ...(draft.base_supported_models || []),
     ...(draft.custom_models || []),
-    ...(draft.enabled_models || [])
+    ...(draft.enabled_models || []),
+    ...Object.keys(draft.model_detections || {})
   ])
 }
 
@@ -384,6 +409,28 @@ const currentSupportedModels = computed(() => {
   return supportedModelsFor(currentProvider.value.provider_id)
 })
 
+const modelDetection = (model) => {
+  return currentDraft.value?.model_detections?.[model] || {
+    status: 'unverified',
+    message: '待检测',
+    checked_at: ''
+  }
+}
+
+const detectionLabel = (model) => {
+  const detection = modelDetection(model)
+  if (detection.status === 'verified') return '检测通过'
+  if (detection.status === 'failed') return detection.message || '检测失败'
+  return '未检测'
+}
+
+const detectionClass = (model) => {
+  const status = modelDetection(model).status
+  if (status === 'verified') return 'is-verified'
+  if (status === 'failed') return 'is-invalid'
+  return 'is-pending'
+}
+
 const providerHasCredential = (provider, draft) => {
   const typed = String(draft?.token || '').trim()
   if (typed) return true
@@ -391,22 +438,38 @@ const providerHasCredential = (provider, draft) => {
   return Boolean(provider.auth_token_set || provider.api_key_set)
 }
 
+const providerBaseUrlReady = (provider, draft) => {
+  return provider.provider_id !== 'anthropic_compatible' || Boolean(String(draft?.base_url || '').trim())
+}
+
 const providerPreview = (provider) => {
   const draft = providerDrafts[provider.provider_id]
   if (!draft) {
     return {
       status: provider.validation_status || 'unverified',
-      message: provider.validation_message || '待校验',
+      message: provider.validation_message || '待配置',
+      providerEnabled: Boolean(provider.provider_enabled || provider.enabled),
       enabled: Boolean(provider.enabled),
       enabledModels: uniqueStrings(provider.models || [])
     }
   }
 
-  const enabledModels = uniqueStrings(draft.enabled_models)
-  if (provider.provider_id === 'anthropic_compatible' && !String(draft.base_url || '').trim()) {
+  const providerEnabled = Boolean(draft.provider_enabled)
+  const enabledModels = uniqueStrings(draft.enabled_models).filter((model) => draft.model_detections?.[model]?.status === 'verified')
+  if (!providerEnabled) {
     return {
       status: 'unverified',
-      message: '请填写兼容网关地址',
+      message: '供应商未启用',
+      providerEnabled,
+      enabled: false,
+      enabledModels: []
+    }
+  }
+  if (!providerBaseUrlReady(provider, draft)) {
+    return {
+      status: 'unverified',
+      message: 'Base URL 缺失',
+      providerEnabled,
       enabled: false,
       enabledModels: []
     }
@@ -415,6 +478,7 @@ const providerPreview = (provider) => {
     return {
       status: 'unverified',
       message: provider.provider_id === 'anthropic' ? '请填写 API Key' : '请填写 Token',
+      providerEnabled,
       enabled: false,
       enabledModels: []
     }
@@ -422,16 +486,16 @@ const providerPreview = (provider) => {
   if (!enabledModels.length) {
     return {
       status: 'unverified',
-      message: '请至少开启一个模型',
+      message: '请先检测并启用至少一个模型',
+      providerEnabled,
       enabled: false,
       enabledModels: []
     }
   }
   return {
     status: 'verified',
-    message: draft.supports_partial_messages === false
-      ? '已完成本地配置校验，保存后会进入智能问数候选。当前以兼容模式运行，不展示实时思考增量。'
-      : '已完成本地配置校验，保存后会进入智能问数候选',
+    message: '模型服务已可用',
+    providerEnabled,
     enabled: true,
     enabledModels
   }
@@ -442,6 +506,7 @@ const currentProviderPreview = computed(() => {
     return {
       status: 'unverified',
       message: '请选择供应商',
+      providerEnabled: false,
       enabled: false,
       enabledModels: []
     }
@@ -449,11 +514,264 @@ const currentProviderPreview = computed(() => {
   return providerPreview(currentProvider.value)
 })
 
-const currentProviderCompatibilityHint = computed(() => {
-  if (!currentProvider.value || !currentDraft.value) return ''
-  if (currentDraft.value.supports_partial_messages !== false) return ''
-  return '兼容模式：关闭实时思考增量，保留工具调用与最终回答。适合不支持 Claude partial stream 的 relay。'
+const currentEnabledModels = computed(() => currentProviderPreview.value.enabledModels)
+
+const canDetectCurrentProvider = computed(() => {
+  if (!currentProvider.value || !currentDraft.value) return false
+  return providerHasCredential(currentProvider.value, currentDraft.value) && providerBaseUrlReady(currentProvider.value, currentDraft.value)
 })
+
+const credentialSummary = (provider) => {
+  const draft = providerDrafts[provider.provider_id]
+  if (String(draft?.token || '').trim()) return '本次有新凭证'
+  return providerHasCredential(provider, draft) ? '凭证已保存' : '未配置凭证'
+}
+
+const isModelEnabled = (model) => Boolean(currentDraft.value?.enabled_models?.includes(model))
+
+const canEnableModel = (model) => {
+  return Boolean(currentDraft.value?.provider_enabled) && modelDetection(model).status === 'verified'
+}
+
+const setModelEnabled = (model, enabled) => {
+  if (!currentDraft.value) return
+  const list = new Set(currentDraft.value.enabled_models)
+  if (enabled) {
+    if (!canEnableModel(model)) return
+    list.add(model)
+  } else {
+    list.delete(model)
+  }
+  currentDraft.value.enabled_models = Array.from(list)
+}
+
+const detectKey = (model) => `${currentProvider.value?.provider_id || ''}::${model}`
+const isDetecting = (model) => Boolean(detectingModels[detectKey(model)])
+
+const clearCurrentDetections = () => {
+  if (!currentDraft.value) return
+  currentDraft.value.model_detections = {}
+  currentDraft.value.enabled_models = []
+  if (form.provider_id === currentProvider.value?.provider_id) {
+    form.model = ''
+  }
+}
+
+const resetProviderState = (items) => {
+  Object.keys(providerDrafts).forEach((key) => {
+    delete providerDrafts[key]
+  })
+  Object.keys(providerSnapshots).forEach((key) => {
+    delete providerSnapshots[key]
+  })
+  items.forEach((provider) => {
+    const draft = buildProviderDraft(provider)
+    providerDrafts[provider.provider_id] = draft
+    providerSnapshots[provider.provider_id] = buildProviderSnapshot(draft)
+  })
+}
+
+const mergeProviderState = (items, refreshedProviderId = '') => {
+  const providerIds = new Set(items.map((item) => item.provider_id))
+  Object.keys(providerDrafts).forEach((providerId) => {
+    if (providerIds.has(providerId)) return
+    delete providerDrafts[providerId]
+    delete providerSnapshots[providerId]
+  })
+  items.forEach((provider) => {
+    if (!providerDrafts[provider.provider_id] || provider.provider_id === refreshedProviderId) {
+      const draft = buildProviderDraft(provider)
+      providerDrafts[provider.provider_id] = draft
+      providerSnapshots[provider.provider_id] = buildProviderSnapshot(draft)
+    }
+  })
+}
+
+const applySettings = (payload) => {
+  providers.value = Array.isArray(payload?.providers) ? payload.providers : []
+  resetProviderState(providers.value)
+
+  savedSelection.provider_id = payload?.provider_id || ''
+  savedSelection.model = payload?.model || ''
+  form.provider_id = savedSelection.provider_id
+  form.model = savedSelection.model
+
+  selectedProviderId.value = providers.value.find((item) => item.provider_id === savedSelection.provider_id)?.provider_id
+    || providers.value[0]?.provider_id
+    || ''
+  customModelInput.value = ''
+}
+
+const applySavedProvider = (payload, providerId) => {
+  providers.value = Array.isArray(payload?.providers) ? payload.providers : []
+  mergeProviderState(providers.value, providerId)
+
+  savedSelection.provider_id = payload?.provider_id || ''
+  savedSelection.model = payload?.model || ''
+  form.provider_id = savedSelection.provider_id
+  form.model = savedSelection.model
+
+  if (!providers.value.some((item) => item.provider_id === selectedProviderId.value)) {
+    selectedProviderId.value = providerId || savedSelection.provider_id || providers.value[0]?.provider_id || ''
+  }
+  customModelInput.value = ''
+}
+
+const restoreProviderDraft = (providerId) => {
+  const provider = providers.value.find((item) => item.provider_id === providerId)
+  if (!provider) return
+  const draft = buildProviderDraft(provider)
+  providerDrafts[providerId] = draft
+  providerSnapshots[providerId] = buildProviderSnapshot(draft)
+  form.provider_id = savedSelection.provider_id
+  form.model = savedSelection.model
+  customModelInput.value = ''
+}
+
+const loadSettings = async () => {
+  loading.value = true
+  try {
+    const payload = await dataagentApi.getSettings()
+    applySettings(payload)
+  } finally {
+    loading.value = false
+  }
+}
+
+const selectProvider = async (providerId) => {
+  if (!providerId || providerId === selectedProviderId.value || isSavingCurrentProvider.value) return
+  const currentId = currentProviderId.value
+  if (currentId && isProviderDirty(currentId)) {
+    try {
+      await ElMessageBox.confirm(
+        '当前供应商有未保存改动，放弃后将恢复为上次保存内容。',
+        '未保存改动',
+        {
+          confirmButtonText: '放弃改动',
+          cancelButtonText: '继续编辑',
+          type: 'warning',
+          distinguishCancelAndClose: true
+        }
+      )
+      restoreProviderDraft(currentId)
+    } catch {
+      return
+    }
+  }
+  selectedProviderId.value = providerId
+  customModelInput.value = ''
+}
+
+const addCustomModel = () => {
+  if (!currentDraft.value) return
+  const model = String(customModelInput.value || '').trim()
+  if (!model) return
+  currentDraft.value.custom_models = uniqueStrings([...(currentDraft.value.custom_models || []), model])
+  if (!currentDraft.value.model_detections[model]) {
+    currentDraft.value.model_detections[model] = {
+      status: 'unverified',
+      message: '待检测',
+      checked_at: ''
+    }
+  }
+  customModelInput.value = ''
+}
+
+const removeCustomModel = (model) => {
+  if (!currentDraft.value) return
+  currentDraft.value.custom_models = currentDraft.value.custom_models.filter((item) => item !== model)
+  currentDraft.value.enabled_models = currentDraft.value.enabled_models.filter((item) => item !== model)
+  delete currentDraft.value.model_detections[model]
+  if (form.model === model && form.provider_id === currentProvider.value?.provider_id) {
+    form.model = ''
+  }
+}
+
+const detectModel = async (model) => {
+  if (!currentProvider.value || !currentDraft.value) return
+  const key = detectKey(model)
+  detectingModels[key] = true
+  try {
+    const token = String(currentDraft.value.token || '').trim()
+    const payload = {
+      provider_id: currentProvider.value.provider_id,
+      model,
+      base_url: currentDraft.value.base_url,
+      supports_partial_messages: currentDraft.value.supports_partial_messages !== false
+    }
+    if (token) {
+      if (currentProvider.value.provider_id === 'anthropic') {
+        payload.api_key = token
+      } else {
+        payload.auth_token = token
+      }
+    }
+    const result = await dataagentApi.detectModel(payload)
+    currentDraft.value.model_detections[model] = {
+      status: result.status || 'failed',
+      message: result.message || '',
+      checked_at: result.checked_at || ''
+    }
+    if (result.status !== 'verified') {
+      currentDraft.value.enabled_models = currentDraft.value.enabled_models.filter((item) => item !== model)
+      ElMessage.error(result.message || '模型检测失败')
+      return
+    }
+    ElMessage.success('模型检测通过')
+  } finally {
+    detectingModels[key] = false
+  }
+}
+
+const buildProviderPayload = (providerId) => {
+  const provider = providers.value.find((item) => item.provider_id === providerId)
+  const draft = providerDrafts[providerId]
+  const enabledModels = uniqueStrings(draft.enabled_models).filter((model) => draft.model_detections?.[model]?.status === 'verified')
+  const payload = {
+    provider_id: providerId,
+    provider_enabled: Boolean(draft.provider_enabled),
+    base_url: draft.base_url,
+    supports_partial_messages: draft.supports_partial_messages !== false,
+    enabled_models: enabledModels,
+    custom_models: uniqueStrings(draft.custom_models),
+    model_detections: normalizeDetections(draft.model_detections)
+  }
+  const token = String(draft.token || '').trim()
+  if (token) {
+    if (provider?.provider_id === 'anthropic') {
+      payload.api_key = token
+    } else {
+      payload.auth_token = token
+    }
+  }
+  return payload
+}
+
+const shouldPersistSelectionWithProvider = (providerId) => {
+  return savedSelection.provider_id === providerId || form.provider_id === providerId
+}
+
+const saveCurrentProvider = async () => {
+  if (!currentProvider.value || !currentProviderDirty.value) return
+  const providerId = currentProvider.value.provider_id
+  savingProviderId.value = providerId
+  try {
+    const payload = {
+      providers: [buildProviderPayload(providerId)]
+    }
+    if (shouldPersistSelectionWithProvider(providerId)) {
+      payload.provider_id = form.provider_id || ''
+      payload.model = form.model || ''
+    }
+    const saved = await dataagentApi.updateSettings(payload)
+    applySavedProvider(saved, providerId)
+    ElMessage.success('模型服务配置已保存')
+  } catch (error) {
+    ElMessage.error(error?.message || '保存失败，请重试')
+  } finally {
+    savingProviderId.value = ''
+  }
+}
 
 const validatedProviders = computed(() => {
   return providers.value
@@ -469,132 +787,6 @@ const validatedModels = computed(() => {
   const provider = validatedProviders.value.find((item) => item.provider_id === form.provider_id)
   return provider ? provider.models : []
 })
-
-const storedCredentialHint = (provider) => {
-  if (provider.provider_id === 'anthropic') {
-    return provider.api_key_set ? '后端已保存 API Key，可留空不改' : '当前未保存 API Key'
-  }
-  return provider.auth_token_set || provider.api_key_set ? '后端已保存 Token，可留空不改' : '当前未保存 Token'
-}
-
-const credentialSummary = (provider) => {
-  const draft = providerDrafts[provider.provider_id]
-  if (String(draft?.token || '').trim()) return '本次有新凭证'
-  return providerHasCredential(provider, draft) ? '凭证已保存' : '未配置凭证'
-}
-
-const resetProviderDrafts = (items) => {
-  Object.keys(providerDrafts).forEach((key) => {
-    delete providerDrafts[key]
-  })
-  items.forEach((provider) => {
-    providerDrafts[provider.provider_id] = {
-      provider_id: provider.provider_id,
-      token: '',
-      base_url: provider.base_url || '',
-      supports_partial_messages: provider.supports_partial_messages !== false,
-      enabled_models: [...(provider.models || [])],
-      custom_models: [...(provider.custom_models || [])],
-      base_supported_models: (provider.supported_models || []).filter((model) => !(provider.custom_models || []).includes(model))
-    }
-  })
-}
-
-const applySettings = (payload) => {
-  providers.value = Array.isArray(payload?.providers) ? payload.providers : []
-  resetProviderDrafts(providers.value)
-
-  form.provider_id = payload?.provider_id || validatedProviders.value[0]?.provider_id || ''
-  form.model = payload?.model || ''
-  form.skills_output_dir = payload?.skills_output_dir || ''
-
-  settingsMeta.skills_root_dir = payload?.skills_root_dir || ''
-  settingsMeta.session_mysql_database = payload?.session_mysql_database || ''
-  settingsMeta.updated_at = payload?.updated_at || ''
-
-  selectedProviderId.value = providers.value.find((item) => item.provider_id === payload?.provider_id)?.provider_id
-    || providers.value[0]?.provider_id
-    || ''
-  customModelInput.value = ''
-}
-
-const loadSettings = async () => {
-  loading.value = true
-  try {
-    const payload = await dataagentApi.getSettings()
-    applySettings(payload)
-  } finally {
-    loading.value = false
-  }
-}
-
-const toggleModel = (model) => {
-  if (!currentDraft.value) return
-  const list = new Set(currentDraft.value.enabled_models)
-  if (list.has(model)) {
-    list.delete(model)
-  } else {
-    list.add(model)
-  }
-  currentDraft.value.enabled_models = Array.from(list)
-}
-
-const addCustomModel = () => {
-  if (!currentDraft.value) return
-  const model = String(customModelInput.value || '').trim()
-  if (!model) return
-  currentDraft.value.custom_models = uniqueStrings([...(currentDraft.value.custom_models || []), model])
-  currentDraft.value.enabled_models = uniqueStrings([...(currentDraft.value.enabled_models || []), model])
-  customModelInput.value = ''
-}
-
-const removeCustomModel = (model) => {
-  if (!currentDraft.value) return
-  currentDraft.value.custom_models = currentDraft.value.custom_models.filter((item) => item !== model)
-  currentDraft.value.enabled_models = currentDraft.value.enabled_models.filter((item) => item !== model)
-}
-
-const buildProviderPayload = (provider) => {
-  const draft = providerDrafts[provider.provider_id]
-  const payload = {
-    provider_id: provider.provider_id,
-    base_url: draft.base_url,
-    supports_partial_messages: draft.supports_partial_messages !== false,
-    enabled_models: uniqueStrings(draft.enabled_models),
-    custom_models: uniqueStrings(draft.custom_models)
-  }
-  const token = String(draft.token || '').trim()
-  if (token) {
-    if (provider.provider_id === 'anthropic') {
-      payload.api_key = token
-    } else {
-      payload.auth_token = token
-    }
-  }
-  return payload
-}
-
-const saveSettings = async () => {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
-
-  saving.value = true
-  try {
-    const payload = await dataagentApi.updateSettings({
-      provider_id: form.provider_id || '',
-      model: form.model || '',
-      skills_output_dir: form.skills_output_dir,
-      providers: providers.value.map(buildProviderPayload)
-    })
-    applySettings(payload)
-    ElMessage.success('DataAgent 配置已保存')
-  } finally {
-    saving.value = false
-  }
-}
 
 watch(validatedProviders, (list) => {
   if (!list.length) {
@@ -624,96 +816,20 @@ onMounted(() => {
 
 <style scoped>
 .dataagent-config {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.summary-row {
-  margin: 0 !important;
-}
-
-.summary-card {
-  height: 100%;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top right, rgba(249, 115, 22, 0.14), transparent 36%),
-    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-}
-
-.summary-label {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #94a3b8;
-}
-
-.summary-value {
-  margin-top: 10px;
-  font-size: 16px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.summary-value.path {
-  font-size: 13px;
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.summary-hint {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.config-card {
-  border-radius: 22px;
-  border: 1px solid #e2e8f0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%),
-    radial-gradient(circle at top, rgba(245, 158, 11, 0.12), transparent 36%);
-}
-
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.card-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.card-subtitle {
-  margin-top: 6px;
-  max-width: 680px;
-  font-size: 13px;
-  color: #64748b;
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
+  color: #1f2937;
 }
 
 .provider-workbench {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 304px minmax(0, 1fr);
   gap: 18px;
-  margin-bottom: 18px;
 }
 
 .provider-nav {
-  padding: 18px;
-  border-radius: 20px;
-  border: 1px solid #e2e8f0;
-  background:
-    linear-gradient(180deg, #fff7ed 0%, #ffffff 65%),
-    radial-gradient(circle at bottom, rgba(245, 158, 11, 0.18), transparent 38%);
+  padding: 16px;
+  border: 1px solid #d8e3ef;
+  border-radius: 8px;
+  background: #f7faff;
 }
 
 .provider-group + .provider-group {
@@ -724,28 +840,31 @@ onMounted(() => {
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #9a3412;
+  letter-spacing: 0.04em;
+  color: #4f6680;
 }
 
 .provider-card {
   width: 100%;
   margin-bottom: 10px;
-  padding: 14px;
-  border: 1px solid #fed7aa;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.8);
+  padding: 13px 14px;
+  border: 1px solid #d8e3ef;
+  border-radius: 8px;
+  background: #ffffff;
   text-align: left;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
   cursor: pointer;
 }
 
-.provider-card:hover,
+.provider-card:hover {
+  border-color: #9bb9d8;
+  background: #fbfdff;
+}
+
 .provider-card.active {
-  transform: translateY(-1px);
-  border-color: #fb923c;
-  box-shadow: 0 16px 32px rgba(249, 115, 22, 0.12);
+  border-color: #1f5f99;
+  background: #f2f7fc;
+  box-shadow: inset 3px 0 0 #1f5f99, 0 1px 4px rgba(31, 95, 153, 0.12);
 }
 
 .provider-card-head {
@@ -754,355 +873,320 @@ onMounted(() => {
   gap: 12px;
 }
 
+.provider-card-main {
+  min-width: 0;
+}
+
+.provider-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .provider-card-name {
+  min-width: 0;
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: #1d2f43;
+}
+
+.provider-dirty-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #fff3d8;
+  color: #8a5a12;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .provider-card-id {
   margin-top: 3px;
   font-size: 12px;
-  color: #9ca3af;
+  color: #71839a;
+  word-break: break-word;
 }
 
 .provider-card-meta {
   display: flex;
   justify-content: space-between;
+  gap: 10px;
   margin-top: 12px;
   font-size: 12px;
-  color: #6b7280;
+  color: #66788a;
 }
 
-.provider-status {
+.provider-status,
+.model-detection {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.provider-status.is-verified {
-  color: #166534;
-  background: #dcfce7;
+.provider-status::before,
+.model-detection::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  content: '';
 }
 
-.provider-status.is-pending {
-  color: #92400e;
-  background: #fef3c7;
+.is-verified {
+  color: #146c43;
+  background: #eaf7ef;
+  border: 1px solid #b8e3c6;
 }
 
-.provider-status.is-invalid {
-  color: #991b1b;
-  background: #fee2e2;
+.is-verified::before {
+  background: #1f9d55;
+}
+
+.is-pending {
+  color: #8a5a12;
+  background: #fff8e6;
+  border: 1px solid #f0d894;
+}
+
+.is-pending::before {
+  background: #d99016;
+}
+
+.is-invalid {
+  color: #a12828;
+  background: #fff1f1;
+  border: 1px solid #efc2c2;
+}
+
+.is-invalid::before {
+  background: #d14343;
 }
 
 .provider-detail {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.provider-hero {
+.provider-titlebar {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  padding: 22px;
-  border-radius: 22px;
-  border: 1px solid #e2e8f0;
-  background:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.14), transparent 30%),
-    linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+  padding: 18px 20px;
+  border: 1px solid #cddceb;
+  border-left: 4px solid #1f5f99;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f4f8fc 0%, #ffffff 72%);
+}
+
+.provider-title-main {
+  min-width: 0;
 }
 
 .provider-kicker {
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #0369a1;
+  letter-spacing: 0.04em;
+  color: #2c659b;
 }
 
-.provider-hero h3 {
-  margin: 8px 0 6px;
-  font-size: 24px;
+.provider-titlebar h3 {
+  margin: 7px 0 6px;
+  font-size: 22px;
   font-weight: 700;
-  color: #0f172a;
+  color: #16324f;
 }
 
-.provider-hero p {
+.provider-titlebar p {
   margin: 0;
   font-size: 14px;
-  color: #475569;
+  color: #53677e;
 }
 
-.provider-compatibility-note {
+.provider-title-actions {
   display: inline-flex;
-  margin-top: 12px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(14, 165, 233, 0.12);
-  color: #0f4c81;
-  font-size: 12px;
-  font-weight: 600;
+  align-items: center;
+  gap: 12px;
+  flex: none;
 }
 
-.provider-hero-status {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+.provider-title-actions :deep(.el-button--primary) {
+  --el-button-bg-color: #1f5f99;
+  --el-button-border-color: #1f5f99;
+  --el-button-hover-bg-color: #2c74b8;
+  --el-button-hover-border-color: #2c74b8;
+  --el-button-active-bg-color: #184d7d;
+  --el-button-active-border-color: #184d7d;
+}
+
+.provider-switch {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
-  text-align: right;
+  color: #40566e;
   font-size: 13px;
-  color: #334155;
+  white-space: nowrap;
 }
 
-.provider-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.service-section {
+  padding: 18px;
+  border: 1px solid #d8e3ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
+  margin-bottom: 14px;
 }
 
-.provider-panel,
-.form-section {
-  padding: 20px;
-  border-radius: 20px;
-  border: 1px solid #e2e8f0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%);
-}
-
-.panel-title,
 .section-title {
   font-size: 15px;
   font-weight: 700;
-  color: #0f172a;
+  color: #16324f;
 }
 
-.panel-subtitle,
-.section-subtitle {
-  margin-top: 6px;
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-label .el-icon {
+  color: #71839a;
+}
+
+.provider-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.stream-mode-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #53677e;
   font-size: 13px;
-  color: #64748b;
 }
 
-.provider-form {
-  margin-top: 14px;
-}
-
-.provider-capability-row {
-  display: flex;
+.model-heading {
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
-}
-
-.provider-capability-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.provider-capability-copy strong {
-  font-size: 13px;
-  color: #0f172a;
-}
-
-.provider-capability-copy span {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.provider-inline-hints {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  color: #64748b;
 }
 
 .custom-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.model-chip-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.custom-model-list {
-  display: flex;
-  flex-wrap: wrap;
+  grid-template-columns: minmax(180px, 260px) auto;
   gap: 10px;
-  margin-top: 14px;
 }
 
-.custom-model-item {
-  display: inline-flex;
+.model-table {
+  border: 1px solid #d8e3ef;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px) 86px 72px;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid #e4eaf2;
+}
+
+.model-row:first-child {
+  border-top: none;
+}
+
+.model-row-head {
+  background: #f7faff;
+  color: #4f6680;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.model-name-cell {
+  min-width: 0;
+  display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  font-size: 12px;
-  color: #334155;
 }
 
-.model-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid #dbeafe;
-  border-radius: 18px;
-  background: #f8fbff;
-  text-align: left;
-  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
-  cursor: pointer;
-}
-
-.model-chip span {
-  font-size: 14px;
+.model-name-cell span {
+  min-width: 0;
   font-weight: 600;
-  color: #0f172a;
+  color: #1d2f43;
   word-break: break-word;
 }
 
-.model-chip strong {
-  font-size: 12px;
-  color: #1d4ed8;
-}
-
-.model-chip:hover,
-.model-chip.active {
-  transform: translateY(-1px);
-  border-color: #38bdf8;
-  box-shadow: 0 14px 28px rgba(14, 165, 233, 0.14);
-}
-
-.model-chip.active {
-  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
-}
-
-.candidate-panel {
-  border-style: dashed;
-}
-
-.candidate-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.candidate-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  font-size: 14px;
-  color: #0f172a;
-}
-
-.candidate-remove {
+.text-danger {
   border: none;
   background: none;
-  color: #dc2626;
+  color: #b42318;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.candidate-empty {
-  margin-top: 18px;
+.empty-block {
   padding: 20px;
-  border-radius: 16px;
-  background: #fff7ed;
-  color: #9a3412;
+  border: 1px dashed #b7cbe1;
+  border-radius: 8px;
+  background: #f7faff;
+  color: #53677e;
 }
 
-.candidate-empty-title {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.candidate-empty-text {
-  margin-top: 6px;
-  font-size: 13px;
-}
-
-.config-form {
-  display: flex;
-  flex-direction: column;
+.default-section {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 420px);
   gap: 16px;
-}
-
-.section-note {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #b45309;
-}
-
-.datasource-notes {
-  margin-top: 6px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
-}
-
-.datasource-note-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.datasource-note-item {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #475569;
+  align-items: center;
 }
 
 @media (max-width: 1100px) {
   .provider-workbench {
     grid-template-columns: 1fr;
   }
-
-  .provider-settings-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 768px) {
-  .card-header,
-  .provider-hero {
+  .provider-titlebar,
+  .section-heading,
+  .provider-title-actions {
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .provider-hero-status {
-    align-items: flex-start;
-    text-align: left;
-  }
-
-  .actions {
+  .provider-title-actions {
     width: 100%;
   }
 
-  .custom-model-row {
+  .provider-switch {
+    justify-content: space-between;
+  }
+
+  .custom-model-row,
+  .default-section {
     grid-template-columns: 1fr;
+  }
+
+  .model-row,
+  .model-row-head {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .model-row-head {
+    display: none;
   }
 }
 </style>

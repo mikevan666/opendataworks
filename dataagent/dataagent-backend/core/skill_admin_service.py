@@ -3,14 +3,18 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import anyio
+
 from config import get_settings, update_settings
+from core.provider_runtime import build_provider_env, normalize_provider_id as normalize_runtime_provider_id
 from core.semantic_layer import get_semantic_layer
 from core.skill_admin_store import get_skill_admin_store
-from core.skills_loader import resolve_skills_root_dir, validate_skills_bundle
+from core.skills_loader import resolve_agent_project_cwd, resolve_skills_root_dir, validate_skills_bundle
 from core.skills_sync import ensure_static_skills_bundle
 
 logger = logging.getLogger(__name__)
@@ -19,6 +23,7 @@ SUPPORTED_PROVIDERS = ("anthropic", "openrouter", "anyrouter", "anthropic_compat
 SUPPORTED_PROVIDER_SET = set(SUPPORTED_PROVIDERS)
 MANAGED_FILE_SUFFIXES = {".json", ".md", ".markdown", ".py"}
 DEFAULT_PROVIDER_ID = "openrouter"
+MODEL_DETECTION_TIMEOUT_SECONDS = 30
 
 PROVIDER_DEFINITIONS: dict[str, dict[str, Any]] = {
     "anthropic": {
@@ -144,6 +149,29 @@ def _string_list(values: Any) -> list[str]:
     return result
 
 
+def _normalize_model_detections(raw: Any) -> dict[str, dict[str, str]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, str]] = {}
+    for model, item in raw.items():
+        model_name = str(model or "").strip()
+        if not model_name or not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "unverified").strip()
+        if status not in {"verified", "failed", "unverified"}:
+            status = "unverified"
+        normalized[model_name] = {
+            "status": status,
+            "message": str(item.get("message") or "").strip(),
+            "checked_at": str(item.get("checked_at") or "").strip(),
+        }
+    return normalized
+
+
+def _model_detection_verified(model_detections: dict[str, dict[str, str]], model: str) -> bool:
+    return str((model_detections.get(model) or {}).get("status") or "") == "verified"
+
+
 def _provider_definition(provider_id: str) -> dict[str, Any]:
     return dict(PROVIDER_DEFINITIONS.get(provider_id) or PROVIDER_DEFINITIONS[DEFAULT_PROVIDER_ID])
 
@@ -152,14 +180,16 @@ def _default_provider_settings(provider_id: str) -> dict[str, Any]:
     definition = _provider_definition(provider_id)
     return {
         "provider_id": provider_id,
+        "provider_enabled": False,
         "api_key": "",
         "auth_token": "",
         "base_url": str(definition.get("default_base_url") or ""),
         "supports_partial_messages": provider_id != "anthropic_compatible",
         "enabled_models": [],
         "custom_models": [],
+        "model_detections": {},
         "validation_status": "unverified",
-        "validation_message": "未填写凭证",
+        "validation_message": "供应商未启用",
         "validated_at": "",
     }
 
@@ -225,11 +255,33 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
         base.update(dict(previous))
     base.update(dict(payload or {}))
 
-    enabled_models = _string_list(base.get("enabled_models") or base.get("models"))
+    provider_enabled_raw = None
+    for source in (payload, previous):
+        if not isinstance(source, dict):
+            continue
+        if "provider_enabled" in source:
+            provider_enabled_raw = source.get("provider_enabled")
+            break
+        if "enabled" in source:
+            provider_enabled_raw = source.get("enabled")
+            break
+    if provider_enabled_raw is None:
+        provider_enabled_raw = base.get("enabled", False)
+    provider_enabled = bool(provider_enabled_raw)
+    requested_enabled_models = _string_list(base.get("enabled_models") or base.get("models"))
     custom_models = _string_list(base.get("custom_models"))
+    model_detections = _normalize_model_detections(base.get("model_detections"))
     supported_models = _string_list(
-        list(definition.get("supported_models") or []) + custom_models + enabled_models
+        list(definition.get("supported_models") or [])
+        + custom_models
+        + requested_enabled_models
+        + list(model_detections.keys())
     )
+    enabled_models = [
+        model
+        for model in requested_enabled_models
+        if _model_detection_verified(model_detections, model)
+    ]
     base_url = str(base.get("base_url") or definition.get("default_base_url") or "").strip()
     api_key = str(base.get("api_key") or "").strip()
     auth_token = str(base.get("auth_token") or "").strip()
@@ -237,6 +289,7 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
 
     status, message = _compute_provider_validation(
         provider_id,
+        provider_enabled=provider_enabled,
         api_key=api_key,
         auth_token=auth_token,
         base_url=base_url,
@@ -251,6 +304,7 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
 
     return {
         "provider_id": provider_id,
+        "provider_enabled": provider_enabled,
         "api_key": api_key,
         "auth_token": auth_token,
         "base_url": base_url,
@@ -258,21 +312,25 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
         "enabled_models": enabled_models,
         "custom_models": custom_models,
         "supported_models": supported_models,
+        "model_detections": model_detections,
         "validation_status": status,
         "validation_message": message,
         "validated_at": validated_at,
-        "enabled": bool(enabled_models) and status == "verified",
+        "enabled": provider_enabled and bool(enabled_models) and status == "verified",
     }
 
 
 def _compute_provider_validation(
     provider_id: str,
     *,
+    provider_enabled: bool,
     api_key: str,
     auth_token: str,
     base_url: str,
     enabled_models: list[str],
 ) -> tuple[str, str]:
+    if not provider_enabled:
+        return ("unverified", "供应商未启用")
     token_ready = bool(api_key) if provider_id == "anthropic" else bool(auth_token or api_key)
     if provider_id == "anthropic_compatible" and not str(base_url or "").strip():
         return ("unverified", "请填写兼容网关地址")
@@ -281,8 +339,8 @@ def _compute_provider_validation(
             return ("unverified", "请填写 API Key")
         return ("unverified", "请填写 Token")
     if not enabled_models:
-        return ("unverified", "请至少开启一个模型")
-    return ("verified", "已完成本地配置校验")
+        return ("unverified", "请先检测并启用至少一个模型")
+    return ("verified", "模型服务已可用")
 
 
 def _merge_provider_settings(
@@ -300,6 +358,10 @@ def _merge_provider_settings(
         current_entry = dict(merged.get(provider_id) or _default_provider_settings(provider_id))
         update = dict(entry or {})
 
+        if "provider_enabled" in update:
+            current_entry["provider_enabled"] = bool(update.get("provider_enabled"))
+        elif "enabled" in update:
+            current_entry["provider_enabled"] = bool(update.get("enabled"))
         if "api_key" in update:
             api_key = str(update.get("api_key") or "").strip()
             if api_key:
@@ -316,6 +378,8 @@ def _merge_provider_settings(
             current_entry["enabled_models"] = _string_list(update.get("enabled_models"))
         if "custom_models" in update:
             current_entry["custom_models"] = _string_list(update.get("custom_models"))
+        if "model_detections" in update:
+            current_entry["model_detections"] = _normalize_model_detections(update.get("model_detections"))
         if update.get("enabled") is False:
             current_entry["enabled_models"] = []
 
@@ -433,6 +497,138 @@ def validate_settings_payload(payload: dict[str, Any]):
         raise ValueError("skills_output_dir must be under .claude/skills")
 
 
+def _short_error(exc: Exception) -> str:
+    text = str(exc or "").strip()
+    return text[:500] if text else type(exc).__name__
+
+
+def _model_detection_result(status: str, message: str, *, provider_id: str, model: str) -> dict[str, str]:
+    return {
+        "provider_id": provider_id,
+        "model": model,
+        "status": status,
+        "message": message,
+        "checked_at": _now_iso(),
+    }
+
+
+def _detection_preflight(
+    provider_id: str,
+    *,
+    api_key: str,
+    auth_token: str,
+    base_url: str,
+    model: str,
+) -> str:
+    if not model:
+        return "请选择模型"
+    if provider_id == "anthropic_compatible" and not str(base_url or "").strip():
+        return "Base URL 缺失"
+    token_ready = bool(api_key) if provider_id == "anthropic" else bool(auth_token or api_key)
+    if not token_ready:
+        return "API 密钥缺失" if provider_id == "anthropic" else "Token 缺失"
+    return ""
+
+
+async def _run_model_detection(
+    *,
+    provider_id: str,
+    model: str,
+    api_key: str,
+    auth_token: str,
+    base_url: str,
+    supports_partial_messages: bool,
+) -> tuple[str, str]:
+    try:
+        from claude_agent_sdk import ClaudeAgentOptions, query as claude_query
+    except ImportError as exc:
+        return "failed", f"claude-agent-sdk 未安装: {_short_error(exc)}"
+
+    normalized_provider = normalize_runtime_provider_id(provider_id, base_url)
+    provider_env = build_provider_env(
+        normalized_provider,
+        api_key=api_key,
+        auth_token=auth_token,
+        base_url=base_url,
+    )
+    runtime_env = dict(os.environ)
+    runtime_env.update(provider_env)
+    options = ClaudeAgentOptions(
+        system_prompt="你是模型服务连通性检测程序。只需用最短文本回答检测请求。",
+        model=model,
+        cwd=str(resolve_agent_project_cwd()),
+        setting_sources=["project"],
+        max_turns=1,
+        allowed_tools=[],
+        mcp_servers={},
+        include_partial_messages=supports_partial_messages,
+        env=runtime_env,
+        stderr=lambda line: logger.error(
+            "model_detection.stderr provider=%s model=%s %s",
+            provider_id,
+            model,
+            str(line or "").rstrip(),
+        ),
+    )
+
+    try:
+        with anyio.fail_after(MODEL_DETECTION_TIMEOUT_SECONDS):
+            async for msg in claude_query(prompt="请直接回复 model-service-ok。", options=options):
+                if type(msg).__name__ == "ResultMessage":
+                    subtype = str(getattr(msg, "subtype", "") or "")
+                    if subtype.startswith("error"):
+                        return "failed", "模型服务返回异常"
+        return "verified", "模型检测通过"
+    except TimeoutError:
+        return "failed", f"模型检测超时（{MODEL_DETECTION_TIMEOUT_SECONDS}s）"
+    except Exception as exc:
+        return "failed", f"模型检测失败: {_short_error(exc)}"
+
+
+async def detect_model_availability(payload: dict[str, Any]) -> dict[str, str]:
+    provider_id = _normalize_provider_id(payload.get("provider_id"), allow_empty=True)
+    if not provider_id:
+        raise ValueError("provider_id must be one of anthropic/openrouter/anyrouter/anthropic_compatible")
+
+    model = str(payload.get("model") or "").strip()
+    if not model:
+        raise ValueError("model is required")
+
+    current = current_settings_payload()
+    provider_settings = _coerce_provider_settings(current.get("provider_settings"))
+    current_entry = _normalize_provider_entry(provider_id, provider_settings.get(provider_id) or {})
+
+    api_key = str(payload.get("api_key") or current_entry.get("api_key") or "").strip()
+    auth_token = str(payload.get("auth_token") or current_entry.get("auth_token") or "").strip()
+    base_url = str(payload.get("base_url") or current_entry.get("base_url") or "").strip()
+    supports_partial_messages = (
+        bool(payload.get("supports_partial_messages"))
+        if payload.get("supports_partial_messages") is not None
+        else bool(current_entry.get("supports_partial_messages", provider_id != "anthropic_compatible"))
+    )
+
+    preflight_message = _detection_preflight(
+        provider_id,
+        api_key=api_key,
+        auth_token=auth_token,
+        base_url=base_url,
+        model=model,
+    )
+    if preflight_message:
+        result = _model_detection_result("failed", preflight_message, provider_id=provider_id, model=model)
+    else:
+        status, message = await _run_model_detection(
+            provider_id=provider_id,
+            model=model,
+            api_key=api_key,
+            auth_token=auth_token,
+            base_url=base_url,
+            supports_partial_messages=supports_partial_messages,
+        )
+        result = _model_detection_result(status, message, provider_id=provider_id, model=model)
+    return result
+
+
 def bootstrap_admin_settings() -> dict[str, Any]:
     store = get_skill_admin_store()
     store.init_schema()
@@ -484,11 +680,13 @@ def list_provider_configs(*, payload: dict[str, Any] | None = None, enabled_only
                 "models": list(item.get("enabled_models") or []),
                 "supported_models": list(item.get("supported_models") or []),
                 "custom_models": list(item.get("custom_models") or []),
+                "model_detections": dict(item.get("model_detections") or {}),
                 "default_model": (
                     (item.get("enabled_models") or [None])[0]
                     or str(definition.get("default_model") or "")
                 ),
                 "enabled": bool(item.get("enabled")),
+                "provider_enabled": bool(item.get("provider_enabled")),
                 "supports_partial_messages": bool(item.get("supports_partial_messages", provider_id != "anthropic_compatible")),
                 "validation_status": str(item.get("validation_status") or "unverified"),
                 "validation_message": str(item.get("validation_message") or ""),

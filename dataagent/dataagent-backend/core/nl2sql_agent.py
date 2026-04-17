@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 import anyio
 
 from config import get_settings
+from core.provider_runtime import build_provider_env as _build_provider_env
+from core.provider_runtime import normalize_provider_id as _normalize_provider_id
 from core.skill_admin_service import resolve_runtime_provider_selection
 from core.skills_loader import resolve_agent_project_cwd, resolve_builtin_skill_root_dir
 from core.stream_events import EventSequencer
@@ -849,55 +851,6 @@ def _append_delta(current: str, incoming: str) -> tuple[str, str]:
     if current.endswith(new):
         return current, ""
     return current + new, new
-
-
-def _normalize_provider_id(raw: str | None, base_url: str | None = None) -> str:
-    value = str(raw or "").strip().lower()
-    if value in {"anthropic", "openrouter", "anyrouter", "anthropic_compatible"}:
-        return value
-    base = str(base_url or "").lower()
-    if "openrouter.ai" in base:
-        return "openrouter"
-    if "anyrouter" in base or ".fcapp.run" in base:
-        return "anyrouter"
-    if base:
-        return "anthropic_compatible"
-    return "anthropic"
-
-
-def _build_provider_env(provider_id: str, *, api_key: str, auth_token: str, base_url: str) -> dict[str, str]:
-    if provider_id == "openrouter":
-        return {
-            "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
-            "ANTHROPIC_API_KEY": "",
-            "ANTHROPIC_BASE_URL": str(base_url or "https://openrouter.ai/api").strip(),
-            "DISABLE_PROMPT_CACHING": "",
-        }
-
-    if provider_id == "anyrouter":
-        return {
-            "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
-            "ANTHROPIC_API_KEY": "",
-            "ANTHROPIC_BASE_URL": str(base_url or "https://a-ocnfniawgw.cn-shanghai.fcapp.run").strip(),
-            "DISABLE_PROMPT_CACHING": "",
-        }
-
-    if provider_id == "anthropic_compatible":
-        return {
-            "ANTHROPIC_AUTH_TOKEN": str(auth_token or api_key).strip(),
-            "ANTHROPIC_API_KEY": "",
-            "ANTHROPIC_BASE_URL": str(base_url or "").strip(),
-            # Third-party Anthropic-compatible relays often reject Claude Code's
-            # automatic prompt caching beta headers.
-            "DISABLE_PROMPT_CACHING": "1",
-        }
-
-    return {
-        "ANTHROPIC_AUTH_TOKEN": "",
-        "ANTHROPIC_API_KEY": str(api_key or "").strip(),
-        "ANTHROPIC_BASE_URL": str(base_url or "").strip(),
-        "DISABLE_PROMPT_CACHING": "",
-    }
 
 
 def _build_runtime_env(cfg, provider_env: dict[str, str], params: AgentRunInput | None = None) -> dict[str, str]:
