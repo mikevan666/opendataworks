@@ -13,6 +13,7 @@ from core.skill_admin_service import (
     rollback_document,
     save_document_content,
     sync_from_opendataworks,
+    update_skill_runtime,
 )
 from core.skills_loader import resolve_skills_root_dir
 from models.schemas import (
@@ -26,6 +27,8 @@ from models.schemas import (
     SkillDocumentDetail,
     SkillDocumentSummary,
     SkillDocumentUpdateRequest,
+    SkillRuntimeConfig,
+    SkillRuntimeUpdateRequest,
     SkillSyncResponse,
 )
 
@@ -111,6 +114,15 @@ async def update_skill_document(document_id: int, request: SkillDocumentUpdateRe
         status_code = 404 if "not found" in message else 400
         raise HTTPException(status_code=status_code, detail=message) from exc
     return SkillDocumentDetail.model_validate(document)
+
+
+@skills_router.put("/skills/runtime/{folder}", response_model=SkillRuntimeConfig)
+async def update_skill_runtime_config(folder: str, request: SkillRuntimeUpdateRequest):
+    try:
+        result = update_skill_runtime(folder, request.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SkillRuntimeConfig.model_validate(result)
 
 
 @skills_router.post("/skills/documents/{document_id}/compare", response_model=SkillDocumentCompareResponse)

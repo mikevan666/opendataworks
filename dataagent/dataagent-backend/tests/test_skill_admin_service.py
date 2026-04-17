@@ -311,3 +311,132 @@ def test_detect_model_availability_returns_failed_without_token(monkeypatch):
 
     assert result["status"] == "failed"
     assert "Token" in result["message"]
+
+
+def test_list_documents_enriches_skill_fields(monkeypatch):
+    class FakeStore:
+        def list_documents(self):
+            return [
+                {
+                    "id": 1,
+                    "relative_path": "dataagent-nl2sql/reference/40-runtime-metadata.md",
+                    "file_name": "40-runtime-metadata.md",
+                    "category": "reference",
+                    "content_type": "markdown",
+                    "current_hash": "hash",
+                    "current_version_id": 2,
+                    "version_count": 2,
+                    "last_change_source": "sync",
+                    "last_change_summary": "manual sync",
+                    "created_at": "2026-03-06T10:00:00",
+                    "updated_at": "2026-03-06T12:00:00",
+                }
+            ]
+
+    monkeypatch.setattr(skill_admin_service, "sync_documents_from_disk", lambda *args, **kwargs: [])
+    monkeypatch.setattr(skill_admin_service, "get_skill_admin_store", lambda: FakeStore())
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "skills_output_dir": "../.claude/skills/dataagent-nl2sql",
+            "skill_runtime": {
+                "dataagent-nl2sql": {"enabled": True},
+                "marketing-insights": {"enabled": True},
+            },
+        },
+    )
+
+    documents = skill_admin_service.list_documents()
+
+    assert documents[0]["folder"] == "dataagent-nl2sql"
+    assert documents[0]["relative_path"] == "reference/40-runtime-metadata.md"
+    assert documents[0]["source"] == "bundled"
+    assert documents[0]["enabled"] is True
+    assert documents[0]["editable"] is True
+
+
+def test_update_skill_runtime_enables_second_skill_without_changing_primary(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(skill_admin_service, "_discovered_skill_folders", lambda: {"dataagent-nl2sql", "marketing-insights"})
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "skills_output_dir": "../.claude/skills/dataagent-nl2sql",
+            "skill_runtime": {
+                "dataagent-nl2sql": {"enabled": True},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        skill_admin_service,
+        "persist_admin_settings",
+        lambda payload: captured.setdefault("payload", payload) or payload,
+    )
+    monkeypatch.setattr(skill_admin_service, "refresh_skill_runtime", lambda: None)
+
+    result = skill_admin_service.update_skill_runtime("marketing-insights", True)
+
+    assert "skills_output_dir" not in captured["payload"]
+    assert captured["payload"]["skill_runtime"]["dataagent-nl2sql"]["enabled"] is True
+    assert captured["payload"]["skill_runtime"]["marketing-insights"]["enabled"] is True
+    assert result["skill_id"] == "marketing-insights"
+    assert result["enabled"] is True
+
+
+def test_update_skill_runtime_rejects_disabling_last_skill(monkeypatch):
+    monkeypatch.setattr(skill_admin_service, "_discovered_skill_folders", lambda: {"dataagent-nl2sql"})
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "skills_output_dir": "../.claude/skills/dataagent-nl2sql",
+            "skill_runtime": {
+                "dataagent-nl2sql": {"enabled": True},
+            },
+        },
+    )
+
+    try:
+        skill_admin_service.update_skill_runtime("dataagent-nl2sql", False)
+    except ValueError as exc:
+        assert "至少需要保留一个启用 Skill" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_update_skill_runtime_moves_primary_when_disabling_current(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(skill_admin_service, "_discovered_skill_folders", lambda: {"dataagent-nl2sql", "marketing-insights"})
+    monkeypatch.setattr(
+        skill_admin_service,
+        "current_settings_payload",
+        lambda: {
+            "skills_output_dir": "../.claude/skills/dataagent-nl2sql",
+            "skill_runtime": {
+                "dataagent-nl2sql": {"enabled": True},
+                "marketing-insights": {"enabled": True},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        skill_admin_service,
+        "_settings_path_for_skill_folder",
+        lambda folder: f"../.claude/skills/{folder}",
+    )
+    monkeypatch.setattr(
+        skill_admin_service,
+        "persist_admin_settings",
+        lambda payload: captured.setdefault("payload", payload) or payload,
+    )
+    monkeypatch.setattr(skill_admin_service, "refresh_skill_runtime", lambda: None)
+
+    result = skill_admin_service.update_skill_runtime("dataagent-nl2sql", False)
+
+    assert captured["payload"]["skills_output_dir"] == "../.claude/skills/marketing-insights"
+    assert captured["payload"]["skill_runtime"]["dataagent-nl2sql"]["enabled"] is False
+    assert captured["payload"]["skill_runtime"]["marketing-insights"]["enabled"] is True
+    assert result == {"skill_id": "dataagent-nl2sql", "enabled": False}

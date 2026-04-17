@@ -88,6 +88,16 @@ const routes = [
         meta: { title: '管理员' }
       },
       {
+        path: '/settings/skills',
+        redirect: () => ({ path: '/settings', query: { tab: 'skills' } })
+      },
+      {
+        path: '/settings/skills/:folder',
+        name: 'SkillDetail',
+        component: () => import('@/views/settings/SkillDetailView.vue'),
+        meta: { title: 'Skill 详情' }
+      },
+      {
         path: '/playground',
         redirect: '/playground/tabs'
       },

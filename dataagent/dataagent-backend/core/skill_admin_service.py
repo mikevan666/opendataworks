@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import logging
 import os
 from datetime import datetime
@@ -14,7 +15,12 @@ from config import get_settings, update_settings
 from core.provider_runtime import build_provider_env, normalize_provider_id as normalize_runtime_provider_id
 from core.semantic_layer import get_semantic_layer
 from core.skill_admin_store import get_skill_admin_store
-from core.skills_loader import resolve_agent_project_cwd, resolve_skills_root_dir, validate_skills_bundle
+from core.skills_loader import (
+    resolve_agent_project_cwd,
+    resolve_skill_discovery_root_dir,
+    resolve_skills_root_dir,
+    validate_skills_bundle,
+)
 from core.skills_sync import ensure_static_skills_bundle
 
 logger = logging.getLogger(__name__)
@@ -89,6 +95,10 @@ RUNTIME_SETTING_KEYS = {
 }
 
 
+def _backend_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
 def current_settings_payload() -> dict[str, Any]:
     runtime = _runtime_settings_payload()
     store = get_skill_admin_store()
@@ -147,6 +157,35 @@ def _string_list(values: Any) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+def _normalize_skill_runtime(raw: Any, *, fallback_folder: str = "") -> dict[str, dict[str, bool]]:
+    normalized: dict[str, dict[str, bool]] = {}
+    if isinstance(raw, dict):
+        for folder, entry in raw.items():
+            folder_name = str(folder or "").strip()
+            if not folder_name:
+                continue
+            enabled = bool(entry.get("enabled")) if isinstance(entry, dict) else bool(entry)
+            normalized[folder_name] = {"enabled": enabled}
+    if not normalized and fallback_folder:
+        normalized[fallback_folder] = {"enabled": True}
+    return normalized
+
+
+def _enabled_skill_folders(skill_runtime: dict[str, dict[str, bool]]) -> list[str]:
+    return sorted(
+        folder
+        for folder, entry in (skill_runtime or {}).items()
+        if folder and bool((entry or {}).get("enabled"))
+    )
+
+
+def _folder_from_skills_output_dir(raw: str | None) -> str:
+    value = str(raw or "").replace("\\", "/").strip().rstrip("/")
+    if not value:
+        return ""
+    return value.rsplit("/", 1)[-1]
 
 
 def _normalize_model_detections(raw: Any) -> dict[str, dict[str, str]]:
@@ -396,7 +435,7 @@ def _merge_settings_payload(current: dict[str, Any] | None, patch: dict[str, Any
     update = dict(patch or {})
 
     for key, value in update.items():
-        if key in {"provider_settings", "providers"} or value is None:
+        if key in {"provider_settings", "providers", "skill_runtime"} or value is None:
             continue
         if key in {"anthropic_api_key", "anthropic_auth_token", "mysql_password", "doris_password"} and not str(value or "").strip():
             continue
@@ -408,6 +447,11 @@ def _merge_settings_payload(current: dict[str, Any] | None, patch: dict[str, Any
         current_provider_settings,
         patch_provider_settings,
         legacy_payload=base | update,
+    )
+    fallback_skill_folder = _folder_from_skills_output_dir(str(base.get("skills_output_dir") or ""))
+    skill_runtime = _normalize_skill_runtime(
+        update.get("skill_runtime") if "skill_runtime" in update else base.get("skill_runtime"),
+        fallback_folder=fallback_skill_folder,
     )
 
     provider_id = _normalize_provider_id(base.get("provider_id"), allow_empty=True)
@@ -449,6 +493,7 @@ def _merge_settings_payload(current: dict[str, Any] | None, patch: dict[str, Any
         "skills_output_dir": str(base.get("skills_output_dir") or ""),
         "session_mysql_database": str(base.get("session_mysql_database") or ""),
         "provider_settings": provider_settings,
+        "skill_runtime": skill_runtime,
     }
     flattened["validated_provider_id"] = provider_id if runtime_provider.get("enabled") else ""
     flattened["validated_model"] = model if model in runtime_provider.get("enabled_models", []) and runtime_provider.get("enabled") else ""
@@ -761,7 +806,7 @@ def resolve_runtime_provider_selection(provider_id: str | None, model: str | Non
 
 def managed_skill_files() -> list[str]:
     ensure_static_skills_bundle()
-    root = resolve_skills_root_dir()
+    root = resolve_skill_discovery_root_dir()
     files: list[str] = []
     for path in root.rglob("*"):
         if not path.is_file():
@@ -773,9 +818,98 @@ def managed_skill_files() -> list[str]:
     return files
 
 
+def _skill_folder_name(relative_path: str) -> str:
+    normalized = str(relative_path or "").replace("\\", "/").strip("/")
+    if not normalized:
+        return ""
+    return normalized.split("/", 1)[0]
+
+
+def _relative_path_within_skill(relative_path: str) -> str:
+    normalized = str(relative_path or "").replace("\\", "/").strip("/")
+    if not normalized:
+        return ""
+    parts = normalized.split("/", 1)
+    if len(parts) == 1:
+        return parts[0]
+    return parts[1]
+
+
+def _skill_source(folder: str) -> str:
+    return "bundled" if folder else "bundled"
+
+
+def _current_skill_folder() -> str:
+    root = resolve_skills_root_dir()
+    return root.name if root else ""
+
+
+def _skill_runtime_from_current_settings() -> dict[str, dict[str, bool]]:
+    payload = current_settings_payload()
+    fallback_folder = _folder_from_skills_output_dir(str(payload.get("skills_output_dir") or "")) or _current_skill_folder()
+    return _normalize_skill_runtime(payload.get("skill_runtime"), fallback_folder=fallback_folder)
+
+
+def _is_skill_enabled(folder: str, skill_runtime: dict[str, dict[str, bool]] | None = None) -> bool:
+    folder_name = str(folder or "").strip()
+    if not folder_name:
+        return False
+    runtime = skill_runtime if skill_runtime is not None else _skill_runtime_from_current_settings()
+    return bool((runtime.get(folder_name) or {}).get("enabled"))
+
+
+def _document_api_payload(document: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(document or {})
+    full_relative_path = str(payload.get("relative_path") or "").replace("\\", "/").strip("/")
+    folder = _skill_folder_name(full_relative_path)
+    payload["folder"] = folder
+    payload["relative_path"] = _relative_path_within_skill(full_relative_path)
+    payload["source"] = _skill_source(folder)
+    payload["editable"] = True
+    payload["enabled"] = _is_skill_enabled(folder)
+    return payload
+
+
+def _settings_path_for_skill_folder(folder: str) -> str:
+    discovery_root = resolve_skill_discovery_root_dir()
+    target = (discovery_root / folder).resolve()
+    return os.path.relpath(target, _backend_root()).replace("\\", "/")
+
+
+def _discovered_skill_folders() -> set[str]:
+    root = resolve_skill_discovery_root_dir()
+    folders: set[str] = set()
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        if (entry / "SKILL.md").exists():
+            folders.add(entry.name)
+    return folders
+
+
+def _migrate_document_paths_to_discovery_root(store) -> None:
+    skill_folders = _discovered_skill_folders()
+    if not skill_folders:
+        return
+    current_folder = _current_skill_folder()
+    if not current_folder:
+        return
+    for document in store.list_documents():
+        relative_path = str(document.get("relative_path") or "").replace("\\", "/").strip("/")
+        if not relative_path:
+            continue
+        if _skill_folder_name(relative_path) in skill_folders:
+            continue
+        next_path = f"{current_folder}/{relative_path}"
+        if store.get_document_by_path(next_path):
+            continue
+        store.rename_document_path(relative_path, next_path)
+
+
 def sync_documents_from_disk(*, change_source: str = "import", change_summary: str = "发现磁盘文件") -> list[dict[str, Any]]:
     store = get_skill_admin_store()
-    root = resolve_skills_root_dir()
+    root = resolve_skill_discovery_root_dir()
+    _migrate_document_paths_to_discovery_root(store)
     managed_paths = managed_skill_files()
     managed_path_set = set(managed_paths)
     for document in store.list_documents():
@@ -799,13 +933,15 @@ def sync_documents_from_disk(*, change_source: str = "import", change_summary: s
             change_summary=change_summary,
             actor="system",
         )
-        changed.append(saved)
+        changed.append(_document_api_payload(saved))
     return changed
 
 
 def list_documents() -> list[dict[str, Any]]:
     sync_documents_from_disk()
-    return get_skill_admin_store().list_documents()
+    documents = [_document_api_payload(item) for item in get_skill_admin_store().list_documents()]
+    documents.sort(key=lambda item: (str(item.get("folder") or ""), str(item.get("category") or ""), str(item.get("relative_path") or "")))
+    return documents
 
 
 def get_document_detail(document_id: int) -> dict[str, Any] | None:
@@ -815,7 +951,7 @@ def get_document_detail(document_id: int) -> dict[str, Any] | None:
     if not document:
         return None
     document["versions"] = store.list_versions(document_id)
-    return document
+    return _document_api_payload(document)
 
 
 def validate_document_content(relative_path: str, content: str):
@@ -830,7 +966,7 @@ def validate_document_content(relative_path: str, content: str):
 
 
 def write_skill_file(relative_path: str, content: str):
-    root = resolve_skills_root_dir()
+    root = resolve_skill_discovery_root_dir()
     path = (root / relative_path).resolve()
     if root not in path.parents and path != root:
         raise ValueError("invalid skill file path")
@@ -861,9 +997,7 @@ def save_document_content(document_id: int, content: str, change_summary: str | 
         actor="ui",
     )
     refresh_skill_runtime()
-    detail = store.get_document(int(saved["id"])) or saved
-    detail["versions"] = store.list_versions(int(saved["id"]))
-    return detail
+    return get_document_detail(int(saved["id"])) or {}
 
 
 def rollback_document(document_id: int, version_id: int) -> dict[str, Any]:
@@ -884,9 +1018,60 @@ def rollback_document(document_id: int, version_id: int) -> dict[str, Any]:
         parent_version_id=version_id,
     )
     refresh_skill_runtime()
-    detail = store.get_document(int(saved["id"])) or saved
-    detail["versions"] = store.list_versions(int(saved["id"]))
-    return detail
+    return get_document_detail(int(saved["id"])) or {}
+
+
+def update_skill_runtime(folder: str, enabled: bool) -> dict[str, Any]:
+    target_folder = str(folder or "").strip()
+    if not target_folder:
+        raise ValueError("skill folder is required")
+    available_folders = _discovered_skill_folders()
+    if target_folder not in available_folders:
+        raise ValueError("skill folder not found")
+
+    current = current_settings_payload()
+    primary_folder = _folder_from_skills_output_dir(str(current.get("skills_output_dir") or "")) or _current_skill_folder()
+    skill_runtime = _normalize_skill_runtime(current.get("skill_runtime"), fallback_folder=primary_folder)
+    skill_runtime[target_folder] = {"enabled": bool(enabled)}
+    enabled_folders = [folder for folder in _enabled_skill_folders(skill_runtime) if folder in available_folders]
+    if not enabled_folders:
+        raise ValueError("当前运行时至少需要保留一个启用 Skill")
+
+    next_primary_folder = primary_folder if primary_folder in enabled_folders else enabled_folders[0]
+    payload: dict[str, Any] = {"skill_runtime": skill_runtime}
+    if next_primary_folder != primary_folder:
+        payload["skills_output_dir"] = _settings_path_for_skill_folder(next_primary_folder)
+
+    persist_admin_settings(payload)
+    refresh_skill_runtime()
+    return {
+        "skill_id": target_folder,
+        "enabled": bool(skill_runtime.get(target_folder, {}).get("enabled")),
+    }
+
+
+def resolve_enabled_skill_runtime() -> dict[str, Any]:
+    current = current_settings_payload()
+    available_folders = _discovered_skill_folders()
+    primary_folder = _folder_from_skills_output_dir(str(current.get("skills_output_dir") or "")) or _current_skill_folder()
+    skill_runtime = _normalize_skill_runtime(current.get("skill_runtime"), fallback_folder=primary_folder)
+    enabled_folders = [folder for folder in _enabled_skill_folders(skill_runtime) if folder in available_folders]
+    if not enabled_folders and primary_folder in available_folders:
+        enabled_folders = [primary_folder]
+    if primary_folder not in enabled_folders and enabled_folders:
+        primary_folder = enabled_folders[0]
+
+    discovery_root = resolve_skill_discovery_root_dir()
+    roots = {
+        folder: str((discovery_root / folder).resolve())
+        for folder in enabled_folders
+    }
+    return {
+        "primary_folder": primary_folder,
+        "primary_root": roots.get(primary_folder, str(resolve_skills_root_dir())),
+        "enabled_folders": enabled_folders,
+        "enabled_roots": roots,
+    }
 
 
 def _resolve_compare_side(document: dict[str, Any], *, version_id: int | None, side: str) -> tuple[str, str]:

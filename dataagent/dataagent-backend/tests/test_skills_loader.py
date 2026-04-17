@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from config import get_settings, update_settings
-from core.skills_loader import SkillsLoadError, get_skills_bundle
+from core.skills_loader import SkillsLoadError, get_skills_bundle, prepare_enabled_skills_project_cwd
 
 
 def _write_json(path: Path, payload):
@@ -84,3 +84,19 @@ def test_loader_succeeds_without_static_metadata_snapshots(tmp_path: Path):
     assert bundle.metadata_catalog == []
     assert bundle.lineage_catalog == []
     assert bundle.source_mapping == {}
+
+
+def test_prepare_enabled_skills_project_cwd_exposes_only_enabled_skills(tmp_path: Path):
+    project = tmp_path / "project"
+    skills_root = project / ".claude" / "skills"
+    _build_minimum_bundle(skills_root / "dataagent-nl2sql")
+    _build_minimum_bundle(skills_root / "marketing-insights")
+    _build_minimum_bundle(skills_root / "disabled-skill")
+    update_settings({"skills_output_dir": str(skills_root / "dataagent-nl2sql")})
+
+    runtime_cwd = prepare_enabled_skills_project_cwd(["dataagent-nl2sql", "marketing-insights"])
+    runtime_skills = runtime_cwd / ".claude" / "skills"
+
+    assert (runtime_skills / "dataagent-nl2sql" / "SKILL.md").exists()
+    assert (runtime_skills / "marketing-insights" / "SKILL.md").exists()
+    assert not (runtime_skills / "disabled-skill").exists()

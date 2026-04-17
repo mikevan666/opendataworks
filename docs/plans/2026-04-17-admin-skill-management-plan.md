@@ -1,0 +1,40 @@
+# Admin Skill Management Plan
+
+## Summary
+
+Upgrade Skill management from a single-active Skill model to multi-active Skill runtime management, and simplify the list/detail UI to a concise admin-console layout.
+
+## Key Changes
+
+- Persist `skill_runtime` in `da_agent_settings.raw_json` and derive document `enabled` from that map.
+- Keep `skills_output_dir` as the primary compatibility Skill; bootstrap existing deployments with only that Skill enabled.
+- Change `PUT /api/v1/dataagent/skills/runtime/{folder}` to toggle one Skill, reject disabling the last enabled Skill, and move the primary Skill when needed.
+- Generate `dataagent/dataagent-backend/.runtime/enabled-skills/.claude/skills` with symlinks to enabled Skills only, and use it as the Claude project cwd for task executor NL2SQL runs.
+- Add `DATAAGENT_ENABLED_SKILLS` and `DATAAGENT_ENABLED_SKILL_ROOTS`; keep `DATAAGENT_SKILL_ROOT` for existing scripts.
+- Extract shared provider/prompt/env helpers into `core/agent_runtime.py` and remove the unused direct `stream_agent_reply` executor so only the task executor owns agent execution.
+- Simplify frontend copy and layout: `已启用 / 未启用`, compact cards, custom detail title bar, merged left overview/file tree, `SKILL.md` first, lower-weight version history.
+
+## Test Plan
+
+- Backend:
+  - contract tests for enriched document fields and runtime toggle API
+  - service tests for multi-enable, disabling one Skill, rejecting last-disable, and primary Skill reassignment
+  - loader test proving runtime cwd exposes only enabled Skills
+  - agent runtime-env test for enabled Skill env variables
+  - task executor test covering the generated multi-Skill runtime cwd
+- Frontend:
+  - list tests for grouped Skill cards, enabled count, enable and disable calls
+  - detail tests for `SKILL.md` default selection, no `Back Back`, and enable/disable behavior
+- Verification:
+  - DataAgent targeted `pytest`
+  - `nvm use`
+  - Skill management `vitest`
+  - frontend production build
+  - Playwright screenshots for list and detail pages
+
+## Assumptions
+
+- No new database table in this iteration.
+- At least one Skill must remain enabled.
+- Multi-active means Claude Skill discovery sees all enabled Skills; the existing semantic layer still uses the primary `skills_output_dir`.
+- Skill marketplace/import/delete remain out of scope.

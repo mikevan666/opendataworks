@@ -40,6 +40,10 @@ export const dataagentApi = {
     return dataagentRequest.put(`/v1/dataagent/skills/documents/${documentId}`, data)
   },
 
+  updateSkillRuntime(folder, data) {
+    return dataagentRequest.put(`/v1/dataagent/skills/runtime/${encodeURIComponent(folder)}`, data)
+  },
+
   compareSkillDocument(documentId, data) {
     return dataagentRequest.post(`/v1/dataagent/skills/documents/${documentId}/compare`, data)
   },

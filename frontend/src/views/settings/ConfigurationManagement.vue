@@ -15,7 +15,7 @@
         <el-tab-pane label="模型服务" name="dataagent">
           <DataAgentConfig />
         </el-tab-pane>
-        <el-tab-pane label="Skill 管理" name="skills">
+        <el-tab-pane label="Skill 列表" name="skills">
           <SkillStudio />
         </el-tab-pane>
       </el-tabs>

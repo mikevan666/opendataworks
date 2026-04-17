@@ -272,10 +272,12 @@ class SkillDocumentVersionSummary(BaseModel):
 
 class SkillDocumentSummary(BaseModel):
     id: int
+    folder: str = ""
     relative_path: str
     file_name: str
     category: str
     content_type: str
+    source: str = "bundled"
     current_hash: str = ""
     current_version_id: Optional[int] = None
     version_count: int = 0
@@ -283,6 +285,8 @@ class SkillDocumentSummary(BaseModel):
     last_change_summary: str = ""
     created_at: str = ""
     updated_at: str = ""
+    editable: bool = True
+    enabled: bool = False
 
 
 class SkillDocumentDetail(SkillDocumentSummary):
@@ -293,6 +297,15 @@ class SkillDocumentDetail(SkillDocumentSummary):
 class SkillDocumentUpdateRequest(BaseModel):
     content: str
     change_summary: Optional[str] = None
+
+
+class SkillRuntimeUpdateRequest(BaseModel):
+    enabled: bool = True
+
+
+class SkillRuntimeConfig(BaseModel):
+    skill_id: str
+    enabled: bool = False
 
 
 class SkillDocumentCompareRequest(BaseModel):
