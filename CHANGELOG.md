@@ -9,6 +9,23 @@
 ### Changed
 - 待补充。
 
+## [1.1.0] - 2026-04-21
+
+### Added
+- 新增独立 `opendataagent` 平台，包含 Go 后端、Vue 控制台、Skill / MCP / 模型设置与本地 Skill 市场能力。
+- 新增 `opendataagent` 离线部署包与 Docker 镜像发布链路，GitHub Release 随版本同时发布 `opendataagent-server`、`opendataagent-web` 与离线包。
+- 新增共享平台 Skill 源码目录与 `odw-cli`，供 `opendataagent` 复用 OpenDataWorks 元数据、血缘与只读 SQL 能力。
+- 新增 DataAgent Skill 上传、卸载、多启用状态与运行时管理能力。
+
+### Changed
+- 重构智能问数 agent runtime 与 provider 配置保存流程，收敛运行时环境注入和模型服务配置体验。
+- 优化主前端 Skill 管理页面、详情页、文件树与配置管理交互。
+- 完善并行智能问数与 `opendataagent` 的部署边界说明，主部署继续保留现有 DataAgent 与 Portal MCP 链路。
+
+### Fixed
+- 修复 `opendataagent` Release 资产与镜像链接发布问题。
+- 修复 issue #155，并补齐工作流元数据持久化与发布同步相关测试覆盖。
+
 ## [1.0.0] - 2026-04-14
 
 ### Added
@@ -116,7 +133,8 @@
 
 以上早期版本请参考 GitHub Releases 与 Git tags 历史记录。
 
-[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.1.0
 [1.0.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.0.0
 [0.8.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.8.0
 [0.7.1]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.7.1

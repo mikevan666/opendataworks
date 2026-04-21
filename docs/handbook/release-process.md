@@ -32,6 +32,9 @@
 | `frontend/package.json` | 前端版本，如 `"version": "1.0.0"` |
 | `frontend/package-lock.json` | 锁文件顶层版本，如 `"version": "1.0.0"` |
 | `dataagent/dataagent-backend/main.py` | DataAgent 对外暴露版本，如 `version="1.0.0"` |
+| `opendataagent/VERSION` | 独立 `opendataagent` 发布版本，如 `1.0.0` |
+| `opendataagent/web/package.json` | `opendataagent` Web 版本，如 `"version": "1.0.0"` |
+| `opendataagent/web/package-lock.json` | `opendataagent` Web 锁文件顶层版本，如 `"version": "1.0.0"` |
 
 ### 2.2 Docker Compose 正式部署
 
@@ -39,6 +42,8 @@
 |------|------|
 | `deploy/docker-compose.prod.yml` | 更新 frontend、backend、dataagent-backend、portal-mcp 四个正式镜像默认 tag，例如 `${OPENDATAWORKS_BACKEND_IMAGE:-mikefan2019/opendataworks-backend:1.0.0}` |
 | `deploy/.env.example` | 更新离线部署时的镜像变量示例 |
+| `opendataagent/deploy/docker-compose.yml` | 更新 `opendataagent-server` 与 `opendataagent-web` 默认 tag |
+| `opendataagent/deploy/.env.example` | 更新独立 `opendataagent` 部署版本示例 |
 
 ### 2.3 构建相关（如有）
 
