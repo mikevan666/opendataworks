@@ -116,6 +116,9 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .el-header {
@@ -124,17 +127,22 @@ onMounted(() => {
   box-shadow: var(--odw-shadow-nav);
   position: relative;
   z-index: 100;
+  overflow: hidden;
 }
 
 .header-wrapper {
   display: flex;
   align-items: center;
   height: 100%;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .logo {
   height: var(--odw-nav-height);
   min-width: 200px;
+  flex: 0 0 200px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -170,9 +178,22 @@ onMounted(() => {
 }
 
 .menu {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   border: none;
   background: transparent;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.menu::-webkit-scrollbar {
+  display: none;
+}
+
+.menu :deep(.el-menu-item) {
+  flex: 0 0 auto;
 }
 
 .el-menu--horizontal {
@@ -204,7 +225,28 @@ onMounted(() => {
   padding: 4px;
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
+@media (max-width: 768px) {
+  .logo {
+    min-width: 164px;
+    flex-basis: 164px;
+    justify-content: flex-start;
+    padding-left: 12px;
+  }
+
+  .logo-icon {
+    width: 38px;
+    height: 38px;
+    margin-right: 8px;
+  }
+
+  .logo h2 {
+    font-size: 18px;
+    letter-spacing: 0;
+  }
+}
 </style>

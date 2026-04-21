@@ -11,6 +11,7 @@ dataagentRequest.interceptors.response.use(
   (error) => {
     const message = error?.response?.data?.detail || error?.response?.data?.message || error.message || '请求失败'
     ElMessage.error(message)
+    error.__odwNotified = true
     return Promise.reject(error)
   }
 )

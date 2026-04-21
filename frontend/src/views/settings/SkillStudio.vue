@@ -54,6 +54,8 @@
             <el-switch
               :model-value="skill.enabled"
               :loading="runtimeUpdatingFolder === skill.folder"
+              :disabled="isOnlyEnabledSkill(skill)"
+              :title="isOnlyEnabledSkill(skill) ? '至少保留一个启用 Skill' : ''"
               @update:model-value="setSkillEnabled(skill, $event)"
             />
           </div>
@@ -90,7 +92,7 @@
 
     <el-empty
       v-if="!listLoading && !filteredSkills.length"
-      description="当前目录还没有可管理的 Skill"
+      :description="emptyDescription"
       :image-size="120"
     />
   </div>
@@ -115,6 +117,7 @@ const syncResult = ref(null)
 const runtimeUpdatingFolder = ref('')
 
 const skillItems = computed(() => buildSkillItems(documents.value))
+const enabledSkillCount = computed(() => skillItems.value.filter((item) => item.enabled).length)
 
 const filteredSkills = computed(() => {
   const keyword = String(searchKeyword.value || '').trim().toLowerCase()
@@ -132,19 +135,35 @@ const filteredSkills = computed(() => {
 })
 
 const enabledSummary = computed(() => {
-  const enabledCount = skillItems.value.filter((item) => item.enabled).length
-  return `已启用 ${enabledCount} / 共 ${skillItems.value.length}`
+  return `已启用 ${enabledSkillCount.value} / 共 ${skillItems.value.length}`
 })
+
+const emptyDescription = computed(() => (
+  String(searchKeyword.value || '').trim()
+    ? '没有匹配的 Skill'
+    : '当前目录还没有可管理的 Skill'
+))
+
+const notifyError = (error, fallbackMessage) => {
+  if (!error?.__odwNotified) {
+    ElMessage.error(error?.message || fallbackMessage)
+  }
+}
 
 const formatTime = (value) => {
   if (!value) return '-'
   return dayjs(value).format('YYYY-MM-DD HH:mm:ss')
 }
 
+const isOnlyEnabledSkill = (skill) => Boolean(skill?.enabled) && enabledSkillCount.value <= 1
+
 const loadDocuments = async () => {
   listLoading.value = true
   try {
     documents.value = await dataagentApi.listSkillDocuments()
+  } catch (error) {
+    documents.value = []
+    notifyError(error, '加载 Skill 列表失败')
   } finally {
     listLoading.value = false
   }
@@ -160,11 +179,18 @@ const openSkillDetail = (folder) => {
 
 const setSkillEnabled = async (skill, enabled) => {
   if (!skill?.folder || Boolean(enabled) === Boolean(skill.enabled)) return
+  if (!enabled && isOnlyEnabledSkill(skill)) {
+    ElMessage.warning('至少需要保留一个启用 Skill')
+    return
+  }
   runtimeUpdatingFolder.value = skill.folder
   try {
     await dataagentApi.updateSkillRuntime(skill.folder, { enabled: Boolean(enabled) })
     await loadDocuments()
     ElMessage.success(enabled ? `Skill「${skill.folder}」已启用` : `Skill「${skill.folder}」已禁用`)
+  } catch (error) {
+    notifyError(error, '更新 Skill 启停状态失败')
+    await loadDocuments()
   } finally {
     runtimeUpdatingFolder.value = ''
   }
@@ -186,6 +212,8 @@ const handleSkillUpload = async ({ file }) => {
     const payload = await dataagentApi.importSkill(file)
     await loadDocuments()
     ElMessage.success(`Skill「${payload.skill_id}」已导入，默认未启用`)
+  } catch (error) {
+    notifyError(error, '导入 Skill 失败')
   } finally {
     importLoading.value = false
   }
@@ -209,9 +237,14 @@ const confirmUninstallSkill = async (skill) => {
     return
   }
 
-  await dataagentApi.uninstallSkill(skill.folder)
-  await loadDocuments()
-  ElMessage.success(`Skill「${skill.folder}」已卸载`)
+  try {
+    await dataagentApi.uninstallSkill(skill.folder)
+    await loadDocuments()
+    ElMessage.success(`Skill「${skill.folder}」已卸载`)
+  } catch (error) {
+    notifyError(error, '卸载 Skill 失败')
+    await loadDocuments()
+  }
 }
 
 const triggerSync = async () => {
@@ -234,6 +267,8 @@ const triggerSync = async () => {
     syncResult.value = await dataagentApi.syncSkills()
     await loadDocuments()
     ElMessage.success('Skill 目录刷新完成')
+  } catch (error) {
+    notifyError(error, '刷新 Skill 目录失败')
   } finally {
     syncLoading.value = false
   }
@@ -249,6 +284,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .skill-studio__toolbar {
@@ -274,7 +310,10 @@ onMounted(async () => {
 .skill-studio__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .skill-studio__search {
@@ -287,8 +326,9 @@ onMounted(async () => {
 
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
+  min-width: 0;
 }
 
 .skill-card {
@@ -299,6 +339,7 @@ onMounted(async () => {
   border: 1px solid #dbe2ea;
   border-radius: 10px;
   background: #fff;
+  min-width: 0;
 }
 
 .skill-card__header {
@@ -376,9 +417,15 @@ onMounted(async () => {
   .skill-studio__actions,
   .skill-card__header {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .skill-studio__search {
+    width: 100%;
+  }
+
+  .skill-studio__actions :deep(.el-upload),
+  .skill-studio__actions :deep(.el-button) {
     width: 100%;
   }
 
