@@ -13,6 +13,7 @@ const routerPush = vi.hoisted(() => vi.fn())
 
 const messageMocks = vi.hoisted(() => ({
   success: vi.fn(),
+  warning: vi.fn(),
   error: vi.fn()
 }))
 
@@ -117,6 +118,8 @@ describe('SkillStudio', () => {
     apiMocks.importSkill.mockReset()
     apiMocks.uninstallSkill.mockReset()
     messageMocks.success.mockReset()
+    messageMocks.warning.mockReset()
+    messageMocks.error.mockReset()
     messageBoxMocks.confirm.mockReset()
     messageBoxMocks.prompt.mockReset()
     routerPush.mockReset()
@@ -175,6 +178,11 @@ describe('SkillStudio', () => {
   })
 
   it('disables an enabled skill without changing other cards locally', async () => {
+    apiMocks.listSkillDocuments.mockResolvedValue(
+      documentsPayload().map((item) => (
+        item.folder === 'marketing-insights' ? { ...item, enabled: true } : item
+      ))
+    )
     const wrapper = mountView()
     await flushPromises()
 
@@ -184,6 +192,17 @@ describe('SkillStudio', () => {
 
     expect(apiMocks.updateSkillRuntime).toHaveBeenCalledWith('dataagent-nl2sql', { enabled: false })
     expect(messageMocks.success).toHaveBeenCalledWith('Skill「dataagent-nl2sql」已禁用')
+  })
+
+  it('prevents disabling the last enabled skill locally', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const currentSkill = wrapper.vm.filteredSkills.find((item) => item.folder === 'dataagent-nl2sql')
+    await wrapper.vm.setSkillEnabled(currentSkill, false)
+
+    expect(apiMocks.updateSkillRuntime).not.toHaveBeenCalled()
+    expect(messageMocks.warning).toHaveBeenCalledWith('至少需要保留一个启用 Skill')
   })
 
   it('imports a skill zip and reloads the list', async () => {

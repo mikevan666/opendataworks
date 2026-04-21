@@ -21,6 +21,7 @@ const routeState = vi.hoisted(() => ({
 
 const messageMocks = vi.hoisted(() => ({
   success: vi.fn(),
+  warning: vi.fn(),
   error: vi.fn()
 }))
 
@@ -149,6 +150,8 @@ describe('SkillDetailView', () => {
     apiMocks.rollbackSkillDocument.mockReset()
     apiMocks.syncSkills.mockReset()
     messageMocks.success.mockReset()
+    messageMocks.warning.mockReset()
+    messageMocks.error.mockReset()
     messageBoxMocks.prompt.mockReset()
     routerPush.mockReset()
 
@@ -220,7 +223,22 @@ describe('SkillDetailView', () => {
   })
 
   it('disables the current skill from the detail page', async () => {
-    const enabledDocs = documentsPayload().map((item) => ({ ...item, enabled: true }))
+    const enabledDocs = [
+      ...documentsPayload().map((item) => ({ ...item, enabled: true })),
+      {
+        id: 9,
+        folder: 'dataagent-nl2sql',
+        relative_path: 'SKILL.md',
+        file_name: 'SKILL.md',
+        category: 'root',
+        content_type: 'markdown',
+        source: 'bundled',
+        version_count: 1,
+        updated_at: '2026-04-17T09:00:00',
+        editable: true,
+        enabled: true
+      }
+    ]
     apiMocks.listSkillDocuments.mockResolvedValue(enabledDocs)
     apiMocks.getSkillDocument.mockResolvedValue({ ...detailPayload, enabled: true })
     const wrapper = mountView()
@@ -231,6 +249,19 @@ describe('SkillDetailView', () => {
 
     expect(apiMocks.updateSkillRuntime).toHaveBeenCalledWith('marketing-insights', { enabled: false })
     expect(messageMocks.success).toHaveBeenCalledWith('Skill「marketing-insights」已禁用')
+  })
+
+  it('prevents disabling the last enabled skill from the detail page', async () => {
+    const enabledDocs = documentsPayload().map((item) => ({ ...item, enabled: true }))
+    apiMocks.listSkillDocuments.mockResolvedValue(enabledDocs)
+    apiMocks.getSkillDocument.mockResolvedValue({ ...detailPayload, enabled: true })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.vm.toggleSkillEnabled(false)
+
+    expect(apiMocks.updateSkillRuntime).not.toHaveBeenCalled()
+    expect(messageMocks.warning).toHaveBeenCalledWith('至少需要保留一个启用 Skill')
   })
 
   it('uninstalls a managed skill from the detail page and returns to the list', async () => {

@@ -27,6 +27,8 @@
               <el-switch
                 :model-value="skillItem.enabled"
                 :loading="runtimeUpdating"
+                :disabled="runtimeSwitchDisabled"
+                :title="runtimeSwitchDisabled ? '至少保留一个启用 Skill' : ''"
                 @update:model-value="toggleSkillEnabled"
               />
             </div>
@@ -158,7 +160,7 @@
     >
       <div v-if="detail" class="compare-toolbar">
         <el-select v-model="leftCompareVersionId" class="compare-toolbar__select" @change="loadCompare">
-          <el-option :value="null" label="当前版本" />
+          <el-option :value="CURRENT_COMPARE_VERSION" label="当前版本" />
           <el-option
             v-for="item in detail.versions || []"
             :key="item.id"
@@ -168,7 +170,7 @@
         </el-select>
         <span class="compare-toolbar__vs">vs</span>
         <el-select v-model="rightCompareVersionId" class="compare-toolbar__select" @change="loadCompare">
-          <el-option :value="null" label="当前版本" />
+          <el-option :value="CURRENT_COMPARE_VERSION" label="当前版本" />
           <el-option
             v-for="item in detail.versions || []"
             :key="item.id"
@@ -247,14 +249,21 @@ const searchKeyword = ref('')
 
 const compareDialogVisible = ref(false)
 const compareResult = ref(null)
-const leftCompareVersionId = ref(null)
-const rightCompareVersionId = ref(null)
+const CURRENT_COMPARE_VERSION = '__current__'
+const leftCompareVersionId = ref(CURRENT_COMPARE_VERSION)
+const rightCompareVersionId = ref(CURRENT_COMPARE_VERSION)
 
 const folder = computed(() => String(route.params.folder || ''))
 
 const skillDocuments = computed(() => documentsForFolder(documents.value, folder.value))
 
-const skillItem = computed(() => buildSkillItems(documents.value).find((item) => item.folder === folder.value) || null)
+const skillItems = computed(() => buildSkillItems(documents.value))
+
+const skillItem = computed(() => skillItems.value.find((item) => item.folder === folder.value) || null)
+
+const enabledSkillCount = computed(() => skillItems.value.filter((item) => item.enabled).length)
+
+const runtimeSwitchDisabled = computed(() => Boolean(skillItem.value?.enabled) && enabledSkillCount.value <= 1)
 
 const visibleDocuments = computed(() => {
   const keyword = String(searchKeyword.value || '').trim().toLowerCase()
@@ -283,6 +292,12 @@ const formatTime = (value) => {
   return dayjs(value).format('YYYY-MM-DD HH:mm:ss')
 }
 
+const notifyError = (error, fallbackMessage) => {
+  if (!error?.__odwNotified) {
+    ElMessage.error(error?.message || fallbackMessage)
+  }
+}
+
 const goBack = () => {
   router.push({
     path: '/settings',
@@ -298,6 +313,8 @@ const loadDocument = async (documentId) => {
     const payload = await dataagentApi.getSkillDocument(documentId)
     detail.value = payload
     editorContent.value = payload?.current_content || ''
+  } catch (error) {
+    notifyError(error, '加载 Skill 文件失败')
   } finally {
     detailLoading.value = false
   }
@@ -326,6 +343,11 @@ const loadDocuments = async () => {
   try {
     documents.value = await dataagentApi.listSkillDocuments()
     await syncSelectionFromDocuments()
+  } catch (error) {
+    documents.value = []
+    detail.value = null
+    editorContent.value = ''
+    notifyError(error, '加载 Skill 文件列表失败')
   } finally {
     listLoading.value = false
   }
@@ -361,6 +383,8 @@ const saveDocument = async () => {
     editorContent.value = payload.current_content || ''
     await loadDocuments()
     ElMessage.success('文件已保存')
+  } catch (error) {
+    notifyError(error, '保存 Skill 文件失败')
   } finally {
     saveLoading.value = false
   }
@@ -376,9 +400,12 @@ const loadCompare = async () => {
   compareLoading.value = true
   try {
     compareResult.value = await dataagentApi.compareSkillDocument(detail.value.id, {
-      left_version_id: leftCompareVersionId.value,
-      right_version_id: rightCompareVersionId.value
+      left_version_id: normalizeCompareVersionId(leftCompareVersionId.value),
+      right_version_id: normalizeCompareVersionId(rightCompareVersionId.value)
     })
+  } catch (error) {
+    compareResult.value = null
+    notifyError(error, '加载版本比对失败')
   } finally {
     compareLoading.value = false
   }
@@ -387,11 +414,15 @@ const loadCompare = async () => {
 const openCompareDialog = async (leftVersionId = null) => {
   if (!detail.value) return
   const fallbackHistory = (detail.value.versions || []).find((item) => !item.is_current)
-  leftCompareVersionId.value = leftVersionId ?? fallbackHistory?.id ?? null
-  rightCompareVersionId.value = null
+  leftCompareVersionId.value = leftVersionId ?? fallbackHistory?.id ?? CURRENT_COMPARE_VERSION
+  rightCompareVersionId.value = CURRENT_COMPARE_VERSION
   compareDialogVisible.value = true
   await loadCompare()
 }
+
+const normalizeCompareVersionId = (versionId) => (
+  versionId === CURRENT_COMPARE_VERSION ? null : versionId
+)
 
 const confirmRollback = async (version) => {
   if (!detail.value || !version?.id || version.is_current) return
@@ -409,20 +440,32 @@ const confirmRollback = async (version) => {
     return
   }
 
-  const payload = await dataagentApi.rollbackSkillDocument(detail.value.id, version.id)
-  detail.value = payload
-  editorContent.value = payload.current_content || ''
-  await loadDocuments()
-  ElMessage.success(`已回滚到 V${version.version_no}`)
+  try {
+    const payload = await dataagentApi.rollbackSkillDocument(detail.value.id, version.id)
+    detail.value = payload
+    editorContent.value = payload.current_content || ''
+    await loadDocuments()
+    ElMessage.success(`已回滚到 V${version.version_no}`)
+  } catch (error) {
+    notifyError(error, '回滚版本失败')
+    await loadDocuments()
+  }
 }
 
 const toggleSkillEnabled = async (enabled) => {
   if (!folder.value || Boolean(enabled) === Boolean(skillItem.value?.enabled)) return
+  if (!enabled && runtimeSwitchDisabled.value) {
+    ElMessage.warning('至少需要保留一个启用 Skill')
+    return
+  }
   runtimeUpdating.value = true
   try {
     await dataagentApi.updateSkillRuntime(folder.value, { enabled: Boolean(enabled) })
     await loadDocuments()
     ElMessage.success(enabled ? `Skill「${folder.value}」已启用` : `Skill「${folder.value}」已禁用`)
+  } catch (error) {
+    notifyError(error, '更新 Skill 启停状态失败')
+    await loadDocuments()
   } finally {
     runtimeUpdating.value = false
   }
@@ -451,6 +494,8 @@ const confirmUninstallCurrentSkill = async () => {
     await dataagentApi.uninstallSkill(folder.value)
     ElMessage.success(`Skill「${folder.value}」已卸载`)
     goBack()
+  } catch (error) {
+    notifyError(error, '卸载 Skill 失败')
   } finally {
     uninstallLoading.value = false
   }
@@ -474,6 +519,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .skill-detail__topbar {
@@ -505,6 +554,8 @@ onMounted(async () => {
   font-size: 16px;
   font-weight: 600;
   color: #0f172a;
+  min-width: 0;
+  word-break: break-all;
 }
 
 .skill-detail__layout {
@@ -512,6 +563,7 @@ onMounted(async () => {
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+  min-width: 0;
 }
 
 .skill-detail__sidebar,
@@ -519,6 +571,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .skill-panel,
@@ -530,6 +583,7 @@ onMounted(async () => {
   border: 1px solid #dbe2ea;
   border-radius: 8px;
   background: #fff;
+  min-width: 0;
 }
 
 .detail-panel--empty {
@@ -664,6 +718,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  min-width: 0;
 }
 
 .compare-pane {
@@ -693,6 +748,10 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  .skill-detail {
+    padding: 12px;
+  }
+
   .skill-detail__topbar,
   .detail-panel__header,
   .detail-panel__actions,
@@ -713,6 +772,10 @@ onMounted(async () => {
 
   .compare-body__editors {
     grid-template-columns: 1fr;
+  }
+
+  .detail-panel__actions :deep(.el-button) {
+    width: 100%;
   }
 }
 </style>

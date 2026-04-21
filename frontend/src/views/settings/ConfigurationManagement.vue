@@ -6,16 +6,16 @@
 
     <el-card shadow="never" class="config-tabs-card">
       <el-tabs v-model="activeTab">
-        <el-tab-pane label="Dolphin 配置" name="dolphin">
+        <el-tab-pane label="Dolphin 配置" name="dolphin" lazy>
           <DolphinConfig />
         </el-tab-pane>
-        <el-tab-pane label="MinIO 环境" name="minio">
+        <el-tab-pane label="MinIO 环境" name="minio" lazy>
           <MinioConfigManagement />
         </el-tab-pane>
-        <el-tab-pane label="模型服务" name="dataagent">
+        <el-tab-pane label="模型服务" name="dataagent" lazy>
           <DataAgentConfig />
         </el-tab-pane>
-        <el-tab-pane label="Skill 列表" name="skills">
+        <el-tab-pane label="Skill 列表" name="skills" lazy>
           <SkillStudio />
         </el-tab-pane>
       </el-tabs>
@@ -62,6 +62,9 @@ watch(activeTab, (tab) => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -77,5 +80,36 @@ watch(activeTab, (tab) => {
 
 .config-tabs-card :deep(.el-card__body) {
   padding: 16px;
+}
+
+.config-tabs-card {
+  min-width: 0;
+}
+
+.config-tabs-card :deep(.el-tabs),
+.config-tabs-card :deep(.el-tab-pane) {
+  min-width: 0;
+}
+
+.config-tabs-card :deep(.el-tabs__nav-wrap) {
+  overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+  .configuration-management {
+    padding: 12px;
+  }
+
+  .page-header {
+    margin-bottom: 14px;
+  }
+
+  .page-header h2 {
+    font-size: 22px;
+  }
+
+  .config-tabs-card :deep(.el-card__body) {
+    padding: 12px;
+  }
 }
 </style>
