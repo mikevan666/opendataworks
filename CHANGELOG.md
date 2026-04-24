@@ -9,6 +9,11 @@
 ### Changed
 - 待补充。
 
+## [1.1.1] - 2026-04-24
+
+### Fixed
+- 修复 `opendataagent-web` 多架构 Docker 构建在 `linux/arm64` QEMU 环境执行 `npm ci` 时卡死并导致 Release 被取消的问题。
+
 ## [1.1.0] - 2026-04-21
 
 ### Added
@@ -133,7 +138,8 @@
 
 以上早期版本请参考 GitHub Releases 与 Git tags 历史记录。
 
-[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/MingkeVan/opendataworks/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.1.1
 [1.1.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.1.0
 [1.0.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v1.0.0
 [0.8.0]: https://github.com/MingkeVan/opendataworks/releases/tag/v0.8.0

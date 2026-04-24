@@ -77,7 +77,7 @@ docker compose up -d --build
 示例：
 
 ```bash
-./opendataagent/scripts/build-release.sh --version 1.1.0
+./opendataagent/scripts/build-release.sh --version 1.1.1
 ```
 
 ## 离线部署包
@@ -114,5 +114,5 @@ docker compose up -d --build
 示例：
 
 ```bash
-./opendataagent/scripts/docker-build.sh --version 1.1.0 --tag 1.1.0
+./opendataagent/scripts/docker-build.sh --version 1.1.1 --tag 1.1.1
 ```
