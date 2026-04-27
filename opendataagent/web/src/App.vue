@@ -147,10 +147,15 @@ const navigateTo = async (target) => {
 
   .oda-top-menu:deep(.el-menu-item) {
     height: 48px;
-    margin: 0 10px;
+    margin: 0 3px;
     padding: 0 6px;
     line-height: 48px;
-    font-size: 15px;
+    font-size: 14px;
+  }
+
+  .oda-top-menu:deep(.el-menu-item svg) {
+    display: none;
+    margin-right: 0;
   }
 }
 </style>

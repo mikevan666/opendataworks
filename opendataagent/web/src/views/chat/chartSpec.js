@@ -2,10 +2,44 @@ const CHART_TYPES = new Set(['table', 'bar', 'line', 'pie'])
 const ECHART_TYPES = new Set(['bar', 'line', 'pie'])
 const SERIES_TYPES = new Set(['bar', 'line', 'pie'])
 const DEFAULT_CHART_COLORS = ['#0f8c7b', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#14b8a6', '#f97316']
+const MIN_VISIBLE_COLOR_CONTRAST = 72
 
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
 
 const textOrEmpty = (value) => (value == null ? '' : String(value).trim())
+
+const parseHexColor = (value) => {
+  const color = textOrEmpty(value)
+  const match = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  if (!match) return null
+  const hex = match[1].length === 3
+    ? match[1].split('').map((item) => item + item).join('')
+    : match[1]
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16)
+  }
+}
+
+const isVisibleOnLightSurface = (value) => {
+  const color = parseHexColor(value)
+  if (!color) return true
+  const distanceFromWhite = Math.min(
+    255 - color.r,
+    255 - color.g,
+    255 - color.b
+  )
+  return distanceFromWhite >= MIN_VISIBLE_COLOR_CONTRAST
+}
+
+const visibleChartColors = (colors) => {
+  const visible = (Array.isArray(colors) ? colors : [])
+    .map(textOrEmpty)
+    .filter(Boolean)
+    .filter(isVisibleOnLightSurface)
+  return visible.length ? visible : DEFAULT_CHART_COLORS
+}
 
 export const parseMaybeJson = (value) => {
   if (typeof value !== 'string') return null
@@ -144,7 +178,7 @@ const buildPieOption = (spec) => {
   const primarySeries = spec.series[0]
   return {
     backgroundColor: 'transparent',
-    color: spec.colors.length ? spec.colors : DEFAULT_CHART_COLORS,
+    color: visibleChartColors(spec.colors),
     title: spec.title
       ? { text: spec.title, left: 'center', top: 8, textStyle: { fontSize: 14, fontWeight: 600, color: '#162131' } }
       : undefined,
@@ -189,7 +223,7 @@ const buildAxisOption = (spec) => {
 
   return {
     backgroundColor: 'transparent',
-    color: spec.colors.length ? spec.colors : DEFAULT_CHART_COLORS,
+    color: visibleChartColors(spec.colors),
     title: spec.title
       ? {
           text: spec.title,
