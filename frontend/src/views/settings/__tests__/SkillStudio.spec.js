@@ -48,9 +48,10 @@ const stubs = {
     template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
   },
   'el-button': {
-    props: ['loading', 'disabled'],
+    props: ['loading', 'disabled', 'icon'],
     template: '<button :disabled="disabled"><slot /></button>'
   },
+  'el-tooltip': { template: '<div><slot /></div>' },
   'el-alert': { template: '<div><slot /><slot name="title" /></div>' },
   'el-tag': { template: '<span><slot /></span>' },
   'el-empty': { template: '<div><slot /></div>' },
@@ -157,6 +158,14 @@ describe('SkillStudio', () => {
     expect(wrapper.text()).toContain('已启用')
     expect(wrapper.text()).toContain('未启用')
     expect(wrapper.text()).not.toContain('当前运行')
+    expect(wrapper.text()).not.toContain('最近更新')
+    expect(wrapper.text()).not.toContain('2026-04-17')
+    expect(wrapper.find('.skill-card__stats').exists()).toBe(false)
+
+    const syncButton = wrapper.find('.skill-studio__sync-button')
+    expect(syncButton.exists()).toBe(true)
+    expect(syncButton.attributes('aria-label')).toBe('刷新目录')
+    expect(syncButton.text()).toBe('')
 
     wrapper.vm.openSkillDetail('marketing-insights')
     expect(routerPush).toHaveBeenCalledWith({
