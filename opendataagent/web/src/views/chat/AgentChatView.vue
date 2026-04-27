@@ -1206,9 +1206,9 @@ onBeforeUnmount(() => {
   --text: #111827;
   --text-muted: #6b7280;
   --text-soft: #9ca3af;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.08);
-  --primary: #2563eb;
+  --accent: #2f5f9f;
+  --accent-soft: rgba(47, 95, 159, 0.08);
+  --primary: #2f5f9f;
   --content-max-width: min(60%, 980px);
   height: 100%;
   min-height: 0;
@@ -1290,7 +1290,7 @@ onBeforeUnmount(() => {
 }
 
 .query-btn-new:hover {
-  background: #1d4ed8;
+  background: #244f86;
   transform: translateY(-1px);
 }
 
@@ -1484,8 +1484,8 @@ onBeforeUnmount(() => {
 }
 
 .query-main-pill--active {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #edf3fa;
+  color: #2f5f9f;
 }
 
 .query-config-empty {
@@ -1525,8 +1525,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 0 14px;
   border-radius: 8px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #edf3fa;
+  color: #2f5f9f;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1567,10 +1567,10 @@ onBeforeUnmount(() => {
 }
 
 .query-suggestion:hover {
-  border-color: #bfdbfe;
-  background: #eff6ff;
+  border-color: #c8d5e5;
+  background: #f2f6fb;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 4px 12px rgba(47, 95, 159, 0.08);
 }
 
 .query-message-row {
@@ -1586,7 +1586,7 @@ onBeforeUnmount(() => {
   max-width: 72%;
   padding: 14px 18px;
   border-radius: 12px 12px 4px 12px;
-  background: #2563eb;
+  background: #2f5f9f;
   color: #ffffff;
   font-size: 16px;
   line-height: 1.75;
@@ -1931,8 +1931,8 @@ onBeforeUnmount(() => {
 .query-main-text :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #edf3fa;
+  color: #2f5f9f;
   font-size: 15px;
 }
 
@@ -2412,7 +2412,7 @@ onBeforeUnmount(() => {
 }
 
 .query-btn-send:not(:disabled):hover {
-  background: #1d4ed8;
+  background: #244f86;
 }
 
 .query-btn-cancel {
