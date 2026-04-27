@@ -1,9 +1,9 @@
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-[#f9fafb] text-gray-900">
-    <header class="shrink-0 bg-white">
+  <div class="flex h-screen min-w-0 flex-col overflow-hidden bg-[#f9fafb] text-gray-900">
+    <header class="shrink-0 overflow-hidden bg-white">
       <div class="px-4 sm:px-5 lg:px-6">
-        <div class="grid min-h-[84px] grid-cols-1 gap-4 py-3 xl:grid-cols-[220px_minmax(0,1fr)_220px] xl:items-center">
-          <div class="flex items-center gap-3">
+        <div class="flex min-h-[76px] min-w-0 flex-wrap items-center gap-4 py-3 lg:flex-nowrap">
+          <div class="flex min-w-[210px] shrink-0 items-center gap-3">
             <button
               type="button"
               class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-700 text-white shadow-sm"
@@ -14,12 +14,12 @@
 
             <div class="min-w-0">
               <button type="button" class="text-left" @click="navigateTo('/chat')">
-                <div class="text-[18px] font-semibold tracking-tight text-gray-900">Opendataagent</div>
+                <div class="text-[18px] font-semibold tracking-tight text-gray-900">OpenDataAgent</div>
               </button>
             </div>
           </div>
 
-          <div class="overflow-x-auto xl:flex xl:justify-center">
+          <nav class="oda-top-nav min-w-0 flex-1 overflow-hidden lg:flex lg:justify-center" aria-label="主导航">
             <el-menu
               class="oda-top-menu border-none bg-transparent"
               mode="horizontal"
@@ -36,9 +36,7 @@
                 <span>{{ item.label }}</span>
               </el-menu-item>
             </el-menu>
-          </div>
-
-          <div class="hidden xl:block" />
+          </nav>
         </div>
       </div>
     </header>
@@ -86,9 +84,11 @@ const navigateTo = async (target) => {
   --el-menu-border-color: transparent;
   border-bottom: 0 !important;
   box-shadow: none !important;
-  width: max-content;
+  width: auto;
+  max-width: 100%;
   justify-content: center;
   background: transparent !important;
+  overflow: hidden;
 }
 
 .oda-top-menu.el-menu--horizontal {
@@ -107,6 +107,7 @@ const navigateTo = async (target) => {
   line-height: 62px;
   font-size: 18px;
   font-weight: 550;
+  white-space: nowrap;
 }
 
 .oda-top-menu:deep(.el-menu-item:hover) {
@@ -136,19 +137,27 @@ const navigateTo = async (target) => {
   background-color: #2563eb;
 }
 
-@media (max-width: 1280px) {
-  .oda-top-menu:deep(.el-menu) {
-    width: max-content;
-  }
-}
-
 @media (max-width: 768px) {
+  .oda-top-nav {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+
+  .oda-top-menu {
+    width: 100%;
+  }
+
   .oda-top-menu:deep(.el-menu-item) {
-    height: 56px;
-    margin: 0 16px;
+    height: 48px;
+    margin: 0 3px;
     padding: 0 6px;
-    line-height: 56px;
-    font-size: 16px;
+    line-height: 48px;
+    font-size: 14px;
+  }
+
+  .oda-top-menu:deep(.el-menu-item svg) {
+    display: none;
+    margin-right: 0;
   }
 }
 </style>
