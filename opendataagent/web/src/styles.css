@@ -5,36 +5,49 @@
 }
 
 @layer base {
+  :root {
+    --el-color-primary: #1e40af;
+    --el-color-primary-light-3: #2563eb;
+    --el-color-primary-light-5: #3b82f6;
+    --el-color-primary-light-7: #93c5fd;
+    --el-color-primary-light-8: #bfdbfe;
+    --el-color-primary-light-9: #dbeafe;
+    --el-color-primary-dark-2: #1e3a8a;
+  }
+
   html {
     font-family: var(--font-sans);
-    background: #f9fafb;
-    color: #111827;
+    background: #f6f8fc;
+    color: #0f172a;
+    overflow: hidden;
   }
 
   body {
-    @apply min-h-screen bg-gray-50 text-gray-900 antialiased;
+    @apply min-h-screen bg-slate-50 text-slate-900 antialiased;
+    overflow: hidden;
   }
 
   #app {
     @apply min-h-screen;
+    overflow: hidden;
   }
 
   * {
-    border-color: #e5e7eb;
+    border-color: #dbe4f0;
   }
 }
 
 @layer components {
   .oda-card {
-    @apply rounded-lg border border-gray-200 bg-white shadow-sm;
+    @apply rounded-lg border border-blue-100 bg-white shadow-sm shadow-blue-950/5;
   }
 
   .oda-card-muted {
-    @apply rounded-lg border border-gray-200 bg-gray-50/70 shadow-sm;
+    @apply rounded-lg border border-blue-100 bg-blue-50/40 shadow-sm shadow-blue-950/5;
   }
 
   .oda-kicker {
-    @apply text-xs font-semibold uppercase tracking-[0.16em] text-gray-500;
+    @apply text-xs font-semibold uppercase tracking-[0.16em] text-blue-700;
   }
 
   .oda-title {
@@ -54,19 +67,19 @@
   }
 
   .oda-input {
-    @apply h-11 w-full rounded-lg border border-gray-200 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/10;
+    @apply h-11 w-full rounded-lg border border-blue-100 bg-white px-4 text-[15px] text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700/10;
   }
 
   .oda-textarea {
-    @apply w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-[15px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/10;
+    @apply w-full rounded-lg border border-blue-100 bg-white px-4 py-3 text-[15px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700/10;
   }
 
   .oda-btn-primary {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-[15px] font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 text-[15px] font-medium text-white shadow-sm shadow-blue-950/10 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300;
   }
 
   .oda-btn-secondary {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-[15px] font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-blue-100 bg-white px-4 text-[15px] font-medium text-blue-900 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-400;
   }
 
   .oda-btn-danger {
@@ -74,23 +87,23 @@
   }
 
   .oda-chip {
-    @apply inline-flex items-center rounded-md bg-gray-100 px-2.5 py-1 text-[13px] font-medium text-gray-600;
+    @apply inline-flex items-center rounded-md bg-blue-50 px-2.5 py-1 text-[13px] font-medium text-blue-800;
   }
 
   .oda-chip-success {
-    @apply inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-1 text-[13px] font-medium text-emerald-700;
+    @apply inline-flex items-center rounded-md bg-blue-100 px-2.5 py-1 text-[13px] font-medium text-blue-900;
   }
 
   .oda-chip-warning {
-    @apply inline-flex items-center rounded-md bg-amber-50 px-2.5 py-1 text-[13px] font-medium text-amber-700;
+    @apply inline-flex items-center rounded-md bg-sky-50 px-2.5 py-1 text-[13px] font-medium text-sky-800;
   }
 
   .oda-chip-neutral {
-    @apply inline-flex items-center rounded-md bg-blue-50 px-2.5 py-1 text-[13px] font-medium text-blue-700;
+    @apply inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-[13px] font-medium text-slate-600;
   }
 
   .oda-icon-button {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-700;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-blue-100 bg-white text-blue-700 transition hover:bg-blue-50 hover:text-blue-900;
   }
 
   .oda-prose {
