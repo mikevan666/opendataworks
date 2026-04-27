@@ -13,7 +13,7 @@
             type="button"
             class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition"
             :class="activeFilter === option.value
-              ? 'border-blue-700 bg-blue-700 text-white'
+              ? 'border-[#2f5f9f] bg-[#2f5f9f] text-white'
               : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
             @click="activeFilter = option.value"
           >
@@ -129,12 +129,12 @@
               type="button"
               class="rounded-lg border px-4 py-3 text-left transition"
               :class="draft.connection_type === 'process'
-                ? 'border-blue-700 bg-blue-700 text-white'
+                ? 'border-[#2f5f9f] bg-[#2f5f9f] text-white'
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
               @click="draft.connection_type = 'process'"
             >
               <div class="text-sm font-medium">本地进程</div>
-              <div class="mt-1 text-xs" :class="draft.connection_type === 'process' ? 'text-blue-100' : 'text-gray-500'">
+              <div class="mt-1 text-xs" :class="draft.connection_type === 'process' ? 'text-slate-100' : 'text-gray-500'">
                 适合 CLI、脚本和受控命令
               </div>
             </button>
@@ -142,12 +142,12 @@
               type="button"
               class="rounded-lg border px-4 py-3 text-left transition"
               :class="draft.connection_type === 'remote'
-                ? 'border-blue-700 bg-blue-700 text-white'
+                ? 'border-[#2f5f9f] bg-[#2f5f9f] text-white'
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
               @click="draft.connection_type = 'remote'"
             >
               <div class="text-sm font-medium">远程服务</div>
-              <div class="mt-1 text-xs" :class="draft.connection_type === 'remote' ? 'text-blue-100' : 'text-gray-500'">
+              <div class="mt-1 text-xs" :class="draft.connection_type === 'remote' ? 'text-slate-100' : 'text-gray-500'">
                 适合已有网关或 HTTP MCP 服务
               </div>
             </button>

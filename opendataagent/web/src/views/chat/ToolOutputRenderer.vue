@@ -841,11 +841,11 @@ onBeforeUnmount(() => {
 }
 
 .shell-trace-summary-status.is-running {
-  color: #6b7280;
+  color: #667085;
 }
 
 .shell-trace-summary-status.is-success {
-  color: #6b7280;
+  color: #667085;
 }
 
 .shell-trace-summary-status.is-failed {

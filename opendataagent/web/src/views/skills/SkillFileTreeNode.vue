@@ -4,8 +4,8 @@
       type="button"
       class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition"
       :class="node.type === 'file' && node.documentId === selectedDocumentId
-        ? 'bg-blue-800 text-white'
-        : 'text-gray-600 hover:bg-blue-50/40 hover:text-gray-900'"
+        ? 'bg-[#2f5f9f] text-white'
+        : 'text-gray-600 hover:bg-slate-50/70 hover:text-gray-900'"
       :style="{ paddingLeft: `${12 + level * 16}px` }"
       @click="handleClick"
     >

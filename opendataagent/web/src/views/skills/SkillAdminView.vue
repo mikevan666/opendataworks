@@ -35,12 +35,12 @@
             type="button"
             class="inline-flex min-h-9 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition"
             :class="selectedSource === option.value
-              ? 'bg-blue-800 text-white shadow-sm'
-              : 'bg-transparent text-gray-600 hover:bg-blue-50 hover:text-gray-900'"
+              ? 'bg-[#2f5f9f] text-white shadow-sm'
+              : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-gray-900'"
             @click="selectedSource = option.value"
           >
             <span>{{ option.label }}</span>
-            <span class="text-xs" :class="selectedSource === option.value ? 'text-blue-100' : 'text-gray-400'">
+            <span class="text-xs" :class="selectedSource === option.value ? 'text-slate-100' : 'text-gray-400'">
               {{ option.count }}
             </span>
           </button>
@@ -76,8 +76,8 @@
                 type="button"
                 class="w-full rounded-lg border p-3 text-left transition"
                 :class="row.id === selectedDocumentId
-                  ? 'border-blue-800 bg-blue-800 text-white shadow-sm'
-                  : 'border-blue-100 bg-white hover:border-blue-200 hover:bg-blue-50/40'"
+                  ? 'border-[#2f5f9f] bg-[#2f5f9f] text-white shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70'"
                 @click="loadDocument(row.id)"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -139,7 +139,7 @@
 
     <template v-if="detail">
       <section v-loading="detailLoading" class="oda-card p-5">
-        <div class="flex flex-col gap-5 border-b border-blue-100 pb-5 xl:flex-row xl:items-start xl:justify-between">
+        <div class="flex flex-col gap-5 border-b border-slate-200 pb-5 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
             <div class="text-xl font-semibold tracking-tight text-gray-900">{{ displayName(detail) }}</div>
             <div class="mt-2 text-sm leading-relaxed text-gray-600">
@@ -183,19 +183,19 @@
         </div>
 
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
-          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+          <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">最近更新</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ formatTime(detail.updated_at) }}</div>
             <div class="mt-1 text-sm text-gray-500">
               {{ detail.last_change_summary || '最近一次更新未填写说明' }}
             </div>
           </div>
-          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+          <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">变更来源</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ detail.last_change_source || '-' }}</div>
             <div class="mt-1 text-sm text-gray-500">用于标记最近一次版本是如何产生的。</div>
           </div>
-          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+          <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">文件类型</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ detail.content_type }}</div>
             <div class="mt-1 text-sm text-gray-500">正文内容会直接同步到当前托管 Skill。</div>
@@ -213,7 +213,7 @@
           >
         </div>
 
-        <div class="mt-5 rounded-lg border border-blue-100 bg-white">
+        <div class="mt-5 rounded-lg border border-slate-200 bg-white">
           <TextCodeEditor
             v-model="editorContent"
             :placeholder="detail.content_type === 'json' ? '请输入 JSON 内容' : '请输入文件内容'"
@@ -222,7 +222,7 @@
       </section>
 
       <section class="oda-card p-5">
-        <div class="flex flex-col gap-2 border-b border-blue-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-2 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div class="oda-section-title">版本历史</div>
             <div class="mt-1 text-sm text-gray-500">保留每次保存记录，方便回看或回滚。</div>
@@ -268,7 +268,7 @@
     </template>
 
     <section v-else class="oda-card p-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-gray-500">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-slate-100 text-gray-500">
         <FileCode2 class="h-6 w-6" />
       </div>
       <div class="mt-4 text-lg font-semibold text-gray-900">先从左侧选择一个 Skill</div>
@@ -315,17 +315,17 @@
         </div>
 
         <div v-if="compareResult" class="grid gap-4 xl:grid-cols-2">
-          <div class="rounded-lg border border-blue-100 bg-white p-4">
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.left_label }}</div>
             <TextCodeEditor :model-value="compareResult.left_content" read-only />
           </div>
-          <div class="rounded-lg border border-blue-100 bg-white p-4">
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.right_label }}</div>
             <TextCodeEditor :model-value="compareResult.right_content" read-only />
           </div>
         </div>
 
-        <div v-if="compareResult" class="rounded-lg border border-blue-100 bg-white p-4">
+        <div v-if="compareResult" class="rounded-lg border border-slate-200 bg-white p-4">
           <div class="mb-3 text-sm font-semibold text-gray-900">Unified Diff</div>
           <TextCodeEditor :model-value="compareResult.diff_text" read-only />
         </div>
@@ -347,7 +347,7 @@
           <label class="mb-2 block text-sm font-medium text-gray-700">上传文件</label>
           <input
             ref="fileInputRef"
-            class="block w-full rounded-lg border border-dashed border-gray-300 bg-blue-50/40 px-4 py-4 text-sm text-gray-600"
+            class="block w-full rounded-lg border border-dashed border-gray-300 bg-slate-50/70 px-4 py-4 text-sm text-gray-600"
             type="file"
             accept=".zip,.md,.markdown,text/markdown,application/zip"
             @change="handleImportFileChange"

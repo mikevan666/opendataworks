@@ -4,17 +4,18 @@
   --font-sans: Inter, "SF Pro Text", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-@layer base {
-  :root {
-    --el-color-primary: #2f5f9f;
-    --el-color-primary-light-3: #4f7fba;
-    --el-color-primary-light-5: #7fa4ce;
-    --el-color-primary-light-7: #b7cbe2;
-    --el-color-primary-light-8: #d1deed;
-    --el-color-primary-light-9: #e8eff7;
-    --el-color-primary-dark-2: #244f86;
-  }
+html:root {
+  --el-color-primary-rgb: 47, 95, 159;
+  --el-color-primary: #2f5f9f;
+  --el-color-primary-light-3: #4f7fba;
+  --el-color-primary-light-5: #667085;
+  --el-color-primary-light-7: #98a8ba;
+  --el-color-primary-light-8: #c8d5e5;
+  --el-color-primary-light-9: #edf3fa;
+  --el-color-primary-dark-2: #244f86;
+}
 
+@layer base {
   html {
     font-family: var(--font-sans);
     background: #f6f8fc;
@@ -47,7 +48,7 @@
   }
 
   .oda-kicker {
-    @apply text-xs font-semibold uppercase tracking-[0.16em] text-[#2f5f9f];
+    @apply text-xs font-semibold uppercase tracking-[0.16em] text-slate-500;
   }
 
   .oda-title {
@@ -75,7 +76,7 @@
   }
 
   .oda-btn-primary {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#2f5f9f] px-4 text-[15px] font-medium text-white shadow-sm shadow-slate-950/10 transition hover:bg-[#244f86] disabled:cursor-not-allowed disabled:bg-[#9bb7d6];
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#2f5f9f] px-4 text-[15px] font-medium text-white shadow-sm shadow-slate-950/10 transition hover:bg-[#244f86] disabled:cursor-not-allowed disabled:bg-[#98a8ba];
   }
 
   .oda-btn-secondary {

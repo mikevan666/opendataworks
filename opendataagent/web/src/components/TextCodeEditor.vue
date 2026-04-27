@@ -69,7 +69,7 @@ const createEditor = () => {
           },
           '.cm-activeLineGutter': {
             backgroundColor: '#eff6ff',
-            color: '#1d4ed8'
+            color: '#2f5f9f'
           },
           '.cm-activeLine': {
             backgroundColor: '#f8fafc'
