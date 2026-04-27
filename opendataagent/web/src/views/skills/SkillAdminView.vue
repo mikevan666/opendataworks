@@ -6,6 +6,10 @@
     :stats="skillStats"
   >
     <template #actions>
+      <button type="button" class="oda-btn-primary" @click="openImportDialog">
+        <Upload class="h-4 w-4" />
+        导入 Skill
+      </button>
       <button type="button" class="oda-btn-secondary" :disabled="syncLoading" @click="triggerSync">
         <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': syncLoading }" />
         {{ syncLoading ? '刷新中' : '刷新目录' }}
@@ -24,15 +28,15 @@
           <span class="oda-chip">{{ filteredDocuments.length }}</span>
         </div>
 
-        <div class="mt-5 flex flex-wrap gap-2">
+        <div class="mt-5 flex flex-wrap gap-1.5">
           <button
             v-for="option in sourceOptions"
             :key="option.value"
             type="button"
-            class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition"
+            class="inline-flex min-h-9 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition"
             :class="selectedSource === option.value
-              ? 'border-blue-700 bg-blue-700 text-white'
-              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
+              ? 'bg-blue-800 text-white shadow-sm'
+              : 'bg-transparent text-gray-600 hover:bg-blue-50 hover:text-gray-900'"
             @click="selectedSource = option.value"
           >
             <span>{{ option.label }}</span>
@@ -72,8 +76,8 @@
                 type="button"
                 class="w-full rounded-lg border p-3 text-left transition"
                 :class="row.id === selectedDocumentId
-                  ? 'border-blue-700 bg-blue-700 text-white shadow-sm'
-                  : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'"
+                  ? 'border-blue-800 bg-blue-800 text-white shadow-sm'
+                  : 'border-blue-100 bg-white hover:border-blue-200 hover:bg-blue-50/40'"
                 @click="loadDocument(row.id)"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -135,7 +139,7 @@
 
     <template v-if="detail">
       <section v-loading="detailLoading" class="oda-card p-5">
-        <div class="flex flex-col gap-5 border-b border-gray-200 pb-5 xl:flex-row xl:items-start xl:justify-between">
+        <div class="flex flex-col gap-5 border-b border-blue-100 pb-5 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
             <div class="text-xl font-semibold tracking-tight text-gray-900">{{ displayName(detail) }}</div>
             <div class="mt-2 text-sm leading-relaxed text-gray-600">
@@ -179,19 +183,19 @@
         </div>
 
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">最近更新</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ formatTime(detail.updated_at) }}</div>
             <div class="mt-1 text-sm text-gray-500">
               {{ detail.last_change_summary || '最近一次更新未填写说明' }}
             </div>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">变更来源</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ detail.last_change_source || '-' }}</div>
             <div class="mt-1 text-sm text-gray-500">用于标记最近一次版本是如何产生的。</div>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">文件类型</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ detail.content_type }}</div>
             <div class="mt-1 text-sm text-gray-500">正文内容会直接同步到当前托管 Skill。</div>
@@ -209,7 +213,7 @@
           >
         </div>
 
-        <div class="mt-5 rounded-lg border border-gray-200 bg-white">
+        <div class="mt-5 rounded-lg border border-blue-100 bg-white">
           <TextCodeEditor
             v-model="editorContent"
             :placeholder="detail.content_type === 'json' ? '请输入 JSON 内容' : '请输入文件内容'"
@@ -218,7 +222,7 @@
       </section>
 
       <section class="oda-card p-5">
-        <div class="flex flex-col gap-2 border-b border-gray-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-2 border-b border-blue-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div class="oda-section-title">版本历史</div>
             <div class="mt-1 text-sm text-gray-500">保留每次保存记录，方便回看或回滚。</div>
@@ -264,7 +268,7 @@
     </template>
 
     <section v-else class="oda-card p-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-gray-500">
         <FileCode2 class="h-6 w-6" />
       </div>
       <div class="mt-4 text-lg font-semibold text-gray-900">先从左侧选择一个 Skill</div>
@@ -311,27 +315,61 @@
         </div>
 
         <div v-if="compareResult" class="grid gap-4 xl:grid-cols-2">
-          <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="rounded-lg border border-blue-100 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.left_label }}</div>
             <TextCodeEditor :model-value="compareResult.left_content" read-only />
           </div>
-          <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="rounded-lg border border-blue-100 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.right_label }}</div>
             <TextCodeEditor :model-value="compareResult.right_content" read-only />
           </div>
         </div>
 
-        <div v-if="compareResult" class="rounded-lg border border-gray-200 bg-white p-4">
+        <div v-if="compareResult" class="rounded-lg border border-blue-100 bg-white p-4">
           <div class="mb-3 text-sm font-semibold text-gray-900">Unified Diff</div>
           <TextCodeEditor :model-value="compareResult.diff_text" read-only />
         </div>
       </div>
     </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="导入 Skill 包" width="560px">
+      <div class="space-y-5">
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700">文件夹名称</label>
+          <input
+            v-model="importForm.folder"
+            class="oda-input"
+            type="text"
+            placeholder="可选，不填则从文件名或压缩包目录推断"
+          >
+        </div>
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700">上传文件</label>
+          <input
+            ref="fileInputRef"
+            class="block w-full rounded-lg border border-dashed border-gray-300 bg-blue-50/40 px-4 py-4 text-sm text-gray-600"
+            type="file"
+            accept=".zip,.md,.markdown,text/markdown,application/zip"
+            @change="handleImportFileChange"
+          >
+          <div class="mt-2 text-sm text-gray-500">{{ importForm.file?.name || '请选择 zip 包或 markdown 文件' }}</div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="oda-btn-secondary" @click="importDialogVisible = false">取消</button>
+          <button type="button" class="oda-btn-primary" :disabled="importing" @click="submitImport">
+            <Upload class="h-4 w-4" />
+            {{ importing ? '导入中' : '导入' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
   </ProductPageShell>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import {
@@ -340,10 +378,12 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
-  Trash2
+  Trash2,
+  Upload
 } from 'lucide-vue-next'
 import ProductPageShell from '@/components/ProductPageShell.vue'
 import { dataagentApi } from '@/api/dataagent'
+import { marketApi } from '@/api/market'
 import TextCodeEditor from '@/components/TextCodeEditor.vue'
 
 const listLoading = ref(false)
@@ -351,6 +391,7 @@ const detailLoading = ref(false)
 const saveLoading = ref(false)
 const syncLoading = ref(false)
 const compareLoading = ref(false)
+const importing = ref(false)
 const runtimeUpdatingId = ref('')
 
 const searchKeyword = ref('')
@@ -361,6 +402,12 @@ const detail = ref(null)
 const editorContent = ref('')
 const changeSummary = ref('')
 const syncResult = ref(null)
+const importDialogVisible = ref(false)
+const fileInputRef = ref(null)
+const importForm = reactive({
+  folder: '',
+  file: null
+})
 const settings = ref({
   skills_root_dir: ''
 })
@@ -403,12 +450,15 @@ const sourceOptions = computed(() => {
     managed: documents.value.filter((item) => item.source === 'managed').length,
     other: documents.value.filter((item) => item.source !== 'bundled' && item.source !== 'managed').length
   }
-  return [
+  const options = [
     { value: 'all', label: '全部', count: counts.all },
     { value: 'bundled', label: '内置', count: counts.bundled },
-    { value: 'managed', label: '本地导入', count: counts.managed },
-    { value: 'other', label: '其他', count: counts.other }
+    { value: 'managed', label: '本地导入', count: counts.managed }
   ]
+  if (counts.other > 0) {
+    options.push({ value: 'other', label: '其他', count: counts.other })
+  }
+  return options
 })
 
 const editorDirty = computed(() => !!detail.value && editorContent.value !== (detail.value.current_content || ''))
@@ -597,6 +647,43 @@ const confirmRollback = async (version) => {
   changeSummary.value = ''
   await loadDocuments()
   ElMessage.success(`已回滚到 V${version.version_no}`)
+}
+
+const openImportDialog = () => {
+  importForm.folder = ''
+  importForm.file = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+  importDialogVisible.value = true
+}
+
+const handleImportFileChange = (event) => {
+  importForm.file = event?.target?.files?.[0] || null
+}
+
+const submitImport = async () => {
+  if (!importForm.file) {
+    ElMessage.error('请先选择要导入的文件')
+    return
+  }
+  const formData = new FormData()
+  formData.append('file', importForm.file)
+  if (String(importForm.folder || '').trim()) {
+    formData.append('folder', String(importForm.folder).trim())
+  }
+
+  importing.value = true
+  try {
+    const item = await marketApi.importPackage(formData)
+    importDialogVisible.value = false
+    ElMessage.success(`已导入 ${item.name || item.folder}`)
+    await loadDocuments()
+  } catch (error) {
+    ElMessage.error(error.message || '导入 Skill 失败')
+  } finally {
+    importing.value = false
+  }
 }
 
 const triggerSync = async () => {
