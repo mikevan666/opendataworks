@@ -58,7 +58,7 @@ const props = defineProps({
   },
   color: {
     type: String,
-    default: '#2563eb'
+    default: '#2f5f9f'
   },
   area: {
     type: Boolean,
@@ -96,7 +96,7 @@ const buildOption = () => ({
   tooltip: {
     trigger: 'axis',
     borderWidth: 0,
-    backgroundColor: '#1d4ed8',
+    backgroundColor: '#244f86',
     textStyle: {
       color: '#f9fafb',
       fontSize: 12
