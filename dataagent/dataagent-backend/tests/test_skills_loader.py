@@ -61,10 +61,16 @@ def _build_minimum_bundle(root: Path):
 @pytest.fixture(autouse=True)
 def restore_skills_dir():
     original = get_settings().skills_output_dir
+    original_runtime_cwd = get_settings().dataagent_runtime_project_cwd
     try:
         yield
     finally:
-        update_settings({"skills_output_dir": original})
+        update_settings(
+            {
+                "skills_output_dir": original,
+                "dataagent_runtime_project_cwd": original_runtime_cwd,
+            }
+        )
 
 
 def test_loader_fails_when_required_file_missing(tmp_path: Path):
@@ -100,3 +106,19 @@ def test_prepare_enabled_skills_project_cwd_exposes_only_enabled_skills(tmp_path
     assert (runtime_skills / "dataagent-nl2sql" / "SKILL.md").exists()
     assert (runtime_skills / "marketing-insights" / "SKILL.md").exists()
     assert not (runtime_skills / "disabled-skill").exists()
+
+
+def test_prepare_enabled_skills_project_cwd_uses_writable_home_runtime_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project = tmp_path / "project"
+    skills_root = project / ".claude" / "skills"
+    _build_minimum_bundle(skills_root / "dataagent-nl2sql")
+    update_settings({"skills_output_dir": str(skills_root / "dataagent-nl2sql")})
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    runtime_cwd = prepare_enabled_skills_project_cwd(["dataagent-nl2sql"])
+
+    assert runtime_cwd == home / ".dataagent" / "runtime" / "enabled-skills"
+    assert (runtime_cwd / ".claude" / "skills" / "dataagent-nl2sql" / "SKILL.md").exists()
