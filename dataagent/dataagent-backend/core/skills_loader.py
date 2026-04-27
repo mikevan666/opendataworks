@@ -91,6 +91,19 @@ def _resolve_root_dir(raw: str) -> Path:
     return (base / path).resolve()
 
 
+def _resolve_runtime_project_cwd(raw: str | None = None) -> Path:
+    base = Path(__file__).resolve().parent.parent  # dataagent-backend/
+    value = str(raw or "").strip()
+    if value:
+        path = Path(value).expanduser()
+        if path.is_absolute():
+            return path
+        return (base / path).resolve()
+
+    home = Path(os.environ.get("HOME") or str(Path.home())).expanduser()
+    return (home / ".dataagent" / "runtime" / "enabled-skills").resolve()
+
+
 def resolve_builtin_skill_root_dir() -> Path:
     cfg = get_settings()
     return _resolve_root_dir(cfg.skills_output_dir)
@@ -121,7 +134,8 @@ def resolve_agent_project_cwd() -> Path:
 
 def prepare_enabled_skills_project_cwd(enabled_folders: list[str] | tuple[str, ...]) -> Path:
     discovery_root = resolve_skill_discovery_root_dir()
-    runtime_root = Path(__file__).resolve().parent.parent / ".runtime" / "enabled-skills"
+    cfg = get_settings()
+    runtime_root = _resolve_runtime_project_cwd(cfg.dataagent_runtime_project_cwd)
     runtime_skills_dir = runtime_root / ".claude" / "skills"
     runtime_skills_dir.mkdir(parents=True, exist_ok=True)
 

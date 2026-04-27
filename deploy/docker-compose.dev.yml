@@ -101,6 +101,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       HOME: /tmp/dataagent-home
+      DATAAGENT_RUNTIME_PROJECT_CWD: ${DATAAGENT_RUNTIME_PROJECT_CWD:-/tmp/dataagent-home/.dataagent/runtime/enabled-skills}
       HOST: 0.0.0.0
       PORT: 8900
       MYSQL_HOST: mysql
