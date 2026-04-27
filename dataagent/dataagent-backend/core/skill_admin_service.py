@@ -215,10 +215,6 @@ def _normalize_model_detections(raw: Any) -> dict[str, dict[str, str]]:
     return normalized
 
 
-def _model_detection_verified(model_detections: dict[str, dict[str, str]], model: str) -> bool:
-    return str((model_detections.get(model) or {}).get("status") or "") == "verified"
-
-
 def _provider_definition(provider_id: str) -> dict[str, Any]:
     return dict(PROVIDER_DEFINITIONS.get(provider_id) or PROVIDER_DEFINITIONS[DEFAULT_PROVIDER_ID])
 
@@ -324,11 +320,7 @@ def _normalize_provider_entry(provider_id: str, payload: dict[str, Any], previou
         + requested_enabled_models
         + list(model_detections.keys())
     )
-    enabled_models = [
-        model
-        for model in requested_enabled_models
-        if _model_detection_verified(model_detections, model)
-    ]
+    enabled_models = requested_enabled_models
     base_url = str(base.get("base_url") or definition.get("default_base_url") or "").strip()
     api_key = str(base.get("api_key") or "").strip()
     auth_token = str(base.get("auth_token") or "").strip()
@@ -386,7 +378,7 @@ def _compute_provider_validation(
             return ("unverified", "请填写 API Key")
         return ("unverified", "请填写 Token")
     if not enabled_models:
-        return ("unverified", "请先检测并启用至少一个模型")
+        return ("unverified", "请启用至少一个模型")
     return ("verified", "模型服务已可用")
 
 
@@ -798,7 +790,7 @@ def resolve_runtime_provider_selection(provider_id: str | None, model: str | Non
     if not selected_model:
         selected_model = enabled_models[0] if enabled_models else ""
     if selected_model not in enabled_models:
-        raise ValueError("所选模型未加入已验证候选")
+        raise ValueError("所选模型未加入已启用模型")
 
     return {
         "provider_id": normalized_provider_id,
