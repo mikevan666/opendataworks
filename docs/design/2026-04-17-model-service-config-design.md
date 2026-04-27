@@ -6,7 +6,7 @@ The administrator settings page currently exposes DataAgent runtime details toge
 
 ## Problem
 
-Users need a simpler model service configuration page that focuses on provider selection, API credentials, model detection, model enablement, and default model selection. Runtime internals such as Skill paths and DataAgent storage should not be exposed in this UI. Enabling a model should require a real service check so the saved configuration reflects usable provider/model pairs. The page should also avoid a separate top-level page header layer and make save scope match the visible provider.
+Users need a simpler model service configuration page that focuses on provider selection, API credentials, optional model detection, model enablement, and default model selection. Runtime internals such as Skill paths and DataAgent storage should not be exposed in this UI. Model detection should help administrators check connectivity, but failed or skipped detection must not block enablement because detection is advisory. The page should also avoid a separate top-level page header layer and make save scope match the visible provider.
 
 ## Scope
 
@@ -25,7 +25,7 @@ This change covers the DataAgent admin settings API, model detection state in ex
 - Keep a manual save button, but scope it to the currently visible provider. Unsaved changes are tracked per provider draft and surfaced through the current save button and provider-switch confirmation.
 - Add `POST /api/v1/nl2sql-admin/model-detections` for real model checks using the same provider environment mapping as runtime DataAgent execution.
 - Store model detection results inside `provider_settings` in `da_agent_settings.raw_json`, under each provider entry, when the current provider is saved. Detection itself returns a live result and does not directly persist draft credentials or detection state.
-- A model can be enabled only after its detection status is `verified`. Provider usability still requires provider switch on, at least one enabled model, and locally valid credentials/base URL.
+- Model detection is optional. A model can be enabled when the provider switch is on, regardless of `model_detections` status. Provider usability still requires provider switch on, at least one enabled model, and locally valid credentials/base URL.
 
 ## Interfaces
 
@@ -52,8 +52,8 @@ The request may omit credentials. The backend resolves missing credentials from 
 
 ## Tradeoffs
 
-The detection endpoint performs a real external model call, so it can be slower or fail because of provider/network conditions. This is intentional because the UI contract is “key plus model is usable,” not “form fields are non-empty.” The timeout is bounded at 30 seconds. Detection no longer persists provider drafts on its own; that keeps discard-and-switch behavior coherent at the cost of requiring an explicit save after a successful check.
+The detection endpoint performs a real external model call, so it can be slower or fail because of provider/network conditions. Detection is advisory rather than required for enablement; this avoids blocking administrators when the check is skipped or transiently fails. The timeout is bounded at 30 seconds. Detection no longer persists provider drafts on its own; that keeps discard-and-switch behavior coherent at the cost of requiring an explicit save if the administrator wants to keep the latest detection result.
 
 ## Rollback
 
-Rollback can remove the detection endpoint usage from the UI and return to local validation. Persisted `model_detections` fields are additive JSON fields and can be ignored by older code.
+Rollback can remove the detection endpoint usage from the UI and keep local provider validation based on credentials, Base URL, and enabled models. Persisted `model_detections` fields are additive JSON fields and can be ignored by older code.

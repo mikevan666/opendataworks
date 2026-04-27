@@ -276,7 +276,7 @@ const buildProviderDraft = (provider) => {
     token: '',
     base_url: provider.base_url || '',
     supports_partial_messages: provider.supports_partial_messages !== false,
-    enabled_models: uniqueStrings(provider.models || []).filter((model) => modelDetections[model]?.status === 'verified'),
+    enabled_models: uniqueStrings(provider.models || []),
     custom_models: customModels,
     base_supported_models: uniqueStrings(provider.supported_models || []).filter((model) => !customModels.includes(model)),
     model_detections: modelDetections
@@ -285,7 +285,7 @@ const buildProviderDraft = (provider) => {
 
 const buildProviderSnapshot = (draft) => {
   const modelDetections = normalizeDetections(draft?.model_detections)
-  const enabledModels = uniqueStrings(draft?.enabled_models).filter((model) => modelDetections[model]?.status === 'verified')
+  const enabledModels = uniqueStrings(draft?.enabled_models)
   return {
     provider_enabled: Boolean(draft?.provider_enabled),
     token: String(draft?.token || '').trim(),
@@ -455,7 +455,7 @@ const providerPreview = (provider) => {
   }
 
   const providerEnabled = Boolean(draft.provider_enabled)
-  const enabledModels = uniqueStrings(draft.enabled_models).filter((model) => draft.model_detections?.[model]?.status === 'verified')
+  const enabledModels = uniqueStrings(draft.enabled_models)
   if (!providerEnabled) {
     return {
       status: 'unverified',
@@ -486,7 +486,7 @@ const providerPreview = (provider) => {
   if (!enabledModels.length) {
     return {
       status: 'unverified',
-      message: '请先检测并启用至少一个模型',
+      message: '请启用至少一个模型',
       providerEnabled,
       enabled: false,
       enabledModels: []
@@ -530,7 +530,7 @@ const credentialSummary = (provider) => {
 const isModelEnabled = (model) => Boolean(currentDraft.value?.enabled_models?.includes(model))
 
 const canEnableModel = (model) => {
-  return Boolean(currentDraft.value?.provider_enabled) && modelDetection(model).status === 'verified'
+  return Boolean(currentDraft.value?.provider_enabled)
 }
 
 const setModelEnabled = (model, enabled) => {
@@ -551,10 +551,6 @@ const isDetecting = (model) => Boolean(detectingModels[detectKey(model)])
 const clearCurrentDetections = () => {
   if (!currentDraft.value) return
   currentDraft.value.model_detections = {}
-  currentDraft.value.enabled_models = []
-  if (form.provider_id === currentProvider.value?.provider_id) {
-    form.model = ''
-  }
 }
 
 const resetProviderState = (items) => {
@@ -713,7 +709,6 @@ const detectModel = async (model) => {
       checked_at: result.checked_at || ''
     }
     if (result.status !== 'verified') {
-      currentDraft.value.enabled_models = currentDraft.value.enabled_models.filter((item) => item !== model)
       ElMessage.error(result.message || '模型检测失败')
       return
     }
@@ -726,7 +721,7 @@ const detectModel = async (model) => {
 const buildProviderPayload = (providerId) => {
   const provider = providers.value.find((item) => item.provider_id === providerId)
   const draft = providerDrafts[providerId]
-  const enabledModels = uniqueStrings(draft.enabled_models).filter((model) => draft.model_detections?.[model]?.status === 'verified')
+  const enabledModels = uniqueStrings(draft.enabled_models)
   const payload = {
     provider_id: providerId,
     provider_enabled: Boolean(draft.provider_enabled),
