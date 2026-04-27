@@ -212,7 +212,7 @@
       </p>
     </section>
 
-    <el-dialog v-model="providerDialogVisible" title="新增供应商" width="560px">
+    <el-dialog v-model="providerDialogVisible" title="新增供应商" width="min(560px, calc(100vw - 32px))">
       <div class="space-y-5">
         <div>
           <label class="mb-2 block text-sm font-medium text-gray-700">供应商类型</label>
