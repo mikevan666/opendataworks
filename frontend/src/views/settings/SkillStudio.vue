@@ -21,7 +21,16 @@
         >
           <el-button type="primary" :loading="importLoading">导入 Skill</el-button>
         </el-upload>
-        <el-button :loading="syncLoading" @click="triggerSync">刷新目录</el-button>
+        <el-tooltip content="刷新目录" placement="top">
+          <el-button
+            class="skill-studio__sync-button"
+            :icon="Refresh"
+            :loading="syncLoading"
+            circle
+            aria-label="刷新目录"
+            @click="triggerSync"
+          />
+        </el-tooltip>
       </div>
     </div>
 
@@ -69,13 +78,6 @@
           <el-tag size="small" effect="plain">{{ skill.documentCount }} 个文件</el-tag>
         </div>
 
-        <div class="skill-card__stats">
-          <div class="skill-stat">
-            <div class="skill-stat__label">最近更新</div>
-            <div class="skill-stat__value">{{ formatTime(skill.updatedAt) }}</div>
-          </div>
-        </div>
-
         <div class="skill-card__footer">
           <el-button text type="primary" @click="openSkillDetail(skill.folder)">查看详情</el-button>
           <el-button
@@ -101,8 +103,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import { dataagentApi } from '@/api/dataagent'
 import { buildSkillItems, sourceLabel } from './skillAdminShared'
 
@@ -148,11 +150,6 @@ const notifyError = (error, fallbackMessage) => {
   if (!error?.__odwNotified) {
     ElMessage.error(error?.message || fallbackMessage)
   }
-}
-
-const formatTime = (value) => {
-  if (!value) return '-'
-  return dayjs(value).format('YYYY-MM-DD HH:mm:ss')
 }
 
 const isOnlyEnabledSkill = (skill) => Boolean(skill?.enabled) && enabledSkillCount.value <= 1
@@ -320,24 +317,32 @@ onMounted(async () => {
   width: 280px;
 }
 
+.skill-studio__sync-button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
 .skill-studio__alert {
   margin-top: -4px;
 }
 
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 300px));
+  justify-content: start;
+  gap: 14px;
   min-width: 0;
 }
 
 .skill-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   padding: 16px;
   border: 1px solid #dbe2ea;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   min-width: 0;
 }
@@ -383,28 +388,6 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.skill-card__stats {
-  display: block;
-}
-
-.skill-stat {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.skill-stat__label {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.skill-stat__value {
-  margin-top: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
 .skill-card__footer {
   display: flex;
   justify-content: flex-end;
@@ -424,9 +407,17 @@ onMounted(async () => {
     width: 100%;
   }
 
+  .skill-grid {
+    grid-template-columns: 1fr;
+  }
+
   .skill-studio__actions :deep(.el-upload),
-  .skill-studio__actions :deep(.el-button) {
+  .skill-studio__actions :deep(.el-upload .el-button) {
     width: 100%;
+  }
+
+  .skill-studio__sync-button {
+    align-self: flex-start;
   }
 
   .skill-card__switch {
