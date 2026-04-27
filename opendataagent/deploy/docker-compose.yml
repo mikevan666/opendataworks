@@ -64,6 +64,7 @@ services:
     restart: always
     environment:
       OPENDATAAGENT_API_UPSTREAM: http://opendataagent-server:18900
+      OPENDATAAGENT_ADMIN_TOKEN: ${OPENDATAAGENT_ADMIN_TOKEN:-change-me}
     depends_on:
       opendataagent-server:
         condition: service_healthy

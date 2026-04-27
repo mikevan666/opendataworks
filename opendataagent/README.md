@@ -50,11 +50,19 @@ go run ./cmd/opendataagent
 ```bash
 cd opendataagent/deploy
 cp .env.example .env
-docker compose up -d --build
+bash ../scripts/start.sh
 ```
 
 默认会把仓库根目录 `skills/` 以只读方式挂载到容器内，并由服务启动时同步到运行目录。
 如果目录位置不同，可在 `opendataagent/deploy/.env` 里调整 `OPENDATAAGENT_SHARED_SKILLS_PATH`。
+
+如需手工执行 Compose，请显式指定项目名：
+
+```bash
+docker compose --project-name opendataagent --env-file .env up -d --build
+```
+
+如果同机部署 OpenDataWorks 和 opendataagent，避免只对其中一套旧部署执行 `--remove-orphans`；历史上从 `deploy` 目录启动的容器可能共享 `deploy` project label。
 
 默认端口：
 

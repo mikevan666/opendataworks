@@ -42,7 +42,7 @@ bash scripts/start.sh
 ```bash
 cd opendataagent/deploy
 cp .env.example .env
-docker compose up -d --build
+bash ../scripts/start.sh
 ```
 
 - Web 默认端口：`18080`
@@ -50,6 +50,9 @@ docker compose up -d --build
 - MySQL 默认端口：`13306`
 - 共享平台 skill 源码来自根目录 `skills/`，由 `OPENDATAAGENT_SHARED_SKILLS_PATH` 控制挂载路径
 - OpenDataWorks 平台 skill 通过 `odw-cli` 调 Java agent API，不依赖 `portal-mcp`
+- `opendataagent` 启动脚本会固定使用 Compose project `opendataagent`，避免与根 OpenDataWorks 部署因目录名同为 `deploy` 而互相识别为 orphan container。
+- 如需手工执行 Compose，请使用 `docker compose --project-name opendataagent --env-file .env up -d --build`。
+- 如果两套部署曾经都用默认 project `deploy` 启动，请在维护窗口分别停掉旧容器后重启；不要只对其中一套部署执行 `--remove-orphans`。
 
 ## 离线部署
 

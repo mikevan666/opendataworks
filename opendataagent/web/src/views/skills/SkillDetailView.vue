@@ -25,9 +25,9 @@
 
     <template #sidebar>
       <section class="oda-card p-5">
-        <div v-if="skillItem" class="border-b border-gray-200 pb-5">
+        <div v-if="skillItem" class="border-b border-blue-100 pb-5">
           <div class="flex items-start gap-3">
-            <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+            <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-800">
               <component :is="iconForItem(skillItem)" class="h-5 w-5" />
             </div>
             <div class="min-w-0">
@@ -66,7 +66,7 @@
           >
         </div>
 
-        <div class="mt-5 rounded-lg border border-gray-200 bg-gray-50/70 p-3">
+        <div class="mt-5 rounded-lg border border-blue-100 bg-blue-50/40 p-3">
           <div class="mb-3 flex items-center gap-2 text-sm font-medium text-gray-700">
             <FolderTree class="h-4 w-4 text-gray-400" />
             <span>{{ folder }}</span>
@@ -82,7 +82,7 @@
             />
           </div>
 
-          <div v-else class="rounded-md border border-dashed border-gray-200 bg-white px-3 py-5 text-center text-sm text-gray-500">
+          <div v-else class="rounded-md border border-dashed border-blue-100 bg-white px-3 py-5 text-center text-sm text-gray-500">
             当前 Skill 还没有可展示的文件。
           </div>
         </div>
@@ -91,7 +91,7 @@
 
     <template v-if="skillItem">
       <section class="oda-card p-6">
-        <div class="flex flex-col gap-5 border-b border-gray-200 pb-5 xl:flex-row xl:items-start xl:justify-between">
+        <div class="flex flex-col gap-5 border-b border-blue-100 pb-5 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
             <div class="text-xl font-semibold tracking-tight text-gray-900">
               {{ detail ? displayName(detail) : skillItem.name }}
@@ -110,7 +110,7 @@
           </div>
 
           <div class="flex flex-wrap gap-3">
-            <div v-if="primaryDocument" class="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5">
+            <div v-if="primaryDocument" class="flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50/40 px-4 py-2.5">
               <span class="text-sm font-medium text-gray-600">启用 Skill</span>
               <el-switch
                 :model-value="skillEnabled"
@@ -148,17 +148,17 @@
         </div>
 
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">Skill 文件夹</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ folder }}</div>
             <div class="mt-1 text-sm text-gray-500">{{ filteredDocuments.length }} 个文件</div>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">最近更新</div>
             <div class="mt-2 text-sm font-medium text-gray-900">{{ detail ? formatTime(detail.updated_at) : '-' }}</div>
             <div class="mt-1 text-sm text-gray-500">{{ detail?.last_change_summary || '最近一次更新未填写说明' }}</div>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div class="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
             <div class="text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">文件状态</div>
             <div class="mt-2 text-sm font-medium text-gray-900">
               {{ detail?.editable === false ? '只读' : '可编辑' }}
@@ -178,7 +178,7 @@
           >
         </div>
 
-        <div class="mt-5 rounded-lg border border-gray-200 bg-white">
+        <div class="mt-5 rounded-lg border border-blue-100 bg-white">
           <TextCodeEditor
             v-if="detail"
             v-model="editorContent"
@@ -192,7 +192,7 @@
       </section>
 
       <section v-if="detail" class="oda-card p-6">
-        <div class="flex flex-col gap-2 border-b border-gray-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-2 border-b border-blue-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div class="oda-section-title">版本历史</div>
             <div class="mt-1 text-sm text-gray-500">查看当前文件的版本记录，并支持回滚。</div>
@@ -238,7 +238,7 @@
     </template>
 
     <section v-else class="oda-card p-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-gray-500">
         <FileCode2 class="h-6 w-6" />
       </div>
       <div class="mt-4 text-lg font-semibold text-gray-900">没有找到这个 Skill</div>
@@ -285,17 +285,17 @@
         </div>
 
         <div v-if="compareResult" class="grid gap-4 xl:grid-cols-2">
-          <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="rounded-lg border border-blue-100 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.left_label }}</div>
             <TextCodeEditor :model-value="compareResult.left_content" read-only />
           </div>
-          <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="rounded-lg border border-blue-100 bg-white p-4">
             <div class="mb-3 text-sm font-semibold text-gray-900">{{ compareResult.right_label }}</div>
             <TextCodeEditor :model-value="compareResult.right_content" read-only />
           </div>
         </div>
 
-        <div v-if="compareResult" class="rounded-lg border border-gray-200 bg-white p-4">
+        <div v-if="compareResult" class="rounded-lg border border-blue-100 bg-white p-4">
           <div class="mb-3 text-sm font-semibold text-gray-900">Unified Diff</div>
           <TextCodeEditor :model-value="compareResult.diff_text" read-only />
         </div>

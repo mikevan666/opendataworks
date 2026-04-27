@@ -147,7 +147,7 @@ describe('DataAgentConfig', () => {
             : 'unverified',
           validation_message: Boolean((patch.provider_enabled ?? provider.provider_enabled) && (patch.enabled_models || []).length)
             ? '模型服务已可用'
-            : '请先检测并启用至少一个模型'
+            : '请启用至少一个模型'
         }
       })
       return {
@@ -167,12 +167,12 @@ describe('DataAgentConfig', () => {
     expect(wrapper.text()).not.toContain('配置供应商、检测模型可用性，并选择默认模型。')
   })
 
-  it('requires verified detection before enabling a model', async () => {
+  it('allows enabling a model before detection succeeds', async () => {
     const payload = basePayload()
     payload.providers[0].models = []
     payload.providers[0].enabled = false
     payload.providers[0].validation_status = 'unverified'
-    payload.providers[0].validation_message = '请先检测并启用至少一个模型'
+    payload.providers[0].validation_message = '请启用至少一个模型'
     payload.providers[0].model_detections = {}
     apiMocks.getSettings.mockResolvedValue(payload)
 
@@ -180,22 +180,31 @@ describe('DataAgentConfig', () => {
     await flushPromises()
 
     const model = 'anthropic/claude-sonnet-4.5'
-    expect(wrapper.vm.canEnableModel(model)).toBe(false)
+    expect(wrapper.vm.canEnableModel(model)).toBe(true)
+    wrapper.vm.setModelEnabled(model, true)
+    expect(wrapper.vm.currentDraft.enabled_models).toEqual([model])
+  })
+
+  it('keeps an enabled model when detection fails', async () => {
+    const wrapper = mountConfig()
+    await flushPromises()
+
+    const model = 'anthropic/claude-sonnet-4.5'
+    expect(wrapper.vm.currentDraft.enabled_models).toEqual([model])
 
     apiMocks.detectModel.mockResolvedValue({
       provider_id: 'openrouter',
       model,
-      status: 'verified',
-      message: '模型检测通过',
+      status: 'failed',
+      message: '模型检测失败',
       checked_at: '2026-04-17T10:00:00'
     })
 
     await wrapper.vm.detectModel(model)
     await flushPromises()
 
-    expect(wrapper.vm.canEnableModel(model)).toBe(true)
-    wrapper.vm.setModelEnabled(model, true)
     expect(wrapper.vm.currentDraft.enabled_models).toEqual([model])
+    expect(messageMocks.error).toHaveBeenCalledWith('模型检测失败')
   })
 
   it('saves only the current provider patch and updates dirty button state', async () => {
@@ -251,7 +260,7 @@ describe('DataAgentConfig', () => {
     expect(wrapper.vm.currentDraft.provider_enabled).toBe(false)
   })
 
-  it('clears detection state when connection fields change and marks current provider dirty', async () => {
+  it('clears detection state when connection fields change without disabling models', async () => {
     const wrapper = mountConfig()
     await flushPromises()
 
@@ -259,7 +268,8 @@ describe('DataAgentConfig', () => {
     wrapper.vm.clearCurrentDetections()
 
     expect(wrapper.vm.currentDraft.model_detections).toEqual({})
-    expect(wrapper.vm.currentDraft.enabled_models).toEqual([])
+    expect(wrapper.vm.currentDraft.enabled_models).toEqual(['anthropic/claude-sonnet-4.5'])
+    expect(wrapper.vm.form.model).toBe('anthropic/claude-sonnet-4.5')
     expect(wrapper.vm.isProviderDirty('openrouter')).toBe(true)
     expect(before.model_detections['anthropic/claude-sonnet-4.5'].status).toBe('verified')
   })

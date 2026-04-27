@@ -13,8 +13,8 @@
             type="button"
             class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition"
             :class="filters.source === option.value
-              ? 'border-blue-700 bg-blue-700 text-white'
-              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
+              ? 'border-blue-800 bg-blue-800 text-white'
+              : 'border-blue-100 bg-white text-blue-900 hover:bg-blue-50/40'"
             @click="setSourceFilter(option.value)"
           >
             <span>{{ option.label }}</span>
@@ -53,7 +53,7 @@
         <article
           v-for="item in installedItems"
           :key="item.id"
-          class="oda-card cursor-pointer p-5 transition hover:border-gray-300"
+          class="oda-card cursor-pointer p-5 transition hover:border-blue-200"
           tabindex="0"
           @click="openSkillDetail(item)"
           @keydown.enter.prevent="openSkillDetail(item)"
@@ -61,7 +61,7 @@
         >
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-start gap-3">
-              <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-800">
                 <component :is="iconForItem(item)" class="h-5 w-5" />
               </div>
               <div class="min-w-0">
@@ -98,7 +98,7 @@
         <article
           v-for="item in availableItems"
           :key="item.id"
-          class="oda-card cursor-pointer p-5 transition hover:border-gray-300"
+          class="oda-card cursor-pointer p-5 transition hover:border-blue-200"
           tabindex="0"
           @click="openSkillDetail(item)"
           @keydown.enter.prevent="openSkillDetail(item)"
@@ -106,7 +106,7 @@
         >
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-start gap-3">
-              <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-gray-100 text-gray-600">
+              <div class="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
                 <component :is="iconForItem(item)" class="h-5 w-5" />
               </div>
               <div class="min-w-0">
@@ -144,7 +144,7 @@
     </section>
 
     <section v-if="!loading && !items.length" class="oda-card p-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
         <PackageSearch class="h-6 w-6" />
       </div>
       <div class="mt-4 text-lg font-semibold text-gray-900">还没有可展示的 Skill</div>
@@ -168,7 +168,7 @@
           <label class="mb-2 block text-sm font-medium text-gray-700">上传文件</label>
           <input
             ref="fileInputRef"
-            class="block w-full rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm text-gray-600"
+            class="block w-full rounded-lg border border-dashed border-blue-200 bg-blue-50/40 px-4 py-4 text-sm text-blue-900"
             type="file"
             accept=".zip,.md,.markdown,text/markdown,application/zip"
             @change="handleImportFileChange"

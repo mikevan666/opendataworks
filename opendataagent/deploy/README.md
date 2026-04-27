@@ -5,7 +5,13 @@
 ```bash
 cd opendataagent/deploy
 cp .env.example .env
-docker compose up -d --build
+bash ../scripts/start.sh
+```
+
+如果需要手工调用 Compose，请显式指定项目名，避免与根 OpenDataWorks 部署同为 `deploy` 项目：
+
+```bash
+docker compose --project-name opendataagent --env-file .env up -d --build
 ```
 
 默认端口：
@@ -13,6 +19,8 @@ docker compose up -d --build
 - Web: `18080`
 - Server: `18900`
 - MySQL: `13306`
+
+迁移提示：如果同一机器上 OpenDataWorks 和 opendataagent 都曾经从名为 `deploy` 的目录直接执行过 `docker compose up`，请在维护窗口分别停掉旧容器后再用上述脚本重启。不要只对其中一套部署执行 `--remove-orphans`，因为旧容器可能共享同一个 Compose project label。
 
 ## 离线部署包
 

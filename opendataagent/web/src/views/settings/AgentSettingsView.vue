@@ -19,14 +19,14 @@
           </div>
         </div>
 
-        <div class="mt-5 overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <div class="grid grid-cols-[minmax(0,1fr)_84px_84px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-gray-500">
+        <div class="mt-5 overflow-hidden rounded-lg border border-blue-100 bg-white">
+          <div class="grid grid-cols-[minmax(0,1fr)_84px_84px] gap-3 border-b border-blue-100 bg-blue-50/40 px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-gray-500">
             <span>供应商</span>
             <span class="text-center">启用</span>
             <span class="text-center">默认</span>
           </div>
 
-          <div class="divide-y divide-gray-200">
+          <div class="divide-y divide-blue-100">
             <div
               v-for="provider in orderedProviders"
               :key="provider.provider_id"
@@ -44,7 +44,7 @@
                   </div>
                   <span
                     v-if="provider.provider_id === inspectedProviderId"
-                    class="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                    class="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800"
                   >
                     当前
                   </span>
@@ -73,7 +73,7 @@
 
     <template v-if="selectedProvider">
       <form class="oda-card p-6" @submit.prevent>
-        <div class="flex flex-col gap-5 border-b border-gray-200 pb-5 xl:flex-row xl:items-start xl:justify-between">
+        <div class="flex flex-col gap-5 border-b border-blue-100 pb-5 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
             <div class="text-xl font-semibold tracking-tight text-gray-900">
               {{ selectedProvider.display_name || selectedProvider.provider_id }}
@@ -99,7 +99,7 @@
           </div>
         </div>
 
-        <div v-if="selectedProvider.provider_id !== 'mock'" class="mt-5 border-t border-gray-200 pt-5">
+        <div v-if="selectedProvider.provider_id !== 'mock'" class="mt-5 border-t border-blue-100 pt-5">
           <div class="text-base font-semibold text-gray-900">Base URL</div>
           <div class="mt-2 text-sm leading-relaxed text-gray-500">
             当前供应商的模型请求地址。
@@ -130,11 +130,11 @@
           </div>
         </div>
 
-        <div v-else class="mt-5 border-t border-gray-200 pt-5 text-sm leading-relaxed text-gray-600">
+        <div v-else class="mt-5 border-t border-blue-100 pt-5 text-sm leading-relaxed text-gray-600">
           Mock Runtime 仅用于本地调试，不需要配置 Base URL 或 API Token。
         </div>
 
-        <div class="mt-5 border-t border-gray-200 pt-5">
+        <div class="mt-5 border-t border-blue-100 pt-5">
           <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <div class="text-base font-semibold text-gray-900">模型</div>
@@ -149,14 +149,14 @@
           </div>
 
           <div class="mt-4">
-            <div class="grid grid-cols-[minmax(0,1fr)_112px_112px_auto] gap-3 border-b border-gray-200 px-1 py-3 text-xs font-medium uppercase tracking-[0.08em] text-gray-500">
+            <div class="grid grid-cols-[minmax(0,1fr)_112px_112px_auto] gap-3 border-b border-blue-100 px-1 py-3 text-xs font-medium uppercase tracking-[0.08em] text-gray-500">
               <span>模型名称</span>
               <span class="text-center">是否启用</span>
               <span class="text-center">是否默认</span>
               <span class="text-right">操作</span>
             </div>
 
-            <div v-if="(selectedProvider.models || []).length" class="divide-y divide-gray-200">
+            <div v-if="(selectedProvider.models || []).length" class="divide-y divide-blue-100">
               <div
                 v-for="model in selectedProvider.models || []"
                 :key="model.name"
@@ -185,7 +185,7 @@
                   <button
                     v-if="(selectedProvider.models || []).length > 1"
                     type="button"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-blue-100 bg-white text-blue-700 transition hover:bg-blue-50 hover:text-blue-900"
                     @click="removeModel(model)"
                   >
                     <Trash2 class="h-4 w-4" />
@@ -203,7 +203,7 @@
     </template>
 
     <section v-else class="oda-card p-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
         <Cpu class="h-6 w-6" />
       </div>
       <div class="mt-4 text-lg font-semibold text-gray-900">还没有可用的供应商配置</div>
@@ -212,7 +212,7 @@
       </p>
     </section>
 
-    <el-dialog v-model="providerDialogVisible" title="新增供应商" width="560px">
+    <el-dialog v-model="providerDialogVisible" title="新增供应商" width="min(560px, calc(100vw - 32px))">
       <div class="space-y-5">
         <div>
           <label class="mb-2 block text-sm font-medium text-gray-700">供应商类型</label>
@@ -223,8 +223,8 @@
               type="button"
               class="rounded-lg border px-4 py-3 text-left transition"
               :class="providerDraft.provider_type === option.value
-                ? 'border-blue-700 bg-blue-700 text-white'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
+                ? 'border-blue-800 bg-blue-800 text-white'
+                : 'border-blue-100 bg-white text-gray-700 hover:bg-blue-50/40'"
               @click="selectProviderType(option.value)"
             >
               <div class="text-sm font-medium">{{ option.label }}</div>

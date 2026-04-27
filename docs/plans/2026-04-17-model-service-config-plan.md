@@ -8,8 +8,8 @@
 4. Refactor the Vue settings page into a simplified model service console, remove runtime details from the UI, drop the outer page header layer, and move save into the current provider title bar.
 5. Update the configuration tab label from `智能问数` to `模型服务`.
 6. Change provider save scope from whole-page save to current-provider save with per-provider dirty state and switch-away confirmation.
-7. Keep model detection as a real check, but return the detection result without persisting provider draft changes until the current provider is explicitly saved.
-8. Add targeted backend and frontend tests for detection state, enablement rules, dirty-state behavior, and API contract.
+7. Keep model detection as a real optional check, but return the detection result without persisting provider draft changes until the current provider is explicitly saved.
+8. Add targeted backend and frontend tests for advisory detection state, enablement rules, dirty-state behavior, and API contract.
 
 ## Verification
 
@@ -20,7 +20,7 @@
 
 ## Rollout
 
-This is an admin UI and DataAgent API change. No migration is needed because detection data is stored in existing JSON settings. Existing saved provider settings remain readable; models without detection state will appear as not detected and cannot be newly enabled until detection succeeds. Detection remains a separate API call, but draft edits only become persistent when the current provider is saved.
+This is an admin UI and DataAgent API change. No migration is needed because detection data is stored in existing JSON settings. Existing saved provider settings remain readable; models without detection state appear as not detected but can still be enabled. Detection remains a separate API call, but draft edits only become persistent when the current provider is saved.
 
 ## Backout
 

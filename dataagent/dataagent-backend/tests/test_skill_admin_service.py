@@ -121,7 +121,7 @@ def test_merge_provider_settings_can_reenable_provider_with_models():
             "model_detections": {},
             "enabled": False,
             "validation_status": "unverified",
-            "validation_message": "请先检测并启用至少一个模型",
+            "validation_message": "请启用至少一个模型",
         }
     }
     patch = {
@@ -187,7 +187,7 @@ def test_merge_provider_settings_preserves_partial_capability_flag():
     assert provider["enabled"] is True
 
 
-def test_merge_provider_settings_requires_verified_model_detection():
+def test_merge_provider_settings_allows_enabled_model_without_detection():
     merged = _merge_provider_settings(
         {},
         {
@@ -203,9 +203,9 @@ def test_merge_provider_settings_requires_verified_model_detection():
     )
 
     provider = merged["openrouter"]
-    assert provider["enabled_models"] == []
-    assert provider["validation_status"] == "unverified"
-    assert provider["enabled"] is False
+    assert provider["enabled_models"] == ["anthropic/claude-sonnet-4.5"]
+    assert provider["validation_status"] == "verified"
+    assert provider["enabled"] is True
 
 
 def test_merge_settings_payload_keeps_provider_and_model_empty_without_enabled_provider():
@@ -287,13 +287,7 @@ def test_resolve_runtime_provider_selection_returns_partial_capability(monkeypat
                     "auth_token": "relay-token",
                     "base_url": "https://relay.example.invalid",
                     "enabled_models": ["claude-sonnet-4.5"],
-                    "model_detections": {
-                        "claude-sonnet-4.5": {
-                            "status": "verified",
-                            "message": "模型检测通过",
-                            "checked_at": "2026-04-17T10:00:00",
-                        }
-                    },
+                    "model_detections": {},
                     "supports_partial_messages": False,
                 }
             },
