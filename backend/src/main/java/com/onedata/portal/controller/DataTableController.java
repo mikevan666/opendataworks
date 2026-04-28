@@ -935,7 +935,7 @@ public class DataTableController {
                 case "csv":
                 default:
                     data = dataExportService.exportToCsv(clusterId, database, actualTableName, limit);
-                    contentType = "text/csv";
+                    contentType = "text/csv;charset=UTF-8";
                     fileExtension = "csv";
                     break;
             }
