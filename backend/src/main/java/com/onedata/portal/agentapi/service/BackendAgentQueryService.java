@@ -6,7 +6,9 @@ import com.onedata.portal.agentapi.dto.AgentReadQueryResponse;
 import lombok.RequiredArgsConstructor;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.Statements;
+import net.sf.jsqlparser.statement.select.Select;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -14,6 +16,8 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -23,8 +27,9 @@ public class BackendAgentQueryService implements AgentQueryService {
     private static final int MAX_LIMIT = 1000;
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final int MAX_TIMEOUT_SECONDS = 120;
-    private static final Set<String> READ_ONLY_PREFIXES = new LinkedHashSet<>(
-            Arrays.asList("SELECT", "WITH", "SHOW", "DESC", "DESCRIBE", "EXPLAIN")
+    private static final Pattern LEADING_KEYWORD_PATTERN = Pattern.compile("^\\s*([a-zA-Z]+)");
+    private static final Set<String> READ_ONLY_FALLBACK_KEYWORDS = new LinkedHashSet<>(
+            Arrays.asList("SHOW", "DESC", "DESCRIBE", "EXPLAIN")
     );
 
     private final AgentMetadataService agentMetadataService;
@@ -80,17 +85,33 @@ public class BackendAgentQueryService implements AgentQueryService {
             throw new IllegalArgumentException("仅支持单条只读 SQL");
         }
 
-        String sqlType = detectSqlType(sql);
-        if (!READ_ONLY_PREFIXES.contains(sqlType)) {
+        Statement statement = statements.getStatements().get(0);
+        if (!isReadOnlyStatement(statement, sql)) {
             throw new IllegalArgumentException("仅支持只读 SQL");
         }
     }
 
-    private String detectSqlType(String sql) {
-        String text = String.valueOf(sql == null ? "" : sql).trim();
-        int whitespace = text.indexOf(' ');
-        String head = whitespace < 0 ? text : text.substring(0, whitespace);
-        return head.toUpperCase(Locale.ROOT);
+    private boolean isReadOnlyStatement(Statement statement, String sql) {
+        if (statement instanceof Select) {
+            return true;
+        }
+
+        String statementType = statement == null ? "" : statement.getClass().getSimpleName();
+        if (statementType.startsWith("Show")
+                || "DescribeStatement".equals(statementType)
+                || "ExplainStatement".equals(statementType)) {
+            return true;
+        }
+
+        return READ_ONLY_FALLBACK_KEYWORDS.contains(detectLeadingKeyword(sql));
+    }
+
+    private String detectLeadingKeyword(String sql) {
+        if (!StringUtils.hasText(sql)) {
+            return "";
+        }
+        Matcher matcher = LEADING_KEYWORD_PATTERN.matcher(sql);
+        return matcher.find() ? matcher.group(1).toUpperCase(Locale.ROOT) : "";
     }
 
     private int normalizeLimit(Integer limit) {

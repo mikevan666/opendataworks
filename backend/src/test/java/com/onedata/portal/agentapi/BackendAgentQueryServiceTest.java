@@ -66,31 +66,75 @@ class BackendAgentQueryServiceTest {
     }
 
     @Test
-    void readQueryRejectsMutatingSql() {
-        AgentReadQueryRequest request = new AgentReadQueryRequest();
-        request.setDatabase("opendataworks");
-        request.setSql("INSERT INTO demo VALUES (1)");
+    void readQueryAcceptsSelectWithLeadingComment() {
+        String sql = "/* publish trend */\n"
+                + "SELECT\n"
+                + "  DATE(created_at) AS publish_date,\n"
+                + "  SUM(publish_count) AS total_publish_count\n"
+                + "FROM opendataworks.workflow_publish_record\n"
+                + "GROUP BY DATE(created_at)";
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> backendAgentQueryService.readQuery(request)
-        );
+        assertReadQueryAccepted(sql);
+    }
 
-        assertEquals("仅支持只读 SQL", exception.getMessage());
+    @Test
+    void readQueryAcceptsSelectWhenCommentContainsMutatingKeywords() {
+        String sql = "/* example only: update demo set name = 'x'; "
+                + "delete from demo; drop table demo; alter table demo add column name varchar(64); */\n"
+                + "SELECT * FROM demo LIMIT 10";
+
+        assertReadQueryAccepted(sql);
+    }
+
+    @Test
+    void readQueryAcceptsMultilineAggregateSelect() {
+        String sql = "SELECT\n"
+                + "  DATE(created_at) AS publish_date,\n"
+                + "  SUM(publish_count) AS total_publish_count\n"
+                + "FROM opendataworks.workflow_publish_record\n"
+                + "GROUP BY DATE(created_at)\n"
+                + "ORDER BY publish_date";
+
+        assertReadQueryAccepted(sql);
+    }
+
+    @Test
+    void readQueryAcceptsShowSql() {
+        assertReadQueryAccepted("SHOW TABLES");
+    }
+
+    @Test
+    void readQueryAcceptsDescribeAndExplainSql() {
+        assertReadQueryAccepted("DESCRIBE demo");
+        assertReadQueryAccepted("EXPLAIN SELECT * FROM demo");
+    }
+
+    @Test
+    void readQueryAcceptsCrudSelectAndRejectsMutatingCrudSql() {
+        assertReadQueryAccepted("SELECT * FROM demo LIMIT 10");
+        assertReadQueryRejected("INSERT INTO demo VALUES (1)", "仅支持只读 SQL");
+        assertReadQueryRejected("UPDATE demo SET name = 'updated' WHERE id = 1", "仅支持只读 SQL");
+        assertReadQueryRejected("DELETE FROM demo WHERE id = 1", "仅支持只读 SQL");
+    }
+
+    @Test
+    void readQueryRejectsMutatingSqlWithLeadingComment() {
+        assertReadQueryRejected("/* cleanup */\nDELETE FROM demo WHERE id = 1", "仅支持只读 SQL");
+    }
+
+    @Test
+    void readQueryRejectsTruncateSql() {
+        assertReadQueryRejected("TRUNCATE TABLE demo", "仅支持只读 SQL");
+    }
+
+    @Test
+    void readQueryRejectsAlterSql() {
+        assertReadQueryRejected("ALTER TABLE demo ADD COLUMN name VARCHAR(64)", "仅支持只读 SQL");
     }
 
     @Test
     void readQueryRejectsMultipleStatements() {
-        AgentReadQueryRequest request = new AgentReadQueryRequest();
-        request.setDatabase("opendataworks");
-        request.setSql("SELECT 1; SELECT 2");
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> backendAgentQueryService.readQuery(request)
-        );
-
-        assertEquals("仅支持单条只读 SQL", exception.getMessage());
+        assertReadQueryRejected("SELECT 1; SELECT 2", "仅支持单条只读 SQL");
     }
 
     @Test
@@ -111,5 +155,35 @@ class BackendAgentQueryServiceTest {
         backendAgentQueryService.readQuery(request);
 
         verify(agentJdbcExecutor).executeReadOnlyQuery(datasource, "SELECT 1", 1000, 120);
+    }
+
+    private void assertReadQueryAccepted(String sql) {
+        AgentReadQueryRequest request = new AgentReadQueryRequest();
+        request.setDatabase("opendataworks");
+        request.setSql(sql);
+
+        AgentDatasourceResolution datasource = new AgentDatasourceResolution();
+        datasource.setDatabase("opendataworks");
+        datasource.setEngine("mysql");
+        when(agentMetadataService.resolveDatasource("opendataworks", null)).thenReturn(datasource);
+        when(agentJdbcExecutor.executeReadOnlyQuery(any(), eq(sql), eq(200), eq(30)))
+                .thenReturn(new AgentJdbcExecutor.QueryExecutionResult());
+
+        backendAgentQueryService.readQuery(request);
+
+        verify(agentJdbcExecutor).executeReadOnlyQuery(datasource, sql, 200, 30);
+    }
+
+    private void assertReadQueryRejected(String sql, String expectedMessage) {
+        AgentReadQueryRequest request = new AgentReadQueryRequest();
+        request.setDatabase("opendataworks");
+        request.setSql(sql);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> backendAgentQueryService.readQuery(request)
+        );
+
+        assertEquals(expectedMessage, exception.getMessage());
     }
 }
