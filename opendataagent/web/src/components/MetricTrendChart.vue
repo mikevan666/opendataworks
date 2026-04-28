@@ -58,7 +58,7 @@ const props = defineProps({
   },
   color: {
     type: String,
-    default: '#2563eb'
+    default: '#2f5f9f'
   },
   area: {
     type: Boolean,
@@ -96,9 +96,9 @@ const buildOption = () => ({
   tooltip: {
     trigger: 'axis',
     borderWidth: 0,
-    backgroundColor: '#1d4ed8',
+    backgroundColor: '#244f86',
     textStyle: {
-      color: '#f9fafb',
+      color: '#f8fafc',
       fontSize: 12
     },
     formatter(params) {
@@ -119,7 +119,7 @@ const buildOption = () => ({
       show: false
     },
     axisLabel: {
-      color: '#6b7280',
+      color: '#667085',
       fontSize: 11
     },
     data: normalizedData.value.map((item) => item?.[props.xKey] ?? '')
@@ -134,13 +134,13 @@ const buildOption = () => ({
       show: false
     },
     axisLabel: {
-      color: '#6b7280',
+      color: '#667085',
       fontSize: 11,
       formatter: (value) => formatValue(value)
     },
     splitLine: {
       lineStyle: {
-        color: '#f3f4f6'
+        color: '#edf3fa'
       }
     }
   },

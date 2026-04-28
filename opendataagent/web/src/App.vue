@@ -1,12 +1,12 @@
 <template>
-  <div class="flex h-screen min-w-0 flex-col overflow-hidden bg-[#f6f8fc] text-slate-900">
-    <header class="shrink-0 overflow-hidden border-b border-blue-100 bg-white">
+  <div class="flex h-screen min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-slate-900">
+    <header class="shrink-0 overflow-hidden border-b border-slate-200 bg-white">
       <div class="px-4 sm:px-5 lg:px-6">
         <div class="flex min-h-[76px] min-w-0 flex-wrap items-center gap-4 py-3 lg:flex-nowrap">
           <div class="flex min-w-[210px] shrink-0 items-center gap-3">
             <button
               type="button"
-              class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-800 text-white shadow-sm shadow-blue-950/10"
+              class="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2f5f9f] text-white shadow-sm shadow-slate-950/10"
               @click="navigateTo('/chat')"
             >
               <Bot class="h-[18px] w-[18px]" />
@@ -14,7 +14,7 @@
 
             <div class="min-w-0">
               <button type="button" class="text-left" @click="navigateTo('/chat')">
-                <div class="text-[18px] font-semibold tracking-tight text-blue-950">OpenDataAgent</div>
+                <div class="text-[18px] font-semibold tracking-tight text-slate-900">OpenDataAgent</div>
               </button>
             </div>
           </div>
@@ -109,17 +109,17 @@ const navigateTo = async (target) => {
 }
 
 .oda-top-menu:deep(.el-menu-item:hover) {
-  color: #1e40af;
+  color: #2f5f9f;
   background: transparent;
 }
 
 .oda-top-menu:deep(.el-menu-item.is-active) {
   background: transparent;
-  color: #1e40af;
+  color: #2f5f9f;
 }
 
 .oda-top-menu:deep(.el-menu-item.is-active svg) {
-  color: #1e40af;
+  color: #2f5f9f;
 }
 
 .oda-top-menu:deep(.el-menu-item svg) {
@@ -132,7 +132,7 @@ const navigateTo = async (target) => {
 .oda-top-menu:deep(.el-menu-item.is-active::after) {
   height: 3px;
   border-radius: 999px;
-  background-color: #1d4ed8;
+  background-color: #2f5f9f;
 }
 
 @media (max-width: 768px) {

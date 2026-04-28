@@ -42,7 +42,7 @@
           </div>
         </section>
 
-        <section class="border-t border-blue-100 pt-8">
+        <section class="border-t border-slate-200 pt-8">
           <div class="text-xl font-semibold tracking-tight text-gray-900">Skill 目录</div>
           <div class="mt-2 text-sm leading-relaxed text-gray-500">
             托管 Skill 与内置 Skill 的本地目录。
