@@ -1184,6 +1184,7 @@ import TaskEditDrawer from '@/views/tasks/TaskEditDrawer.vue'
 import { isDemoMode, showDemoReadonlyMessage } from '@/demo/runtime'
 import { copyText } from '@/utils/clipboard'
 import { loadEcharts } from '@/utils/loadEcharts'
+import { buildCsvContent } from './csvExport'
 
 const SqlEditor = defineAsyncComponent({
   loader: () => import('@/components/SqlEditor.vue'),
@@ -3637,11 +3638,7 @@ const exportResult = (tabId, resultIndex = 0) => {
   const rows = set?.rows || state.queryResult.rows || []
   if (!rows.length || !columns.length) return
 
-  const header = columns.join(',')
-  const body = rows
-    .map((row) => columns.map((col) => formatCsvValue(row?.[col])).join(','))
-    .join('\n')
-  const blob = new Blob([`${header}\n${body}`], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob([buildCsvContent(columns, rows)], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = `export_${Date.now()}.csv`
@@ -3774,12 +3771,6 @@ const handleCreateSuccess = async (result) => {
   }
 }
 
-
-const formatCsvValue = (value) => {
-  if (value === null || value === undefined) return ''
-  const str = String(value)
-  return str.includes(',') ? `"${str}"` : str
-}
 
 const getPaginatedRows = (tabId) => {
   const state = tabStates[tabId]

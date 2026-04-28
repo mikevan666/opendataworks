@@ -28,6 +28,8 @@ public class DataExportService {
     private final DorisConnectionService dorisConnectionService;
     private final ObjectMapper objectMapper;
 
+    private static final String UTF8_BOM = "\uFEFF";
+    private static final String CSV_LINE_SEPARATOR = "\r\n";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -38,24 +40,24 @@ public class DataExportService {
         List<Map<String, Object>> data = dorisConnectionService.previewTableData(clusterId, database, tableName, limit);
 
         if (data.isEmpty()) {
-            return new byte[0];
+            return UTF8_BOM.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         }
 
-        StringBuilder csv = new StringBuilder();
+        StringBuilder csv = new StringBuilder(UTF8_BOM);
 
         // 写入表头
         List<String> columns = new ArrayList<>(data.get(0).keySet());
         csv.append(String.join(",", columns.stream()
                 .map(this::escapeCsvValue)
                 .toArray(String[]::new)))
-           .append("\n");
+           .append(CSV_LINE_SEPARATOR);
 
         // 写入数据行
         for (Map<String, Object> row : data) {
             csv.append(String.join(",", columns.stream()
                     .map(col -> escapeCsvValue(formatValue(row.get(col))))
                     .toArray(String[]::new)))
-               .append("\n");
+               .append(CSV_LINE_SEPARATOR);
         }
 
         return csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -133,12 +135,23 @@ public class DataExportService {
             return "";
         }
 
-        // 如果包含逗号、引号或换行符，需要用引号包围并转义引号
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+        if (value.contains(",")
+                || value.contains("\"")
+                || value.contains("\n")
+                || value.contains("\r")
+                || startsWithSpreadsheetFormulaPrefix(value)) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
 
         return value;
+    }
+
+    private boolean startsWithSpreadsheetFormulaPrefix(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+        char first = value.charAt(0);
+        return first == '=' || first == '+' || first == '-' || first == '@';
     }
 
     /**
