@@ -49,7 +49,10 @@ public class WorkflowDeployService {
     @Transactional
     public DeploymentResult deploy(DataWorkflow workflow) {
         // Ensure project exists (force refresh/create)
-        Long actualProjectCode = dolphinSchedulerService.getProjectCode(true);
+        Long dolphinConfigId = workflow.getDolphinConfigId();
+        Long actualProjectCode = dolphinConfigId == null
+                ? dolphinSchedulerService.getProjectCode(true)
+                : dolphinSchedulerService.getProjectCode(dolphinConfigId, true);
 
         List<WorkflowTaskRelation> bindings = workflowTaskRelationMapper.selectList(
                 Wrappers.<WorkflowTaskRelation>lambdaQuery()
@@ -215,25 +218,41 @@ public class WorkflowDeployService {
         boolean existingWorkflow = workflowCode > 0;
         if (existingWorkflow) {
             // Check if the workflow definition actually exists in DolphinScheduler
-            boolean workflowExists = dolphinSchedulerService.checkWorkflowExists(workflowCode);
+            boolean workflowExists = dolphinConfigId == null
+                    ? dolphinSchedulerService.checkWorkflowExists(workflowCode)
+                    : dolphinSchedulerService.checkWorkflowExists(dolphinConfigId, workflowCode);
             if (!workflowExists) {
                 log.warn("Workflow {} no longer exists in DolphinScheduler, creating new definition", workflowCode);
                 existingWorkflow = false;
                 workflowCode = 0L; // Reset to 0 to force creation
             } else {
                 log.info("Workflow {} already exists, switch OFFLINE before redeploy", workflowCode);
-                dolphinSchedulerService.setWorkflowReleaseState(workflowCode, "OFFLINE");
+                if (dolphinConfigId == null) {
+                    dolphinSchedulerService.setWorkflowReleaseState(workflowCode, "OFFLINE");
+                } else {
+                    dolphinSchedulerService.setWorkflowReleaseState(dolphinConfigId, workflowCode, "OFFLINE");
+                }
             }
         }
 
-        long deployedCode = dolphinSchedulerService.syncWorkflow(
-                workflowCode,
-                workflow.getWorkflowName(),
-                workflow.getDescription(),
-                definitions,
-                relationPayloads,
-                locationPayloads,
-                workflow.getGlobalParams());
+        long deployedCode = dolphinConfigId == null
+                ? dolphinSchedulerService.syncWorkflow(
+                        workflowCode,
+                        workflow.getWorkflowName(),
+                        workflow.getDescription(),
+                        definitions,
+                        relationPayloads,
+                        locationPayloads,
+                        workflow.getGlobalParams())
+                : dolphinSchedulerService.syncWorkflow(
+                        dolphinConfigId,
+                        workflowCode,
+                        workflow.getWorkflowName(),
+                        workflow.getDescription(),
+                        definitions,
+                        relationPayloads,
+                        locationPayloads,
+                        workflow.getGlobalParams());
 
         updateTaskProcessCode(orderedTasks, deployedCode);
 

@@ -92,6 +92,9 @@ class WorkflowServiceMetadataPersistenceTest {
     @Mock
     private WorkflowTopologyService workflowTopologyService;
 
+    @Mock
+    private DolphinConfigService dolphinConfigService;
+
     private ObjectMapper objectMapper;
     private WorkflowService service;
 
@@ -111,7 +114,8 @@ class WorkflowServiceMetadataPersistenceTest {
                 dataLineageMapper,
                 tableTaskRelationMapper,
                 taskExecutionLogMapper,
-                workflowTopologyService);
+                workflowTopologyService,
+                dolphinConfigService);
     }
 
     @Test

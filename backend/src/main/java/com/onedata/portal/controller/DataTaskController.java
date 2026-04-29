@@ -132,8 +132,9 @@ public class DataTaskController {
      * 获取 DolphinScheduler Web UI 配置
      */
     @GetMapping("/config/dolphin-webui")
-    public Result<Map<String, String>> getDolphinWebuiConfig() {
-        String webuiUrl = dolphinSchedulerService.getWebuiBaseUrl();
+    public Result<Map<String, String>> getDolphinWebuiConfig(
+            @RequestParam(required = false) Long dolphinConfigId) {
+        String webuiUrl = dolphinSchedulerService.getWebuiBaseUrl(dolphinConfigId);
         return Result.success(Collections.singletonMap("webuiUrl", webuiUrl));
     }
 

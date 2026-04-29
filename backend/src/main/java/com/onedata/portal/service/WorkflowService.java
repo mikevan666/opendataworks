@@ -15,11 +15,13 @@ import com.onedata.portal.dto.workflow.WorkflowDetailResponse;
 import com.onedata.portal.dto.workflow.WorkflowInstanceSummary;
 import com.onedata.portal.dto.workflow.WorkflowBackfillRequest;
 import com.onedata.portal.dto.workflow.WorkflowQueryRequest;
+import com.onedata.portal.dto.workflow.WorkflowSchedulerEngineRequest;
 import com.onedata.portal.dto.workflow.WorkflowTaskBinding;
 import com.onedata.portal.dto.workflow.WorkflowTopologyResult;
 import com.onedata.portal.entity.DataLineage;
 import com.onedata.portal.entity.DataTask;
 import com.onedata.portal.entity.DataWorkflow;
+import com.onedata.portal.entity.DolphinConfig;
 import com.onedata.portal.entity.TableTaskRelation;
 import com.onedata.portal.entity.TaskExecutionLog;
 import com.onedata.portal.entity.WorkflowInstanceCache;
@@ -101,6 +103,7 @@ public class WorkflowService {
     private final TableTaskRelationMapper tableTaskRelationMapper;
     private final TaskExecutionLogMapper taskExecutionLogMapper;
     private final WorkflowTopologyService workflowTopologyService;
+    private final DolphinConfigService dolphinConfigService;
 
     public Page<DataWorkflow> list(WorkflowQueryRequest request) {
         LambdaQueryWrapper<DataWorkflow> wrapper = Wrappers.lambdaQuery();
@@ -179,7 +182,7 @@ public class WorkflowService {
         }
         try {
             List<WorkflowInstanceSummary> realtimeSummaries = dolphinSchedulerService
-                    .listWorkflowInstances(workflow.getWorkflowCode(), limit);
+                    .listWorkflowInstances(workflow.getDolphinConfigId(), workflow.getWorkflowCode(), limit);
             workflowInstanceCacheService.replaceCache(workflow, realtimeSummaries);
             return mapSummariesToCaches(workflow.getId(), realtimeSummaries);
         } catch (Exception ex) {
@@ -221,6 +224,7 @@ public class WorkflowService {
         workflow.setTaskGroupName(request.getTaskGroupName());
         workflow.setStatus("draft");
         workflow.setPublishStatus("never");
+        workflow.setDolphinConfigId(resolveDolphinConfigId(request.getDolphinConfigId()));
         workflow.setProjectCode(resolveProjectCode(request.getProjectCode()));
         workflow.setCreatedBy(request.getOperator());
         workflow.setUpdatedBy(request.getOperator());
@@ -260,6 +264,7 @@ public class WorkflowService {
         TaskExecutionLog executionLog = createWorkflowExecutionLog(workflowId, "manual");
         try {
             String executionId = dolphinSchedulerService.startProcessInstance(
+                    workflow.getDolphinConfigId(),
                     workflowCode,
                     null,
                     workflow.getWorkflowName());
@@ -293,7 +298,8 @@ public class WorkflowService {
         }
         TaskExecutionLog executionLog = createWorkflowExecutionLog(workflowId, "manual");
         try {
-            String triggerId = dolphinSchedulerService.backfillProcessInstance(workflowCode, request);
+            String triggerId = dolphinSchedulerService.backfillProcessInstance(
+                    workflow.getDolphinConfigId(), workflowCode, request);
             if (executionLog != null) {
                 executionLog.setExecutionId(triggerId);
                 executionLog.setStatus("running");
@@ -362,6 +368,9 @@ public class WorkflowService {
         workflow.setTaskGroupName(request.getTaskGroupName());
         workflow.setUpdatedBy(request.getOperator());
         workflow.setUpdatedAt(LocalDateTime.now());
+        if (workflow.getDolphinConfigId() == null) {
+            workflow.setDolphinConfigId(resolveDolphinConfigId(request.getDolphinConfigId()));
+        }
         if (workflow.getProjectCode() == null || workflow.getProjectCode() == 0) {
             workflow.setProjectCode(resolveProjectCode(request.getProjectCode()));
         }
@@ -399,6 +408,7 @@ public class WorkflowService {
         request.setDescription(workflow.getDescription());
         request.setTaskGroupName(workflow.getTaskGroupName());
         request.setGlobalParams(workflow.getGlobalParams());
+        request.setDolphinConfigId(workflow.getDolphinConfigId());
         request.setProjectCode(workflow.getProjectCode());
         request.setTasks(buildTaskBindingsFromRelations(relations));
         request.setOperator(resolveWorkflowOperator(workflow, operator));
@@ -431,6 +441,47 @@ public class WorkflowService {
             workflow.setUpdatedBy(operator.trim());
         }
         workflow.setUpdatedAt(LocalDateTime.now());
+        dataWorkflowMapper.updateById(workflow);
+        return workflow;
+    }
+
+    @Transactional
+    public DataWorkflow switchSchedulerEngine(Long workflowId, WorkflowSchedulerEngineRequest request) {
+        if (workflowId == null) {
+            throw new IllegalArgumentException("workflowId 不能为空");
+        }
+        if (request == null || request.getDolphinConfigId() == null || request.getDolphinConfigId() <= 0) {
+            throw new IllegalArgumentException("dolphinConfigId 不能为空");
+        }
+        DataWorkflow workflow = dataWorkflowMapper.selectById(workflowId);
+        if (workflow == null) {
+            throw new IllegalArgumentException("Workflow not found: " + workflowId);
+        }
+        Long targetConfigId = request.getDolphinConfigId();
+        DolphinConfig targetConfig = dolphinConfigService.getEnabledConfig(targetConfigId);
+        if (!dolphinSchedulerService.testConnection(targetConfigId)) {
+            throw new IllegalStateException("目标 Dolphin 环境连接失败: " + targetConfig.getConfigName());
+        }
+        Long targetProjectCode = dolphinSchedulerService.getProjectCode(targetConfigId, true);
+        if (targetProjectCode == null || targetProjectCode <= 0) {
+            throw new IllegalStateException("目标 Dolphin 项目不可用: " + targetConfig.getProjectName());
+        }
+
+        workflow.setDolphinConfigId(targetConfigId);
+        workflow.setWorkflowCode(null);
+        workflow.setProjectCode(targetProjectCode);
+        workflow.setDolphinScheduleId(null);
+        workflow.setScheduleState("OFFLINE");
+        workflow.setStatus("offline");
+        workflow.setPublishStatus("never");
+        workflow.setLastPublishedVersionId(null);
+        workflow.setRuntimeSyncStatus(null);
+        workflow.setRuntimeSyncMessage(null);
+        workflow.setRuntimeSyncHash(null);
+        workflow.setRuntimeSyncAt(null);
+        workflow.setUpdatedBy(StringUtils.hasText(request.getOperator()) ? request.getOperator().trim() : "system");
+        workflow.setUpdatedAt(LocalDateTime.now());
+        workflow.setDefinitionJson(refreshDefinitionRuntimeIds(workflow.getDefinitionJson(), targetConfigId));
         dataWorkflowMapper.updateById(workflow);
         return workflow;
     }
@@ -563,7 +614,8 @@ public class WorkflowService {
         Map<String, Object> definition = buildPlatformDefinitionDocument(workflow, taskBindings, topology);
         return mergeAndNormalizeDefinitionJson(definition,
                 workflow != null ? workflow.getDefinitionJson() : null,
-                incomingDefinitionJson);
+                incomingDefinitionJson,
+                workflow != null ? workflow.getDolphinConfigId() : null);
     }
 
     private boolean isMeaningfulDefinitionJson(String definitionJson) {
@@ -613,7 +665,8 @@ public class WorkflowService {
 
     private String mergeAndNormalizeDefinitionJson(Map<String, Object> generatedDefinition,
             String persistedDefinitionJson,
-            String incomingDefinitionJson) {
+            String incomingDefinitionJson,
+            Long dolphinConfigId) {
         try {
             ObjectNode generatedNode = objectMapper.valueToTree(generatedDefinition);
             if (generatedNode == null || generatedNode.isNull() || generatedNode.isMissingNode()) {
@@ -621,7 +674,7 @@ public class WorkflowService {
             }
             applyDefinitionMetadataSeed(generatedNode, persistedDefinitionJson);
             applyDefinitionMetadataSeed(generatedNode, incomingDefinitionJson);
-            enrichDefinitionMetadataFromCatalog(generatedNode);
+            enrichDefinitionMetadataFromCatalog(generatedNode, dolphinConfigId);
             return objectMapper.writeValueAsString(generatedNode);
         } catch (Exception ex) {
             return toJson(generatedDefinition);
@@ -629,6 +682,10 @@ public class WorkflowService {
     }
 
     private void enrichDefinitionMetadataFromCatalog(ObjectNode rootNode) {
+        enrichDefinitionMetadataFromCatalog(rootNode, null);
+    }
+
+    private void enrichDefinitionMetadataFromCatalog(ObjectNode rootNode, Long dolphinConfigId) {
         if (rootNode == null || rootNode.isNull() || rootNode.isMissingNode()) {
             return;
         }
@@ -671,10 +728,10 @@ public class WorkflowService {
         }
 
         DatasourceCatalog datasourceCatalog = needDatasourceResolve
-                ? loadDatasourceCatalog()
+                ? loadDatasourceCatalog(dolphinConfigId)
                 : DatasourceCatalog.empty();
         Map<String, DolphinTaskGroupOption> taskGroupByName = needTaskGroupResolve
-                ? loadTaskGroupCatalogByName()
+                ? loadTaskGroupCatalogByName(dolphinConfigId)
                 : Collections.emptyMap();
 
         for (JsonNode taskNode : (ArrayNode) taskListNode) {
@@ -713,8 +770,14 @@ public class WorkflowService {
     }
 
     private DatasourceCatalog loadDatasourceCatalog() {
+        return loadDatasourceCatalog(null);
+    }
+
+    private DatasourceCatalog loadDatasourceCatalog(Long dolphinConfigId) {
         try {
-            List<DolphinDatasourceOption> options = dolphinSchedulerService.listDatasources(null, null);
+            List<DolphinDatasourceOption> options = dolphinConfigId == null
+                    ? dolphinSchedulerService.listDatasources(null, null)
+                    : dolphinSchedulerService.listDatasources(null, null, dolphinConfigId);
             if (CollectionUtils.isEmpty(options)) {
                 return DatasourceCatalog.empty();
             }
@@ -763,8 +826,14 @@ public class WorkflowService {
     }
 
     private Map<String, DolphinTaskGroupOption> loadTaskGroupCatalogByName() {
+        return loadTaskGroupCatalogByName(null);
+    }
+
+    private Map<String, DolphinTaskGroupOption> loadTaskGroupCatalogByName(Long dolphinConfigId) {
         try {
-            List<DolphinTaskGroupOption> options = dolphinSchedulerService.listTaskGroups(null);
+            List<DolphinTaskGroupOption> options = dolphinConfigId == null
+                    ? dolphinSchedulerService.listTaskGroups(null)
+                    : dolphinSchedulerService.listTaskGroups(null, dolphinConfigId);
             if (CollectionUtils.isEmpty(options)) {
                 return Collections.emptyMap();
             }
@@ -1796,6 +1865,32 @@ public class WorkflowService {
         return null;
     }
 
+    private Long resolveDolphinConfigId(Long requestDolphinConfigId) {
+        if (requestDolphinConfigId != null && requestDolphinConfigId > 0) {
+            return dolphinConfigService.getEnabledConfig(requestDolphinConfigId).getId();
+        }
+        DolphinConfig config = dolphinConfigService.getDefaultConfig();
+        return config != null ? config.getId() : null;
+    }
+
+    private String refreshDefinitionRuntimeIds(String definitionJson, Long dolphinConfigId) {
+        if (!StringUtils.hasText(definitionJson)) {
+            return definitionJson;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(definitionJson);
+            if (!(root instanceof ObjectNode)) {
+                return definitionJson;
+            }
+            enrichDefinitionMetadataFromCatalog((ObjectNode) root, dolphinConfigId);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception ex) {
+            log.warn("Failed to refresh workflow definition metadata for Dolphin config {}: {}",
+                    dolphinConfigId, ex.getMessage());
+            return definitionJson;
+        }
+    }
+
     private void attachLatestInstanceInfo(List<DataWorkflow> workflows) {
         if (CollectionUtils.isEmpty(workflows)) {
             return;
@@ -1809,7 +1904,7 @@ public class WorkflowService {
             if (workflow.getWorkflowCode() != null && workflow.getWorkflowCode() > 0) {
                 try {
                     List<WorkflowInstanceSummary> summaries = dolphinSchedulerService
-                            .listWorkflowInstances(workflow.getWorkflowCode(), 1);
+                            .listWorkflowInstances(workflow.getDolphinConfigId(), workflow.getWorkflowCode(), 1);
                     realtimeLoaded = true;
                     if (!summaries.isEmpty()) {
                         latest = mapSummaryToCache(workflow.getId(), summaries.get(0));

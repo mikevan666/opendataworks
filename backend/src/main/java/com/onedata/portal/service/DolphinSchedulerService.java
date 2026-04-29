@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Client wrapper around the DolphinScheduler OpenAPI.
@@ -49,8 +51,10 @@ public class DolphinSchedulerService {
     private final DolphinOpenApiClient openApiClient;
     private final AtomicLong taskCodeSequence = new AtomicLong(System.currentTimeMillis());
 
-    // Cache for project code to avoid repeated API calls
-    private volatile Long cachedProjectCode;
+    // Cache for project code to avoid repeated API calls. Key is Dolphin config id,
+    // with -1 reserved for legacy/default config calls before an id is persisted.
+    private final Map<Long, Long> cachedProjectCodeByConfigId = new ConcurrentHashMap<>();
+    private final ThreadLocal<DolphinConfig> scopedConfig = new ThreadLocal<>();
 
     public DolphinSchedulerService(DolphinConfigService dolphinConfigService,
             ObjectMapper objectMapper,
@@ -61,11 +65,43 @@ public class DolphinSchedulerService {
     }
 
     private DolphinConfig getConfig() {
-        DolphinConfig config = dolphinConfigService.getActiveConfig();
+        DolphinConfig config = scopedConfig.get();
+        if (config == null) {
+            config = dolphinConfigService.getActiveConfig();
+        }
         if (config == null) {
             throw new IllegalStateException("DolphinScheduler configuration is missing");
         }
         return config;
+    }
+
+    public DolphinConfig getConfig(Long dolphinConfigId) {
+        return dolphinConfigId == null ? getConfig() : dolphinConfigService.getEnabledConfig(dolphinConfigId);
+    }
+
+    public <T> T withConfig(Long dolphinConfigId, Supplier<T> supplier) {
+        if (dolphinConfigId == null) {
+            return supplier.get();
+        }
+        DolphinConfig config = dolphinConfigService.getEnabledConfig(dolphinConfigId);
+        DolphinConfig previous = scopedConfig.get();
+        scopedConfig.set(config);
+        try {
+            return openApiClient.withConfig(config, supplier);
+        } finally {
+            if (previous == null) {
+                scopedConfig.remove();
+            } else {
+                scopedConfig.set(previous);
+            }
+        }
+    }
+
+    public void withConfig(Long dolphinConfigId, Runnable runnable) {
+        withConfig(dolphinConfigId, () -> {
+            runnable.run();
+            return null;
+        });
     }
 
     /**
@@ -80,31 +116,33 @@ public class DolphinSchedulerService {
      * Query project code with option to force refresh the cache.
      */
     public Long getProjectCode(boolean forceRefresh) {
-        if (!forceRefresh && cachedProjectCode != null) {
-            return cachedProjectCode;
+        DolphinConfig activeConfig = getConfig();
+        Long cacheKey = configCacheKey(activeConfig);
+        if (!forceRefresh && cachedProjectCodeByConfigId.containsKey(cacheKey)) {
+            return cachedProjectCodeByConfigId.get(cacheKey);
         }
 
         synchronized (this) {
-            if (!forceRefresh && cachedProjectCode != null) {
-                return cachedProjectCode;
+            if (!forceRefresh && cachedProjectCodeByConfigId.containsKey(cacheKey)) {
+                return cachedProjectCodeByConfigId.get(cacheKey);
             }
 
-            String projectName = getConfig().getProjectName();
+            String projectName = activeConfig.getProjectName();
             try {
                 DolphinProject project = openApiClient.getProject(projectName);
                 if (project != null) {
-                    cachedProjectCode = project.getCode();
-                    log.info("Queried project code for {}: {}", projectName, cachedProjectCode);
-                    return cachedProjectCode;
+                    cachedProjectCodeByConfigId.put(cacheKey, project.getCode());
+                    log.info("Queried project code for {}: {}", projectName, project.getCode());
+                    return project.getCode();
                 } else {
                     log.info("Project {} not found. Attempting to create it...", projectName);
                     try {
                         Long newCode = openApiClient.createProject(projectName,
                                 "Auto-created by OpenDataWorks");
                         if (newCode != null && newCode > 0) {
-                            cachedProjectCode = newCode;
-                            log.info("Created project {}: {}", projectName, cachedProjectCode);
-                            return cachedProjectCode;
+                            cachedProjectCodeByConfigId.put(cacheKey, newCode);
+                            log.info("Created project {}: {}", projectName, newCode);
+                            return newCode;
                         }
                     } catch (Exception ex) {
                         log.error("Failed to auto-create project {}", projectName, ex);
@@ -124,8 +162,21 @@ public class DolphinSchedulerService {
      * Clear the cached project code. Use this when DolphinScheduler is reset.
      */
     public void clearProjectCodeCache() {
-        cachedProjectCode = null;
+        cachedProjectCodeByConfigId.clear();
         log.info("Cleared project code cache");
+    }
+
+    public Long getProjectCode(Long dolphinConfigId, boolean forceRefresh) {
+        return withConfig(dolphinConfigId, () -> getProjectCode(forceRefresh));
+    }
+
+    public boolean testConnection(Long dolphinConfigId) {
+        DolphinConfig config = dolphinConfigService.getEnabledConfig(dolphinConfigId);
+        return openApiClient.testConnection(config);
+    }
+
+    private Long configCacheKey(DolphinConfig config) {
+        return config != null && config.getId() != null ? config.getId() : -1L;
     }
 
     /**
@@ -171,6 +222,24 @@ public class DolphinSchedulerService {
         }
     }
 
+    public long syncWorkflow(Long dolphinConfigId,
+            long workflowCode,
+            String workflowName,
+            String workflowDescription,
+            List<Map<String, Object>> tasks,
+            List<TaskRelationPayload> relations,
+            List<TaskLocationPayload> locations,
+            String globalParams) {
+        return withConfig(dolphinConfigId, () -> syncWorkflow(
+                workflowCode,
+                workflowName,
+                workflowDescription,
+                tasks,
+                relations,
+                locations,
+                globalParams));
+    }
+
     /**
      * Update workflow release state (ONLINE/OFFLINE).
      */
@@ -181,6 +250,10 @@ public class DolphinSchedulerService {
 
         openApiClient.releaseProcessDefinition(projectCode, workflowCode, releaseState);
         log.info("Updated Dolphin workflow {} release state to {}", workflowCode, releaseState);
+    }
+
+    public void setWorkflowReleaseState(Long dolphinConfigId, long workflowCode, String releaseState) {
+        withConfig(dolphinConfigId, () -> setWorkflowReleaseState(workflowCode, releaseState));
     }
 
     /**
@@ -212,6 +285,28 @@ public class DolphinSchedulerService {
                 environmentCode);
         log.info("Created Dolphin schedule for workflow {} -> {}", workflowCode, scheduleId);
         return scheduleId;
+    }
+
+    public Long createWorkflowSchedule(Long dolphinConfigId,
+            long workflowCode,
+            String scheduleJson,
+            String warningType,
+            String failureStrategy,
+            Long warningGroupId,
+            String processInstancePriority,
+            String workerGroup,
+            String tenantCode,
+            Long environmentCode) {
+        return withConfig(dolphinConfigId, () -> createWorkflowSchedule(
+                workflowCode,
+                scheduleJson,
+                warningType,
+                failureStrategy,
+                warningGroupId,
+                processInstancePriority,
+                workerGroup,
+                tenantCode,
+                environmentCode));
     }
 
     /**
@@ -246,6 +341,30 @@ public class DolphinSchedulerService {
         log.info("Updated Dolphin schedule {} for workflow {}", scheduleId, workflowCode);
     }
 
+    public void updateWorkflowSchedule(Long dolphinConfigId,
+            long scheduleId,
+            long workflowCode,
+            String scheduleJson,
+            String warningType,
+            String failureStrategy,
+            Long warningGroupId,
+            String processInstancePriority,
+            String workerGroup,
+            String tenantCode,
+            Long environmentCode) {
+        withConfig(dolphinConfigId, () -> updateWorkflowSchedule(
+                scheduleId,
+                workflowCode,
+                scheduleJson,
+                warningType,
+                failureStrategy,
+                warningGroupId,
+                processInstancePriority,
+                workerGroup,
+                tenantCode,
+                environmentCode));
+    }
+
     /**
      * Online a DolphinScheduler schedule.
      */
@@ -258,6 +377,10 @@ public class DolphinSchedulerService {
         log.info("Onlined Dolphin schedule {}", scheduleId);
     }
 
+    public void onlineWorkflowSchedule(Long dolphinConfigId, long scheduleId) {
+        withConfig(dolphinConfigId, () -> onlineWorkflowSchedule(scheduleId));
+    }
+
     /**
      * Offline a DolphinScheduler schedule.
      */
@@ -268,6 +391,10 @@ public class DolphinSchedulerService {
         }
         openApiClient.offlineSchedule(projectCode, scheduleId);
         log.info("Offlined Dolphin schedule {}", scheduleId);
+    }
+
+    public void offlineWorkflowSchedule(Long dolphinConfigId, long scheduleId) {
+        withConfig(dolphinConfigId, () -> offlineWorkflowSchedule(scheduleId));
     }
 
     /**
@@ -304,6 +431,10 @@ public class DolphinSchedulerService {
             log.debug("Failed to query workflow schedule {}: {}", workflowCode, e.getMessage());
             return null;
         }
+    }
+
+    public DolphinSchedule getWorkflowSchedule(Long dolphinConfigId, long workflowCode) {
+        return withConfig(dolphinConfigId, () -> getWorkflowSchedule(workflowCode));
     }
 
     private DolphinSchedule parseScheduleFromDefinitionNode(JsonNode definition) {
@@ -420,6 +551,10 @@ public class DolphinSchedulerService {
         }
     }
 
+    public boolean checkWorkflowExists(Long dolphinConfigId, long workflowCode) {
+        return withConfig(dolphinConfigId, () -> checkWorkflowExists(workflowCode));
+    }
+
     /**
      * Start workflow instance via DolphinScheduler OpenAPI.
      */
@@ -447,6 +582,14 @@ public class DolphinSchedulerService {
         String executionId = instanceId != null ? String.valueOf(instanceId) : "exec-" + System.currentTimeMillis();
         log.info("Started workflow instance for definition {} -> {}", workflowCode, executionId);
         return executionId;
+    }
+
+    public String startProcessInstance(Long dolphinConfigId,
+            Long workflowCode,
+            String projectName,
+            String workflowName) {
+        return withConfig(dolphinConfigId,
+                () -> startProcessInstance(workflowCode, projectName, workflowName));
     }
 
     /**
@@ -510,6 +653,12 @@ public class DolphinSchedulerService {
         return triggerId;
     }
 
+    public String backfillProcessInstance(Long dolphinConfigId,
+            Long workflowCode,
+            WorkflowBackfillRequest request) {
+        return withConfig(dolphinConfigId, () -> backfillProcessInstance(workflowCode, request));
+    }
+
     private String buildComplementScheduleTime(WorkflowBackfillRequest request) {
         Map<String, String> payload = new HashMap<>();
         String mode = StringUtils.hasText(request.getMode()) ? request.getMode() : "range";
@@ -555,6 +704,10 @@ public class DolphinSchedulerService {
         log.info("Deleted DolphinScheduler workflow {}", workflowCode);
     }
 
+    public void deleteWorkflow(Long dolphinConfigId, Long workflowCode) {
+        withConfig(dolphinConfigId, () -> deleteWorkflow(workflowCode));
+    }
+
     /**
      * Get workflow instance status via DolphinScheduler OpenAPI.
      */
@@ -581,6 +734,10 @@ public class DolphinSchedulerService {
             log.warn("Invalid instance ID format: {}", instanceId);
             return null;
         }
+    }
+
+    public JsonNode getWorkflowInstanceStatus(Long dolphinConfigId, Long workflowCode, String instanceId) {
+        return withConfig(dolphinConfigId, () -> getWorkflowInstanceStatus(workflowCode, instanceId));
     }
 
     /**
@@ -625,6 +782,10 @@ public class DolphinSchedulerService {
                     .build());
         }
         return result;
+    }
+
+    public List<WorkflowInstanceSummary> listWorkflowInstances(Long dolphinConfigId, Long workflowCode, int limit) {
+        return withConfig(dolphinConfigId, () -> listWorkflowInstances(workflowCode, limit));
     }
 
     private List<DolphinProcessInstance> collectWorkflowInstances(Long projectCode,
@@ -711,6 +872,10 @@ public class DolphinSchedulerService {
                 baseUrl, projectCode, workflowCode);
     }
 
+    public String getWorkflowDefinitionUrl(Long dolphinConfigId, Long workflowCode) {
+        return withConfig(dolphinConfigId, () -> getWorkflowDefinitionUrl(workflowCode));
+    }
+
     /**
      * Generate DolphinScheduler Web UI URL for task instances.
      */
@@ -736,6 +901,10 @@ public class DolphinSchedulerService {
         return builder.build(true).toUriString();
     }
 
+    public String getTaskDefinitionUrl(Long dolphinConfigId, Long taskCode) {
+        return withConfig(dolphinConfigId, () -> getTaskDefinitionUrl(taskCode));
+    }
+
     /**
      * Return the configured DolphinScheduler Web UI base URL without trailing
      * slashes.
@@ -746,6 +915,10 @@ public class DolphinSchedulerService {
             return null;
         }
         return url.replaceAll("/+$", "");
+    }
+
+    public String getWebuiBaseUrl(Long dolphinConfigId) {
+        return this.<String>withConfig(dolphinConfigId, this::getWebuiBaseUrl);
     }
 
     public String getDefaultTenantCode() {
@@ -999,6 +1172,10 @@ public class DolphinSchedulerService {
         }
     }
 
+    public List<DolphinDatasourceOption> listDatasources(String type, String keyword, Long dolphinConfigId) {
+        return withConfig(dolphinConfigId, () -> listDatasources(type, keyword));
+    }
+
     /**
      * Retrieve task group options from DolphinScheduler OpenAPI.
      */
@@ -1049,6 +1226,10 @@ public class DolphinSchedulerService {
         }
     }
 
+    public List<DolphinTaskGroupOption> listTaskGroups(String keyword, Long dolphinConfigId) {
+        return withConfig(dolphinConfigId, () -> listTaskGroups(keyword));
+    }
+
     /**
      * Retrieve worker group list from DolphinScheduler (project scoped).
      */
@@ -1065,6 +1246,10 @@ public class DolphinSchedulerService {
         }
     }
 
+    public List<String> listWorkerGroups(Long dolphinConfigId) {
+        return this.<List<String>>withConfig(dolphinConfigId, this::listWorkerGroups);
+    }
+
     /**
      * Retrieve tenant code list from DolphinScheduler.
      */
@@ -1075,6 +1260,10 @@ public class DolphinSchedulerService {
             log.warn("Failed to load tenants from DolphinScheduler: {}", ex.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public List<String> listTenants(Long dolphinConfigId) {
+        return this.<List<String>>withConfig(dolphinConfigId, this::listTenants);
     }
 
     /**
@@ -1089,6 +1278,10 @@ public class DolphinSchedulerService {
         }
     }
 
+    public List<DolphinAlertGroupOption> listAlertGroups(Long dolphinConfigId) {
+        return this.<List<DolphinAlertGroupOption>>withConfig(dolphinConfigId, this::listAlertGroups);
+    }
+
     /**
      * Retrieve environment list from DolphinScheduler.
      */
@@ -1099,6 +1292,10 @@ public class DolphinSchedulerService {
             log.warn("Failed to load environments from DolphinScheduler: {}", ex.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public List<DolphinEnvironmentOption> listEnvironments(Long dolphinConfigId) {
+        return this.<List<DolphinEnvironmentOption>>withConfig(dolphinConfigId, this::listEnvironments);
     }
 
     /**
@@ -1115,6 +1312,10 @@ public class DolphinSchedulerService {
             log.warn("Failed to preview schedule from DolphinScheduler: {}", ex.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public List<String> previewSchedule(String scheduleJson, Long dolphinConfigId) {
+        return withConfig(dolphinConfigId, () -> previewSchedule(scheduleJson));
     }
 
     private Long parseDuration(String value) {

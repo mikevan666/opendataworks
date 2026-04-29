@@ -181,6 +181,10 @@ public class DataTaskService {
         return dolphinSchedulerService.listDatasources(type, keyword);
     }
 
+    public List<DolphinDatasourceOption> listDatasourceOptions(String type, String keyword, Long dolphinConfigId) {
+        return dolphinSchedulerService.listDatasources(type, keyword, dolphinConfigId);
+    }
+
     /**
      * 创建任务
      */

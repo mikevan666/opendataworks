@@ -174,7 +174,7 @@
       style="margin-top: 20px; justify-content: flex-end"
     />
 
-    <TaskEditDrawer ref="drawerRef" @success="handleDrawerSuccess" />
+    <TaskEditDrawer ref="drawerRef" :dolphin-config-id="dolphinConfigId" @success="handleDrawerSuccess" />
   </div>
 </template>
 
@@ -215,6 +215,10 @@ const props = defineProps({
   hideDeleteAction: {
     type: Boolean,
     default: false
+  },
+  dolphinConfigId: {
+    type: Number,
+    default: null
   }
 })
 
@@ -340,7 +344,7 @@ const parseNumericFilter = (value) => {
 
 const loadDolphinConfig = async () => {
   try {
-    const config = await taskApi.getDolphinWebuiConfig()
+    const config = await taskApi.getDolphinWebuiConfig(buildDolphinConfigParams())
     if (config?.webuiUrl) {
       dolphinWebuiUrl.value = config.webuiUrl.replace(/\/+$/, '')
     } else {
@@ -350,6 +354,12 @@ const loadDolphinConfig = async () => {
     console.error('加载 DolphinScheduler 配置失败:', error)
     dolphinWebuiUrl.value = ''
   }
+}
+
+const buildDolphinConfigParams = () => {
+  return props.dolphinConfigId
+    ? { dolphinConfigId: props.dolphinConfigId }
+    : {}
 }
 
 const loadWorkflowOptions = async () => {
@@ -392,6 +402,9 @@ const openCreateDrawer = () => {
   if (workflowId) {
     initialData.workflowId = workflowId
   }
+  if (props.dolphinConfigId) {
+    initialData.dolphinConfigId = props.dolphinConfigId
+  }
   drawerRef.value?.open(null, initialData)
 }
 
@@ -400,7 +413,7 @@ const openEditDrawer = (row) => {
     showDemoReadonlyMessage('编辑任务')
     return
   }
-  drawerRef.value?.open(row.id)
+  drawerRef.value?.open(row.id, props.dolphinConfigId ? { dolphinConfigId: props.dolphinConfigId } : {})
 }
 
 const handleDrawerSuccess = () => {
@@ -523,6 +536,10 @@ onMounted(async () => {
 
 watch(() => props.workflowId, () => {
   loadData()
+})
+
+watch(() => props.dolphinConfigId, () => {
+  loadDolphinConfig()
 })
 
 watch(() => props.externalData, (newData) => {

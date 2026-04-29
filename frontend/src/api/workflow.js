@@ -29,6 +29,10 @@ export const workflowApi = {
     return request.put(`/v1/workflows/${id}`, data)
   },
 
+  switchSchedulerEngine(id, payload) {
+    return request.put(`/v1/workflows/${id}/scheduler-engine`, payload)
+  },
+
   exportJson(id) {
     return request.get(`/v1/workflows/${id}/export-json`)
   },

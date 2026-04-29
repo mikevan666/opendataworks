@@ -123,7 +123,15 @@
                 <el-button size="small" @click="cancelEditName">取消</el-button>
               </div>
             </el-descriptions-item>
-            <el-descriptions-item label="项目">{{ workflow?.workflow?.projectCode }}</el-descriptions-item>
+            <el-descriptions-item label="项目">{{ workflow?.workflow?.projectCode || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="调度引擎">
+              <div class="scheduler-engine-cell">
+                <el-tag size="small" :type="currentDolphinConfig?.isActive === false ? 'info' : 'success'">
+                  {{ currentDolphinConfigName }}
+                </el-tag>
+                <el-button link type="primary" @click="openSchedulerSwitchDialog">切换</el-button>
+              </div>
+            </el-descriptions-item>
             <el-descriptions-item label="默认任务组">
               <div v-if="!isEditingTaskGroup" class="editable-field" @click="startEditTaskGroup">
                 <span>{{ workflow?.workflow?.taskGroupName || '-' }}</span>
@@ -195,6 +203,7 @@
               v-if="workflow?.workflow?.id" 
               :workflow-id="workflow.workflow.id"
               :workflow-task-ids="workflowTaskIds"
+              :dolphin-config-id="currentDolphinConfigId"
               @update="loadWorkflowDetail"
             />
           </div>
@@ -756,6 +765,50 @@
       <el-empty v-else description="该版本暂无发布记录" />
     </el-dialog>
 
+    <el-dialog
+      v-model="schedulerSwitchDialogVisible"
+      title="切换调度引擎"
+      width="560px"
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        title="旧 Dolphin 不会自动下线或删除，目标 Dolphin 需要重新发布后生成新的运行态工作流。"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="scheduler-switch-alert"
+      />
+      <el-form label-width="110px" class="scheduler-switch-form">
+        <el-form-item label="当前环境">
+          <span>{{ currentDolphinConfigName }}</span>
+        </el-form-item>
+        <el-form-item label="目标环境" required>
+          <el-select
+            v-model="schedulerSwitchForm.dolphinConfigId"
+            placeholder="请选择 Dolphin 环境"
+            filterable
+            :loading="dolphinConfigsLoading"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in dolphinConfigs"
+              :key="item.id"
+              :label="formatDolphinConfigOption(item)"
+              :value="item.id"
+              :disabled="!item.isActive"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="schedulerSwitchDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="schedulerSwitchSaving" @click="switchSchedulerEngine">
+          确认切换
+        </el-button>
+      </template>
+    </el-dialog>
+
     <WorkflowBackfillDialog
       v-model="backfillDialogVisible"
       :workflow="backfillTarget"
@@ -771,6 +824,7 @@ import { useRouter } from 'vue-router'
 import { ArrowLeft, Link, Delete, Edit, Plus, Close } from '@element-plus/icons-vue'
 import { workflowApi } from '@/api/workflow'
 import { taskApi } from '@/api/task'
+import { settingsApi } from '@/api/settings'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import WorkflowTaskManager from './WorkflowTaskManager.vue'
@@ -791,6 +845,8 @@ const loading = ref(false)
 const workflow = ref(null)
 const activeTab = ref('tasks')
 const dolphinWebuiUrl = ref('')
+const dolphinConfigs = ref([])
+const dolphinConfigsLoading = ref(false)
 const pendingApprovalFlags = reactive({})
 const actionLoading = reactive({})
 const backfillDialogVisible = ref(false)
@@ -807,6 +863,40 @@ const deleteLoadingVersionId = ref(null)
 const versionPublishRecordDialogVisible = ref(false)
 const activeVersionPublishRecords = ref([])
 const activeVersionForRecords = ref(null)
+const schedulerSwitchDialogVisible = ref(false)
+const schedulerSwitchSaving = ref(false)
+const schedulerSwitchForm = reactive({
+  dolphinConfigId: null
+})
+
+const defaultDolphinConfig = computed(() => {
+  return dolphinConfigs.value.find(item => item?.isDefault === 1) || null
+})
+
+const currentDolphinConfigId = computed(() => {
+  const boundId = workflow.value?.workflow?.dolphinConfigId
+  if (boundId) {
+    return boundId
+  }
+  return defaultDolphinConfig.value?.id || null
+})
+
+const currentDolphinConfig = computed(() => {
+  const id = currentDolphinConfigId.value
+  if (!id) {
+    return null
+  }
+  return dolphinConfigs.value.find(item => item?.id === id) || null
+})
+
+const currentDolphinConfigName = computed(() => {
+  const config = currentDolphinConfig.value
+  if (!config) {
+    return currentDolphinConfigId.value ? `Dolphin #${currentDolphinConfigId.value}` : '默认 Dolphin'
+  }
+  const suffix = config.isDefault === 1 ? '（默认）' : ''
+  return `${config.configName || `Dolphin #${config.id}`}${suffix}`
+})
 
 // Schedule states
 const scheduleFormRef = ref(null)
@@ -941,17 +1031,24 @@ const scheduleRules = {
   ]
 }
 
-const loadScheduleOptions = async () => {
-  if (scheduleOptionsLoaded.value) {
+const buildDolphinConfigParams = () => {
+  return currentDolphinConfigId.value
+    ? { dolphinConfigId: currentDolphinConfigId.value }
+    : {}
+}
+
+const loadScheduleOptions = async (force = false) => {
+  if (scheduleOptionsLoaded.value && !force) {
     return
   }
   scheduleOptionsLoading.value = true
   try {
+    const params = buildDolphinConfigParams()
     const [workerGroups, tenants, alertGroups, environments] = await Promise.all([
-      taskApi.fetchWorkerGroups().catch(() => []),
-      taskApi.fetchTenants().catch(() => []),
-      taskApi.fetchAlertGroups().catch(() => []),
-      taskApi.fetchEnvironments().catch(() => [])
+      taskApi.fetchWorkerGroups(params).catch(() => []),
+      taskApi.fetchTenants(params).catch(() => []),
+      taskApi.fetchAlertGroups(params).catch(() => []),
+      taskApi.fetchEnvironments(params).catch(() => [])
     ])
     workerGroupOptions.value = workerGroups || []
     tenantOptions.value = tenants || []
@@ -995,7 +1092,7 @@ const previewScheduleTimes = async () => {
       crontab: scheduleForm.scheduleCron,
       timezoneId: scheduleForm.scheduleTimezone
     })
-    const res = await taskApi.previewSchedule({ schedule })
+    const res = await taskApi.previewSchedule({ schedule }, buildDolphinConfigParams())
     schedulePreviewList.value = Array.isArray(res) ? res : []
   } catch (error) {
     console.error('预览调度时间失败', error)
@@ -1239,7 +1336,7 @@ const loadTaskGroupOptions = async () => {
   }
   taskGroupsLoading.value = true
   try {
-    const res = await taskApi.fetchTaskGroups()
+    const res = await taskApi.fetchTaskGroups(buildDolphinConfigParams())
     taskGroupOptions.value = res || []
   } catch (error) {
     console.error('加载任务组失败', error)
@@ -1433,10 +1530,103 @@ const syncPendingFlag = (workflowId, records) => {
 
 const loadDolphinConfig = async () => {
   try {
-    const config = await taskApi.getDolphinWebuiConfig()
+    const config = await taskApi.getDolphinWebuiConfig(buildDolphinConfigParams())
     dolphinWebuiUrl.value = config?.webuiUrl || ''
   } catch (error) {
     console.warn('加载 Dolphin 配置失败', error)
+  }
+}
+
+const loadDolphinConfigs = async () => {
+  dolphinConfigsLoading.value = true
+  try {
+    const list = await settingsApi.listDolphinConfigs()
+    dolphinConfigs.value = Array.isArray(list) ? list : []
+  } catch (error) {
+    console.warn('加载 Dolphin 环境列表失败', error)
+  } finally {
+    dolphinConfigsLoading.value = false
+  }
+}
+
+const formatDolphinConfigOption = (item) => {
+  if (!item) {
+    return '-'
+  }
+  const parts = [item.configName || `Dolphin #${item.id}`]
+  if (item.isDefault === 1) {
+    parts.push('默认')
+  }
+  if (!item.isActive) {
+    parts.push('停用')
+  }
+  return parts.join(' / ')
+}
+
+const openSchedulerSwitchDialog = async () => {
+  if (!workflow.value?.workflow?.id) {
+    return
+  }
+  if (!dolphinConfigs.value.length) {
+    await loadDolphinConfigs()
+  }
+  schedulerSwitchForm.dolphinConfigId = currentDolphinConfigId.value
+  schedulerSwitchDialogVisible.value = true
+}
+
+const switchSchedulerEngine = async () => {
+  const wf = workflow.value?.workflow
+  if (!wf?.id) {
+    return
+  }
+  const targetId = schedulerSwitchForm.dolphinConfigId
+  if (!targetId) {
+    ElMessage.warning('请选择目标 Dolphin 环境')
+    return
+  }
+  if (targetId === currentDolphinConfigId.value) {
+    ElMessage.warning('目标环境与当前绑定环境一致')
+    return
+  }
+
+  const target = dolphinConfigs.value.find(item => item.id === targetId)
+  if (target && !target.isActive) {
+    ElMessage.warning('目标 Dolphin 环境未启用')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认切换到「${target?.configName || targetId}」吗？切换后旧 Dolphin 不会自动下线，当前工作流需要重新发布到目标 Dolphin。`,
+      '确认切换调度引擎',
+      {
+        type: 'warning',
+        confirmButtonText: '确认切换',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+
+  schedulerSwitchSaving.value = true
+  try {
+    await workflowApi.switchSchedulerEngine(wf.id, {
+      dolphinConfigId: targetId,
+      operator: 'portal-ui'
+    })
+    schedulerSwitchDialogVisible.value = false
+    scheduleOptionsLoaded.value = false
+    taskGroupOptions.value = []
+    ElMessage.success('调度引擎已切换，请重新发布工作流')
+    await loadWorkflowDetail()
+    await loadDolphinConfigs()
+    await loadDolphinConfig()
+  } catch (error) {
+    console.error('切换调度引擎失败', error)
+    ElMessage.error(getErrorMessage(error))
+  } finally {
+    schedulerSwitchSaving.value = false
   }
 }
 
@@ -2338,9 +2528,21 @@ const openDolphinInstance = (instance) => {
   window.open(url, '_blank')
 }
 
-onMounted(() => {
-  loadWorkflowDetail()
-  loadDolphinConfig()
+watch(currentDolphinConfigId, async (nextId, prevId) => {
+  if (nextId === prevId) {
+    return
+  }
+  dolphinWebuiUrl.value = ''
+  scheduleOptionsLoaded.value = false
+  taskGroupOptions.value = []
+  if (workflow.value?.workflow?.id) {
+    await loadDolphinConfig()
+  }
+})
+
+onMounted(async () => {
+  await Promise.all([loadDolphinConfigs(), loadWorkflowDetail()])
+  await loadDolphinConfig()
 })
 </script>
 
@@ -2373,6 +2575,21 @@ onMounted(() => {
   align-items: flex-start;
   gap: 4px;
   width: 100%;
+}
+
+.scheduler-engine-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scheduler-switch-alert {
+  margin-bottom: 16px;
+}
+
+.scheduler-switch-form {
+  margin-top: 4px;
 }
 
 .change-toolbar {
