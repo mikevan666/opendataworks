@@ -12,12 +12,6 @@
         <el-tab-pane label="MinIO 环境" name="minio" lazy>
           <MinioConfigManagement />
         </el-tab-pane>
-        <el-tab-pane label="模型服务" name="dataagent" lazy>
-          <DataAgentConfig />
-        </el-tab-pane>
-        <el-tab-pane label="Skill 列表" name="skills" lazy>
-          <SkillStudio />
-        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -28,21 +22,42 @@ import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DolphinConfig from './DolphinConfig.vue'
 import MinioConfigManagement from './MinioConfigManagement.vue'
-import DataAgentConfig from './DataAgentConfig.vue'
-import SkillStudio from './SkillStudio.vue'
 
 const route = useRoute()
 const router = useRouter()
-const availableTabs = new Set(['dolphin', 'minio', 'dataagent', 'skills'])
+const availableTabs = new Set(['dolphin', 'minio'])
+const legacyTabMap = {
+  dataagent: 'models',
+  skills: 'skills'
+}
 const activeTab = ref(availableTabs.has(route.query.tab) ? route.query.tab : 'dolphin')
+
+const redirectLegacyTab = (tab) => {
+  const targetTab = legacyTabMap[tab]
+  if (!targetTab) {
+    return false
+  }
+  router.replace({
+    path: '/intelligent-query',
+    query: {
+      ...route.query,
+      tab: targetTab
+    }
+  })
+  return true
+}
 
 watch(
   () => route.query.tab,
   (tab) => {
+    if (redirectLegacyTab(tab)) {
+      return
+    }
     if (availableTabs.has(tab)) {
       activeTab.value = tab
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(activeTab, (tab) => {

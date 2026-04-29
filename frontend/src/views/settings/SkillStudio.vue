@@ -169,7 +169,7 @@ const loadDocuments = async () => {
 const openSkillDetail = (folder) => {
   if (!folder) return
   router.push({
-    name: 'SkillDetail',
+    name: 'IntelligentQuerySkillDetail',
     params: { folder }
   })
 }

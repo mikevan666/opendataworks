@@ -169,7 +169,7 @@ describe('SkillStudio', () => {
 
     wrapper.vm.openSkillDetail('marketing-insights')
     expect(routerPush).toHaveBeenCalledWith({
-      name: 'SkillDetail',
+      name: 'IntelligentQuerySkillDetail',
       params: { folder: 'marketing-insights' }
     })
   })
