@@ -27,6 +27,58 @@ export const settingsApi = {
         })
     },
 
+    listDolphinConfigs(params = {}) {
+        return request({
+            url: '/v1/settings/dolphin/configs',
+            method: 'get',
+            params
+        })
+    },
+
+    getDolphinConfigById(id) {
+        return request({
+            url: `/v1/settings/dolphin/configs/${id}`,
+            method: 'get'
+        })
+    },
+
+    createDolphinConfig(data) {
+        return request({
+            url: '/v1/settings/dolphin/configs',
+            method: 'post',
+            data
+        })
+    },
+
+    updateDolphinConfigById(id, data) {
+        return request({
+            url: `/v1/settings/dolphin/configs/${id}`,
+            method: 'put',
+            data
+        })
+    },
+
+    deleteDolphinConfig(id) {
+        return request({
+            url: `/v1/settings/dolphin/configs/${id}`,
+            method: 'delete'
+        })
+    },
+
+    setDefaultDolphinConfig(id) {
+        return request({
+            url: `/v1/settings/dolphin/configs/${id}/default`,
+            method: 'post'
+        })
+    },
+
+    testSavedDolphinConnection(id) {
+        return request({
+            url: `/v1/settings/dolphin/configs/${id}/test`,
+            method: 'post'
+        })
+    },
+
     listMinioConfigs(params = {}) {
         return request({
             url: '/v1/settings/minio',

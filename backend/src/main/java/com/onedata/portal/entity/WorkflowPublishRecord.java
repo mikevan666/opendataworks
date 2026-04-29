@@ -25,6 +25,8 @@ public class WorkflowPublishRecord {
 
     private String targetEngine;
 
+    private Long dolphinConfigId;
+
     private String operation;
 
     private String status;

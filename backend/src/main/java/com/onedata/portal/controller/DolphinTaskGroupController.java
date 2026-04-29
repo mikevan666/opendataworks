@@ -26,8 +26,8 @@ public class DolphinTaskGroupController {
      */
     @GetMapping("/task-groups")
     public Result<List<DolphinTaskGroupOption>> listTaskGroups(
-            @RequestParam(required = false) String keyword) {
-        return Result.success(dolphinSchedulerService.listTaskGroups(keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long dolphinConfigId) {
+        return Result.success(dolphinSchedulerService.listTaskGroups(keyword, dolphinConfigId));
     }
 }
-

@@ -128,6 +128,7 @@ public class WorkflowScheduleService {
         boolean newSchedule = scheduleId == null || scheduleId <= 0;
         if (newSchedule) {
             scheduleId = dolphinSchedulerService.createWorkflowSchedule(
+                    workflow.getDolphinConfigId(),
                     workflow.getWorkflowCode(),
                     scheduleJson,
                     warningType,
@@ -146,6 +147,7 @@ public class WorkflowScheduleService {
             }
         } else {
             dolphinSchedulerService.updateWorkflowSchedule(
+                    workflow.getDolphinConfigId(),
                     scheduleId,
                     workflow.getWorkflowCode(),
                     scheduleJson,
@@ -176,10 +178,10 @@ public class WorkflowScheduleService {
         // Apply enable/disable if provided
         if (request.getEnabled() != null) {
             if (Boolean.TRUE.equals(request.getEnabled())) {
-                dolphinSchedulerService.onlineWorkflowSchedule(scheduleId);
+                dolphinSchedulerService.onlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
                 workflow.setScheduleState("ONLINE");
             } else {
-                dolphinSchedulerService.offlineWorkflowSchedule(scheduleId);
+                dolphinSchedulerService.offlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
                 workflow.setScheduleState("OFFLINE");
             }
         }
@@ -198,7 +200,7 @@ public class WorkflowScheduleService {
         if (!"online".equalsIgnoreCase(workflow.getStatus())) {
             throw new IllegalStateException("工作流未上线，无法启用定时调度");
         }
-        dolphinSchedulerService.onlineWorkflowSchedule(scheduleId);
+        dolphinSchedulerService.onlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
         workflow.setScheduleState("ONLINE");
         dataWorkflowMapper.updateById(workflow);
         return workflow;
@@ -211,7 +213,7 @@ public class WorkflowScheduleService {
         if (scheduleId == null || scheduleId <= 0) {
             throw new IllegalStateException("尚未创建调度配置");
         }
-        dolphinSchedulerService.offlineWorkflowSchedule(scheduleId);
+        dolphinSchedulerService.offlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
         workflow.setScheduleState("OFFLINE");
         dataWorkflowMapper.updateById(workflow);
         return workflow;

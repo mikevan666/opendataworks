@@ -272,6 +272,7 @@ const statusOptions = [
 ]
 
 const dolphinWebuiUrl = ref('')
+const dolphinWebuiUrlByConfigId = reactive({})
 const pendingApprovalFlags = reactive({})
 const createDrawerVisible = ref(false)
 const editingWorkflowId = ref(null)
@@ -291,6 +292,7 @@ const loadWorkflows = async () => {
     })
     workflows.value = res.records || []
     pagination.total = res.total || 0
+    prefetchDolphinWebuiUrls(workflows.value)
   } catch (error) {
     console.error('加载工作流失败', error)
     ElMessage.error('加载工作流失败')
@@ -381,18 +383,20 @@ const syncPendingFlag = (workflowId, records) => {
 }
 
 const canJumpToDolphin = (workflow) => {
+  const webuiUrl = resolveDolphinWebuiUrl(workflow)
   return Boolean(
-    dolphinWebuiUrl.value
+    webuiUrl
     && workflow?.workflowCode
     && workflow?.projectCode
   )
 }
 
 const buildDolphinWorkflowUrl = (workflow) => {
-  if (!dolphinWebuiUrl.value || !workflow?.projectCode || !workflow?.workflowCode) {
+  const webuiUrl = resolveDolphinWebuiUrl(workflow)
+  if (!webuiUrl || !workflow?.projectCode || !workflow?.workflowCode) {
     return ''
   }
-  const base = dolphinWebuiUrl.value.replace(/\/+$/, '')
+  const base = webuiUrl.replace(/\/+$/, '')
   return `${base}/ui/projects/${workflow.projectCode}/workflow/definitions/${workflow.workflowCode}`
 }
 
@@ -407,10 +411,11 @@ const openDolphin = (workflow) => {
 
 
 const buildRowInstanceUrl = (row) => {
-  if (!row || !dolphinWebuiUrl.value || !row.projectCode || !row.workflowCode || !row.latestInstanceId) {
+  const webuiUrl = resolveDolphinWebuiUrl(row)
+  if (!row || !webuiUrl || !row.projectCode || !row.workflowCode || !row.latestInstanceId) {
     return ''
   }
-  const base = dolphinWebuiUrl.value.replace(/\/+$/, '')
+  const base = webuiUrl.replace(/\/+$/, '')
   return `${base}/ui/projects/${row.projectCode}/workflow/instances/${row.latestInstanceId}?code=${row.workflowCode}`
 }
 
@@ -872,6 +877,33 @@ const loadDolphinConfig = async () => {
   } catch (error) {
     console.warn('加载 Dolphin 配置失败', error)
   }
+}
+
+const resolveDolphinWebuiUrl = (workflow) => {
+  const configId = workflow?.dolphinConfigId
+  if (configId && dolphinWebuiUrlByConfigId[configId]) {
+    return dolphinWebuiUrlByConfigId[configId]
+  }
+  return dolphinWebuiUrl.value
+}
+
+const prefetchDolphinWebuiUrls = async (rows) => {
+  const ids = Array.from(new Set((rows || [])
+    .map(row => row?.dolphinConfigId)
+    .filter(Boolean)))
+    .filter(id => !dolphinWebuiUrlByConfigId[id])
+  if (!ids.length) {
+    return
+  }
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const config = await taskApi.getDolphinWebuiConfig({ dolphinConfigId: id })
+      dolphinWebuiUrlByConfigId[id] = config?.webuiUrl || ''
+    } catch (error) {
+      console.warn(`加载 Dolphin WebUI 地址失败: ${id}`, error)
+      dolphinWebuiUrlByConfigId[id] = ''
+    }
+  }))
 }
 
 onMounted(() => {

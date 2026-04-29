@@ -42,8 +42,8 @@ export const taskApi = {
   },
 
   // 获取 DolphinScheduler WebUI 配置
-  getDolphinWebuiConfig() {
-    return request.get('/v1/tasks/config/dolphin-webui')
+  getDolphinWebuiConfig(params = {}) {
+    return request.get('/v1/tasks/config/dolphin-webui', { params })
   },
 
   // 获取任务血缘关系
@@ -74,28 +74,28 @@ export const taskApi = {
   },
 
   // 获取 Dolphin worker group 列表（项目级）
-  fetchWorkerGroups() {
-    return request.get('/v1/dolphin/worker-groups')
+  fetchWorkerGroups(params = {}) {
+    return request.get('/v1/dolphin/worker-groups', { params })
   },
 
   // 获取 Dolphin tenant 列表
-  fetchTenants() {
-    return request.get('/v1/dolphin/tenants')
+  fetchTenants(params = {}) {
+    return request.get('/v1/dolphin/tenants', { params })
   },
 
   // 获取 Dolphin 告警组列表
-  fetchAlertGroups() {
-    return request.get('/v1/dolphin/alert-groups')
+  fetchAlertGroups(params = {}) {
+    return request.get('/v1/dolphin/alert-groups', { params })
   },
 
   // 获取 Dolphin 环境列表
-  fetchEnvironments() {
-    return request.get('/v1/dolphin/environments')
+  fetchEnvironments(params = {}) {
+    return request.get('/v1/dolphin/environments', { params })
   },
 
   // 预览调度未来触发时间
-  previewSchedule(payload) {
-    return request.post('/v1/dolphin/schedules/preview', payload)
+  previewSchedule(payload, params = {}) {
+    return request.post('/v1/dolphin/schedules/preview', payload, { params })
   },
 
 }

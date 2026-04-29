@@ -78,6 +78,7 @@
           <TaskTable
             ref="rightTableRef"
             :workflow-id="workflowId"
+            :dolphin-config-id="dolphinConfigId"
             :additional-data="newlyAddedTasks"
             :show-toolbar="true"
             :embedded="true"
@@ -107,6 +108,10 @@ const props = defineProps({
   workflowTaskIds: {
     type: Array,
     default: () => []
+  },
+  dolphinConfigId: {
+    type: Number,
+    default: null
   }
 })
 

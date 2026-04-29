@@ -265,7 +265,8 @@ public class WorkflowRuntimeSyncService {
         response.setProjectCode(workflow.getProjectCode());
         response.setWorkflowCode(workflow.getWorkflowCode());
 
-        PreviewContext context = buildPreviewContext(workflow.getProjectCode(), workflow.getWorkflowCode(), false);
+        PreviewContext context = buildPreviewContext(
+                workflow.getDolphinConfigId(), workflow.getProjectCode(), workflow.getWorkflowCode(), false);
         response.setWarnings(context.getWarnings());
         response.setErrors(context.getErrors());
         response.setDiffSummary(context.getDiffSummary());
@@ -319,6 +320,13 @@ public class WorkflowRuntimeSyncService {
     }
 
     private PreviewContext buildPreviewContext(Long projectCode, Long workflowCode, boolean strictDefinitionError) {
+        return buildPreviewContext(null, projectCode, workflowCode, strictDefinitionError);
+    }
+
+    private PreviewContext buildPreviewContext(Long dolphinConfigId,
+            Long projectCode,
+            Long workflowCode,
+            boolean strictDefinitionError) {
         PreviewContext context = new PreviewContext();
         context.setProjectCode(projectCode);
         context.setWorkflowCode(workflowCode);
@@ -332,7 +340,9 @@ public class WorkflowRuntimeSyncService {
 
         RuntimeWorkflowDefinition definition;
         try {
-            definition = runtimeDefinitionService.loadRuntimeDefinitionFromExport(projectCode, workflowCode);
+            definition = dolphinConfigId == null
+                    ? runtimeDefinitionService.loadRuntimeDefinitionFromExport(projectCode, workflowCode)
+                    : runtimeDefinitionService.loadRuntimeDefinitionFromExport(dolphinConfigId, projectCode, workflowCode);
         } catch (Exception ex) {
             context.getErrors().add(RuntimeSyncIssue.error(
                     resolveDefinitionErrorCode(ex.getMessage(), strictDefinitionError),
@@ -362,7 +372,9 @@ public class WorkflowRuntimeSyncService {
             return context;
         }
 
-        Map<Long, DolphinDatasourceOption> datasourceById = dolphinSchedulerService.listDatasources(null, null)
+        Map<Long, DolphinDatasourceOption> datasourceById = (dolphinConfigId == null
+                ? dolphinSchedulerService.listDatasources(null, null)
+                : dolphinSchedulerService.listDatasources(null, null, dolphinConfigId))
                 .stream()
                 .filter(option -> option != null && option.getId() != null)
                 .collect(Collectors.toMap(DolphinDatasourceOption::getId, option -> option, (left, right) -> left));

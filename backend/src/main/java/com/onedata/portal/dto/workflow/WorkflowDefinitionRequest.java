@@ -34,5 +34,7 @@ public class WorkflowDefinitionRequest {
 
     private String triggerSource = "manual";
 
+    private Long dolphinConfigId;
+
     private Long projectCode;
 }

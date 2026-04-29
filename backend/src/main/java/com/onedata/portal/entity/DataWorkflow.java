@@ -20,6 +20,8 @@ public class DataWorkflow {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    private Long dolphinConfigId;
+
     private Long workflowCode;
 
     private Long projectCode;

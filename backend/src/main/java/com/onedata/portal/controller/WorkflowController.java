@@ -23,6 +23,7 @@ import com.onedata.portal.dto.workflow.WorkflowVersionRollbackRequest;
 import com.onedata.portal.dto.workflow.WorkflowVersionRollbackResponse;
 import com.onedata.portal.dto.workflow.WorkflowVersionDeleteResponse;
 import com.onedata.portal.dto.workflow.WorkflowScheduleRequest;
+import com.onedata.portal.dto.workflow.WorkflowSchedulerEngineRequest;
 import com.onedata.portal.dto.workflow.runtime.DolphinRuntimeWorkflowOption;
 import com.onedata.portal.entity.DataWorkflow;
 import com.onedata.portal.entity.WorkflowPublishRecord;
@@ -109,6 +110,12 @@ public class WorkflowController {
                                        @RequestBody WorkflowDefinitionRequest request) {
         DataWorkflow workflow = workflowService.updateWorkflow(id, request);
         return Result.success(workflow);
+    }
+
+    @PutMapping("/{id}/scheduler-engine")
+    public Result<DataWorkflow> switchSchedulerEngine(@PathVariable Long id,
+                                                      @RequestBody WorkflowSchedulerEngineRequest request) {
+        return Result.success(workflowService.switchSchedulerEngine(id, request));
     }
 
     @GetMapping("/{id}/export-json")

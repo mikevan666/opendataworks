@@ -80,6 +80,15 @@ public class DolphinRuntimeDefinitionService {
         return result;
     }
 
+    public DolphinRuntimeWorkflowPage listRuntimeWorkflows(Long dolphinConfigId,
+            Long projectCode,
+            Integer pageNum,
+            Integer pageSize,
+            String keyword) {
+        return dolphinSchedulerService.withConfig(dolphinConfigId,
+                () -> listRuntimeWorkflows(projectCode, pageNum, pageSize, keyword));
+    }
+
     public RuntimeWorkflowDefinition loadRuntimeDefinition(Long projectCode, Long workflowCode) {
         if (workflowCode == null || workflowCode <= 0) {
             throw new IllegalArgumentException("workflowCode 不能为空");
@@ -149,6 +158,11 @@ public class DolphinRuntimeDefinitionService {
         return result;
     }
 
+    public RuntimeWorkflowDefinition loadRuntimeDefinition(Long dolphinConfigId, Long projectCode, Long workflowCode) {
+        return dolphinSchedulerService.withConfig(dolphinConfigId,
+                () -> loadRuntimeDefinition(projectCode, workflowCode));
+    }
+
     /**
      * 通过 Dolphin 导出 JSON 获取运行态定义（导出主路）。
      */
@@ -212,6 +226,13 @@ public class DolphinRuntimeDefinitionService {
         result.setExplicitEdges(explicitEdges);
         result.setRawDefinitionJson(toJson(exported));
         return result;
+    }
+
+    public RuntimeWorkflowDefinition loadRuntimeDefinitionFromExport(Long dolphinConfigId,
+            Long projectCode,
+            Long workflowCode) {
+        return dolphinSchedulerService.withConfig(dolphinConfigId,
+                () -> loadRuntimeDefinitionFromExport(projectCode, workflowCode));
     }
 
     /**

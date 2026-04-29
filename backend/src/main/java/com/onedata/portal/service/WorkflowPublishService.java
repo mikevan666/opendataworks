@@ -119,9 +119,7 @@ public class WorkflowPublishService {
                 : "system";
         RuntimeWorkflowDefinition runtimeDefinition = null;
         if (workflow.getWorkflowCode() != null && workflow.getWorkflowCode() > 0) {
-            runtimeDefinition = runtimeDefinitionService.loadRuntimeDefinitionFromExport(
-                    workflow.getProjectCode(),
-                    workflow.getWorkflowCode());
+            runtimeDefinition = loadRuntimeDefinitionFromExport(workflow);
         }
 
         WorkflowPublishRepairResponse response = new WorkflowPublishRepairResponse();
@@ -165,6 +163,7 @@ public class WorkflowPublishService {
         record.setVersionId(version.getId());
         record.setOperation(operation);
         record.setTargetEngine("dolphin");
+        record.setDolphinConfigId(workflow.getDolphinConfigId());
         record.setStatus("pending");
         record.setOperator(request.getOperator());
         publishRecordMapper.insert(record);
@@ -226,9 +225,7 @@ public class WorkflowPublishService {
             response.getWarnings().add(warning);
         } else {
             try {
-                runtimeDefinition = runtimeDefinitionService.loadRuntimeDefinitionFromExport(
-                        workflow.getProjectCode(),
-                        workflow.getWorkflowCode());
+                runtimeDefinition = loadRuntimeDefinitionFromExport(workflow);
             } catch (Exception ex) {
                 if (isRuntimeWorkflowMissing(ex.getMessage())) {
                     RuntimeSyncIssue warning = RuntimeSyncIssue.warning(
@@ -338,7 +335,9 @@ public class WorkflowPublishService {
             runtimeTask.setSql(task.getTaskSql());
             runtimeTask.setDatasourceName(task.getDatasourceName());
             runtimeTask.setDatasourceType(task.getDatasourceType());
-            runtimeTask.setFlag(normalizeDolphinFlag(task.getDolphinFlag()));
+            if (StringUtils.hasText(task.getDolphinFlag())) {
+                runtimeTask.setFlag(normalizeDolphinFlag(task.getDolphinFlag()));
+            }
             DefinitionTaskMetadata metadata = runtimeTask.getTaskCode() != null
                     ? definitionTaskMetadataByCode.get(runtimeTask.getTaskCode())
                     : null;
@@ -365,6 +364,18 @@ public class WorkflowPublishService {
         }
         definition.setTasks(tasks);
         return definition;
+    }
+
+    private RuntimeWorkflowDefinition loadRuntimeDefinitionFromExport(DataWorkflow workflow) {
+        if (workflow.getDolphinConfigId() == null) {
+            return runtimeDefinitionService.loadRuntimeDefinitionFromExport(
+                    workflow.getProjectCode(),
+                    workflow.getWorkflowCode());
+        }
+        return runtimeDefinitionService.loadRuntimeDefinitionFromExport(
+                workflow.getDolphinConfigId(),
+                workflow.getProjectCode(),
+                workflow.getWorkflowCode());
     }
 
     private RuntimeWorkflowSchedule buildPlatformSchedule(DataWorkflow workflow) {
@@ -1041,7 +1052,9 @@ public class WorkflowPublishService {
         Map<String, DolphinDatasourceOption> datasourceByName;
         Map<Long, DolphinDatasourceOption> datasourceById;
         try {
-            List<DolphinDatasourceOption> datasourceOptions = dolphinSchedulerService.listDatasources(null, null);
+            List<DolphinDatasourceOption> datasourceOptions = workflow.getDolphinConfigId() == null
+                    ? dolphinSchedulerService.listDatasources(null, null)
+                    : dolphinSchedulerService.listDatasources(null, null, workflow.getDolphinConfigId());
             datasourceByName = new LinkedHashMap<>();
             datasourceById = new LinkedHashMap<>();
             if (!CollectionUtils.isEmpty(datasourceOptions)) {
@@ -1065,7 +1078,10 @@ public class WorkflowPublishService {
 
         Map<String, DolphinTaskGroupOption> taskGroupByName;
         try {
-            taskGroupByName = dolphinSchedulerService.listTaskGroups(null)
+            List<DolphinTaskGroupOption> taskGroupOptions = workflow.getDolphinConfigId() == null
+                    ? dolphinSchedulerService.listTaskGroups(null)
+                    : dolphinSchedulerService.listTaskGroups(null, workflow.getDolphinConfigId());
+            taskGroupByName = taskGroupOptions
                     .stream()
                     .filter(Objects::nonNull)
                     .filter(item -> StringUtils.hasText(item.getName()) && item.getId() != null && item.getId() > 0)
@@ -1417,10 +1433,10 @@ public class WorkflowPublishService {
         }
         try {
             if ("online".equals(record.getOperation())) {
-                dolphinSchedulerService.setWorkflowReleaseState(workflow.getWorkflowCode(), "ONLINE");
+                setWorkflowReleaseState(workflow, "ONLINE");
                 tryAutoOnlineSchedule(workflow);
             } else if ("offline".equals(record.getOperation())) {
-                dolphinSchedulerService.setWorkflowReleaseState(workflow.getWorkflowCode(), "OFFLINE");
+                setWorkflowReleaseState(workflow, "OFFLINE");
                 tryAutoOfflineSchedule(workflow);
             } else {
                 log.debug("No Dolphin action for operation {}", record.getOperation());
@@ -1430,11 +1446,43 @@ public class WorkflowPublishService {
         }
     }
 
+    private void setWorkflowReleaseState(DataWorkflow workflow, String releaseState) {
+        if (workflow.getDolphinConfigId() == null) {
+            dolphinSchedulerService.setWorkflowReleaseState(workflow.getWorkflowCode(), releaseState);
+        } else {
+            dolphinSchedulerService.setWorkflowReleaseState(
+                    workflow.getDolphinConfigId(), workflow.getWorkflowCode(), releaseState);
+        }
+    }
+
+    private DolphinSchedule getWorkflowSchedule(DataWorkflow workflow) {
+        if (workflow.getDolphinConfigId() == null) {
+            return dolphinSchedulerService.getWorkflowSchedule(workflow.getWorkflowCode());
+        }
+        return dolphinSchedulerService.getWorkflowSchedule(workflow.getDolphinConfigId(), workflow.getWorkflowCode());
+    }
+
+    private void onlineWorkflowSchedule(DataWorkflow workflow, Long scheduleId) {
+        if (workflow.getDolphinConfigId() == null) {
+            dolphinSchedulerService.onlineWorkflowSchedule(scheduleId);
+        } else {
+            dolphinSchedulerService.onlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
+        }
+    }
+
+    private void offlineWorkflowSchedule(DataWorkflow workflow, Long scheduleId) {
+        if (workflow.getDolphinConfigId() == null) {
+            dolphinSchedulerService.offlineWorkflowSchedule(scheduleId);
+        } else {
+            dolphinSchedulerService.offlineWorkflowSchedule(workflow.getDolphinConfigId(), scheduleId);
+        }
+    }
+
     private void tryAutoOnlineSchedule(DataWorkflow workflow) {
         if (!Boolean.TRUE.equals(workflow.getScheduleAutoOnline())) {
             return;
         }
-        DolphinSchedule schedule = dolphinSchedulerService.getWorkflowSchedule(workflow.getWorkflowCode());
+        DolphinSchedule schedule = getWorkflowSchedule(workflow);
         if (schedule != null && schedule.getId() != null && schedule.getId() > 0) {
             workflow.setDolphinScheduleId(schedule.getId());
             if (StringUtils.hasText(schedule.getReleaseState())) {
@@ -1458,7 +1506,7 @@ public class WorkflowPublishService {
         }
 
         try {
-            dolphinSchedulerService.onlineWorkflowSchedule(scheduleId);
+            onlineWorkflowSchedule(workflow, scheduleId);
             workflow.setScheduleState("ONLINE");
         } catch (Exception ex) {
             log.warn("Failed to online schedule {} for workflow {}: {}",
@@ -1467,7 +1515,7 @@ public class WorkflowPublishService {
     }
 
     private void tryAutoOfflineSchedule(DataWorkflow workflow) {
-        DolphinSchedule schedule = dolphinSchedulerService.getWorkflowSchedule(workflow.getWorkflowCode());
+        DolphinSchedule schedule = getWorkflowSchedule(workflow);
         if (schedule != null && schedule.getId() != null && schedule.getId() > 0) {
             workflow.setDolphinScheduleId(schedule.getId());
             if (StringUtils.hasText(schedule.getReleaseState())) {
@@ -1481,7 +1529,7 @@ public class WorkflowPublishService {
             return;
         }
         try {
-            dolphinSchedulerService.offlineWorkflowSchedule(scheduleId);
+            offlineWorkflowSchedule(workflow, scheduleId);
         } catch (Exception ex) {
             log.warn("Failed to offline schedule {} for workflow {}: {}",
                     scheduleId, workflow.getWorkflowCode(), ex.getMessage());
@@ -1524,6 +1572,7 @@ public class WorkflowPublishService {
         if (result.getProjectCode() != null) {
             workflow.setProjectCode(result.getProjectCode());
         }
+        record.setDolphinConfigId(workflow.getDolphinConfigId());
         applyWorkflowStatus(workflow, record);
         record.setStatus("success");
         record.setEngineWorkflowCode(result.getWorkflowCode());

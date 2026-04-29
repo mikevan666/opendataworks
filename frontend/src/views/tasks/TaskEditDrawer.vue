@@ -350,6 +350,13 @@ const SqlEditor = defineAsyncComponent({
   suspensible: false
 })
 
+const props = defineProps({
+  dolphinConfigId: {
+    type: Number,
+    default: null
+  }
+})
+
 const emit = defineEmits(['saved', 'success', 'close'])
 
 const route = useRoute()
@@ -366,6 +373,7 @@ const taskNameChecking = ref(false)
 const originalTaskName = ref('')
 const workflowOptions = ref([])
 const isWriteTask = ref(false)
+const contextDolphinConfigId = ref(null)
 
 const datasourceOptions = ref([])
 const tableOptions = ref([])
@@ -407,7 +415,8 @@ const fetchWorkflowOptions = async () => {
 
 const fetchDatasourceOptions = async () => {
   try {
-    const res = await taskApi.fetchDatasources()
+    const params = effectiveDolphinConfigId.value ? { dolphinConfigId: effectiveDolphinConfigId.value } : {}
+    const res = await taskApi.fetchDatasources(params)
     datasourceOptions.value = res || []
     syncSqlDatasourceType()
   } catch (error) {
@@ -768,14 +777,36 @@ const goToMetadataSync = () => {
   })
 }
 
+const activeWorkflowDolphinConfigId = computed(() => {
+  const workflowId = Number(form.task.workflowId)
+  if (!Number.isFinite(workflowId)) {
+    return null
+  }
+  const workflow = workflowOptions.value.find(item => Number(item?.id) === workflowId)
+  return workflow?.dolphinConfigId || null
+})
+
+const effectiveDolphinConfigId = computed(() => (
+  props.dolphinConfigId
+  || contextDolphinConfigId.value
+  || activeWorkflowDolphinConfigId.value
+  || null
+))
+
 const open = async (id = null, initialData = {}) => {
   visible.value = true
   loading.value = false
   isEdit.value = !!id
+  contextDolphinConfigId.value = initialData.dolphinConfigId || null
 
   resetForm()
-  await Promise.all([fetchDatasourceOptions(), fetchWorkflowOptions()])
   lockedWorkflowId.value = null
+  if (initialData.workflowId) {
+    form.task.workflowId = initialData.workflowId
+    lockedWorkflowId.value = initialData.workflowId
+  }
+  await fetchWorkflowOptions()
+  await fetchDatasourceOptions()
 
   if (id) {
     try {
@@ -799,11 +830,6 @@ const open = async (id = null, initialData = {}) => {
     if (initialData.taskSql) form.task.taskSql = initialData.taskSql
     if (initialData.taskName) form.task.taskName = initialData.taskName
     if (initialData.taskDesc) form.task.taskDesc = initialData.taskDesc
-
-    if (initialData.workflowId) {
-      form.task.workflowId = initialData.workflowId
-      lockedWorkflowId.value = initialData.workflowId
-    }
 
     if (initialData.relation && initialData.tableId) {
       const tableId = Number(initialData.tableId)
@@ -1021,6 +1047,13 @@ watch(
     scheduleSqlAnalyze()
   }
 )
+
+watch(effectiveDolphinConfigId, async (nextId, prevId) => {
+  if (!visible.value || nextId === prevId) {
+    return
+  }
+  await fetchDatasourceOptions()
+})
 
 onBeforeUnmount(() => {
   cancelPendingAnalyze()

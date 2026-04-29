@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Direct client for DolphinScheduler OpenAPI.
@@ -45,6 +46,7 @@ public class DolphinOpenApiClient {
     // Cache the WebClient instance to avoid recreating it for every request
     // Key: url + token
     private final Map<String, WebClient> webClientCache = new ConcurrentHashMap<>();
+    private final ThreadLocal<DolphinConfig> scopedConfig = new ThreadLocal<>();
 
     public DolphinOpenApiClient(DolphinConfigService dolphinConfigService,
             ObjectMapper objectMapper,
@@ -55,11 +57,37 @@ public class DolphinOpenApiClient {
     }
 
     private WebClient getWebClient() {
-        DolphinConfig config = dolphinConfigService.getActiveConfig();
+        DolphinConfig config = resolveConfig();
         if (config == null || !StringUtils.hasText(config.getUrl())) {
             throw new IllegalStateException("DolphinScheduler configuration is missing or URL is empty");
         }
         return getWebClient(config);
+    }
+
+    public <T> T withConfig(DolphinConfig config, Supplier<T> supplier) {
+        DolphinConfig previous = scopedConfig.get();
+        scopedConfig.set(config);
+        try {
+            return supplier.get();
+        } finally {
+            if (previous == null) {
+                scopedConfig.remove();
+            } else {
+                scopedConfig.set(previous);
+            }
+        }
+    }
+
+    public void withConfig(DolphinConfig config, Runnable runnable) {
+        withConfig(config, () -> {
+            runnable.run();
+            return null;
+        });
+    }
+
+    private DolphinConfig resolveConfig() {
+        DolphinConfig config = scopedConfig.get();
+        return config != null ? config : dolphinConfigService.getActiveConfig();
     }
 
     private WebClient getWebClient(DolphinConfig config) {
@@ -796,7 +824,7 @@ public class DolphinOpenApiClient {
             formData.add("failureStrategy", StringUtils.hasText(failureStrategy) ? failureStrategy : "CONTINUE");
             formData.add("warningGroupId", String.valueOf(warningGroupId != null ? warningGroupId : 0L));
 
-            DolphinConfig config = dolphinConfigService.getActiveConfig();
+            DolphinConfig config = resolveConfig();
             String resolvedTenantCode = StringUtils.hasText(tenantCode) ? tenantCode.trim()
                     : (config != null && StringUtils.hasText(config.getTenantCode()) ? config.getTenantCode()
                             : "default");
@@ -866,7 +894,7 @@ public class DolphinOpenApiClient {
             formData.add("failureStrategy", StringUtils.hasText(failureStrategy) ? failureStrategy : "CONTINUE");
             formData.add("warningGroupId", String.valueOf(warningGroupId != null ? warningGroupId : 0L));
 
-            DolphinConfig config = dolphinConfigService.getActiveConfig();
+            DolphinConfig config = resolveConfig();
             String resolvedTenantCode = StringUtils.hasText(tenantCode) ? tenantCode.trim()
                     : (config != null && StringUtils.hasText(config.getTenantCode()) ? config.getTenantCode()
                             : "default");

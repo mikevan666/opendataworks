@@ -1,12 +1,18 @@
 package com.onedata.portal.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.onedata.portal.entity.DolphinConfig;
 import com.onedata.portal.mapper.DolphinConfigMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Service for managing DolphinScheduler configuration.
@@ -15,6 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class DolphinConfigService {
+
+    private static final String DEFAULT_TENANT_CODE = "default";
+    private static final String DEFAULT_WORKER_GROUP = "default";
+    private static final String DEFAULT_EXECUTION_TYPE = "PARALLEL";
 
     private final DolphinConfigMapper dolphinConfigMapper;
 
@@ -33,13 +43,7 @@ public class DolphinConfigService {
         if (cachedConfig != null) {
             return cachedConfig;
         }
-
-        // Find the active config (assuming there's only one active or we take the
-        // latest)
-        DolphinConfig config = dolphinConfigMapper.selectOne(new LambdaQueryWrapper<DolphinConfig>()
-                .eq(DolphinConfig::getIsActive, true)
-                .orderByDesc(DolphinConfig::getId)
-                .last("LIMIT 1"));
+        DolphinConfig config = getDefaultConfig();
 
         if (config != null) {
             cachedConfig = config;
@@ -54,6 +58,109 @@ public class DolphinConfigService {
         return getActiveConfig();
     }
 
+    public List<DolphinConfig> listAll(Boolean activeOnly) {
+        QueryWrapper<DolphinConfig> wrapper = new QueryWrapper<>();
+        if (Boolean.TRUE.equals(activeOnly)) {
+            wrapper.eq("is_active", true);
+        }
+        wrapper.orderByDesc("is_default")
+                .orderByAsc("config_name")
+                .orderByAsc("id");
+        return dolphinConfigMapper.selectList(wrapper);
+    }
+
+    public DolphinConfig getById(Long id) {
+        return id == null ? null : dolphinConfigMapper.selectById(id);
+    }
+
+    public DolphinConfig getEnabledConfig(Long id) {
+        DolphinConfig config = id == null ? getDefaultConfig() : dolphinConfigMapper.selectById(id);
+        if (config == null) {
+            throw new IllegalArgumentException("Dolphin 环境不存在");
+        }
+        if (!Boolean.TRUE.equals(config.getIsActive())) {
+            throw new IllegalStateException("Dolphin 环境未启用: " + displayName(config));
+        }
+        return config;
+    }
+
+    public DolphinConfig getDefaultConfig() {
+        DolphinConfig config = dolphinConfigMapper.selectOne(new QueryWrapper<DolphinConfig>()
+                .eq("is_default", 1)
+                .eq("is_active", true)
+                .orderByDesc("id")
+                .last("LIMIT 1"));
+        if (config != null) {
+            return config;
+        }
+        return dolphinConfigMapper.selectOne(new QueryWrapper<DolphinConfig>()
+                .eq("is_active", true)
+                .orderByDesc("id")
+                .last("LIMIT 1"));
+    }
+
+    @Transactional
+    public DolphinConfig create(DolphinConfig config) {
+        normalize(config, true, null);
+        if (Integer.valueOf(1).equals(config.getIsDefault())) {
+            resetDefault(null);
+        }
+        dolphinConfigMapper.insert(config);
+        invalidateCache();
+        log.info("Created DolphinScheduler configuration: {}", config.getConfigName());
+        return config;
+    }
+
+    @Transactional
+    public DolphinConfig update(Long id, DolphinConfig config) {
+        DolphinConfig existing = dolphinConfigMapper.selectById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("Dolphin 环境不存在");
+        }
+        boolean runtimeBound = countRuntimeBoundWorkflows(id) > 0;
+        normalize(config, false, existing);
+        if (runtimeBound && runtimeIdentityChanged(existing, config)) {
+            throw new IllegalStateException("Dolphin 环境已被运行态工作流绑定，不能修改服务地址或项目名称");
+        }
+        config.setId(id);
+        if (Integer.valueOf(1).equals(config.getIsDefault())) {
+            resetDefault(id);
+        }
+        dolphinConfigMapper.updateById(config);
+        invalidateCache();
+        log.info("Updated DolphinScheduler configuration: {}({})", id, config.getConfigName());
+        return dolphinConfigMapper.selectById(id);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        DolphinConfig existing = dolphinConfigMapper.selectById(id);
+        if (existing == null) {
+            return;
+        }
+        if (countRuntimeBoundWorkflows(id) > 0) {
+            throw new IllegalStateException("Dolphin 环境已被运行态工作流绑定，不能删除");
+        }
+        dolphinConfigMapper.deleteById(id);
+        invalidateCache();
+        log.info("Deleted DolphinScheduler configuration: {}({})", id, displayName(existing));
+    }
+
+    @Transactional
+    public void setDefault(Long id) {
+        DolphinConfig existing = dolphinConfigMapper.selectById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("Dolphin 环境不存在");
+        }
+        if (!Boolean.TRUE.equals(existing.getIsActive())) {
+            throw new IllegalStateException("停用的 Dolphin 环境不能设为默认");
+        }
+        resetDefault(id);
+        existing.setIsDefault(1);
+        dolphinConfigMapper.updateById(existing);
+        invalidateCache();
+    }
+
     /**
      * Update the DolphinScheduler configuration.
      * Implementation: Update the existing active record or insert a new one if none
@@ -62,26 +169,120 @@ public class DolphinConfigService {
      */
     @Transactional
     public DolphinConfig updateConfig(DolphinConfig newConfig) {
-        DolphinConfig current = getActiveConfig();
+        DolphinConfig current = getDefaultConfig();
 
         if (current == null) {
-            newConfig.setIsActive(true);
-            dolphinConfigMapper.insert(newConfig);
-            current = newConfig;
+            newConfig.setIsDefault(1);
+            current = create(newConfig);
         } else {
-            current.setUrl(newConfig.getUrl());
-            current.setToken(newConfig.getToken());
-            current.setProjectName(newConfig.getProjectName());
-            current.setProjectCode(newConfig.getProjectCode());
-            current.setTenantCode(newConfig.getTenantCode());
-            current.setWorkerGroup(newConfig.getWorkerGroup());
-            current.setExecutionType(newConfig.getExecutionType());
-            dolphinConfigMapper.updateById(current);
+            newConfig.setConfigName(StringUtils.hasText(newConfig.getConfigName())
+                    ? newConfig.getConfigName()
+                    : current.getConfigName());
+            newConfig.setDescription(newConfig.getDescription());
+            newConfig.setIsDefault(1);
+            current = update(current.getId(), newConfig);
         }
 
         // Update cache
         cachedConfig = current;
         log.info("Updated DolphinScheduler configuration");
         return current;
+    }
+
+    private void normalize(DolphinConfig config, boolean requireToken, DolphinConfig existing) {
+        if (config == null) {
+            throw new IllegalArgumentException("Dolphin 配置不能为空");
+        }
+        if (!StringUtils.hasText(config.getConfigName())) {
+            config.setConfigName(existing != null && StringUtils.hasText(existing.getConfigName())
+                    ? existing.getConfigName()
+                    : "Dolphin");
+        } else {
+            config.setConfigName(config.getConfigName().trim());
+        }
+        if (!StringUtils.hasText(config.getUrl())) {
+            throw new IllegalArgumentException("Dolphin 服务地址不能为空");
+        }
+        config.setUrl(trimTrailingSlash(config.getUrl()));
+        if (!StringUtils.hasText(config.getToken())) {
+            if (existing != null && StringUtils.hasText(existing.getToken())) {
+                config.setToken(existing.getToken());
+            } else if (requireToken) {
+                throw new IllegalArgumentException("Dolphin 访问令牌不能为空");
+            }
+        } else {
+            config.setToken(config.getToken().trim());
+        }
+        if (!StringUtils.hasText(config.getProjectName())) {
+            throw new IllegalArgumentException("Dolphin 项目名称不能为空");
+        }
+        config.setProjectName(config.getProjectName().trim());
+        if (StringUtils.hasText(config.getProjectCode())) {
+            config.setProjectCode(config.getProjectCode().trim());
+        } else if (existing != null) {
+            config.setProjectCode(existing.getProjectCode());
+        }
+        config.setTenantCode(defaultText(config.getTenantCode(), DEFAULT_TENANT_CODE));
+        config.setWorkerGroup(defaultText(config.getWorkerGroup(), DEFAULT_WORKER_GROUP));
+        config.setExecutionType(defaultText(config.getExecutionType(), DEFAULT_EXECUTION_TYPE).toUpperCase(Locale.ROOT));
+        if (config.getIsActive() == null) {
+            config.setIsActive(existing == null ? Boolean.TRUE : existing.getIsActive());
+        }
+        if (config.getIsDefault() == null) {
+            config.setIsDefault(existing == null ? 0 : existing.getIsDefault());
+        } else {
+            config.setIsDefault(config.getIsDefault() == 1 ? 1 : 0);
+        }
+        if (StringUtils.hasText(config.getDescription())) {
+            config.setDescription(config.getDescription().trim());
+        }
+        if (config.getDeleted() == null) {
+            config.setDeleted(existing == null ? 0 : existing.getDeleted());
+        }
+    }
+
+    private long countRuntimeBoundWorkflows(Long id) {
+        Long count = dolphinConfigMapper.countRuntimeBoundWorkflows(id);
+        return count == null ? 0L : count;
+    }
+
+    private boolean runtimeIdentityChanged(DolphinConfig existing, DolphinConfig next) {
+        return !Objects.equals(trimTrailingSlash(existing.getUrl()), trimTrailingSlash(next.getUrl()))
+                || !Objects.equals(existing.getProjectName(), next.getProjectName());
+    }
+
+    private void resetDefault(Long excludeId) {
+        UpdateWrapper<DolphinConfig> wrapper = new UpdateWrapper<DolphinConfig>()
+                .set("is_default", 0);
+        if (excludeId != null) {
+            wrapper.ne("id", excludeId);
+        }
+        dolphinConfigMapper.update(null, wrapper);
+    }
+
+    private void invalidateCache() {
+        cachedConfig = null;
+    }
+
+    private String defaultText(String value, String defaultValue) {
+        return StringUtils.hasText(value) ? value.trim() : defaultValue;
+    }
+
+    private String trimTrailingSlash(String value) {
+        if (!StringUtils.hasText(value)) {
+            return value;
+        }
+        String normalized = value.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private String displayName(DolphinConfig config) {
+        if (config == null) {
+            return "-";
+        }
+        return StringUtils.hasText(config.getConfigName()) ? config.getConfigName() : String.valueOf(config.getId());
     }
 }
