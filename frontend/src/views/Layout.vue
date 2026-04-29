@@ -55,7 +55,7 @@ const menuItems = computed(() => {
     { index: '/inspection', label: '数据质量', icon: Warning },
     { index: '/integration', label: '数据集成', icon: Link },
     { index: '/intelligent-query', label: '智能问数', icon: ChatDotRound },
-    { index: '/settings', label: '管理员', icon: Setting }
+    { index: '/settings', label: '设置', icon: Setting }
   ]
   if (!isDemoMode) {
     return items

@@ -300,7 +300,7 @@ const notifyError = (error, fallbackMessage) => {
 
 const goBack = () => {
   router.push({
-    path: '/settings',
+    path: '/intelligent-query',
     query: { tab: 'skills' }
   })
 }

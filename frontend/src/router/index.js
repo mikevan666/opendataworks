@@ -78,6 +78,12 @@ const routes = [
         meta: { title: '智能问数' }
       },
       {
+        path: '/intelligent-query/skills/:folder',
+        name: 'IntelligentQuerySkillDetail',
+        component: () => import('@/views/intelligence/IntelligentQueryView.vue'),
+        meta: { title: 'Skill 详情' }
+      },
+      {
         path: '/nl2sql',
         redirect: (to) => ({ path: '/intelligent-query', query: to.query, hash: to.hash })
       },
@@ -85,17 +91,24 @@ const routes = [
         path: '/settings',
         name: 'Settings',
         component: () => import('@/views/settings/ConfigurationManagement.vue'),
-        meta: { title: '管理员' }
+        meta: { title: '设置' }
       },
       {
         path: '/settings/skills',
-        redirect: () => ({ path: '/settings', query: { tab: 'skills' } })
+        redirect: (to) => ({
+          path: '/intelligent-query',
+          query: {
+            ...to.query,
+            tab: 'skills'
+          }
+        })
       },
       {
         path: '/settings/skills/:folder',
-        name: 'SkillDetail',
-        component: () => import('@/views/settings/SkillDetailView.vue'),
-        meta: { title: 'Skill 详情' }
+        redirect: (to) => ({
+          path: `/intelligent-query/skills/${encodeURIComponent(String(to.params.folder || ''))}`,
+          query: to.query
+        })
       },
       {
         path: '/playground',

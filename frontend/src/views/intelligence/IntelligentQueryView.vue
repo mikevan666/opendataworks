@@ -1,25 +1,141 @@
 <template>
   <div class="intelligent-query-view">
-    <NL2SqlChat />
+    <aside class="intelligent-query-sidebar">
+      <el-menu
+        :default-active="activeMenu"
+        class="intelligent-query-menu"
+        @select="handleMenuSelect"
+      >
+        <el-menu-item index="chat">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>智能问数</span>
+        </el-menu-item>
+        <el-menu-item index="skills">
+          <el-icon><Collection /></el-icon>
+          <span>Skills</span>
+        </el-menu-item>
+        <el-menu-item index="models">
+          <el-icon><Cpu /></el-icon>
+          <span>模型管理</span>
+        </el-menu-item>
+      </el-menu>
+    </aside>
+
+    <main class="intelligent-query-content" :class="{ 'is-chat': activeMenu === 'chat' }">
+      <SkillDetailView v-if="isSkillDetailRoute" />
+      <SkillStudio v-else-if="activeTab === 'skills'" />
+      <DataAgentConfig v-else-if="activeTab === 'models'" />
+      <NL2SqlChat v-else />
+    </main>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ChatDotRound, Collection, Cpu } from '@element-plus/icons-vue'
 import NL2SqlChat from './NL2SqlChat.vue'
+import SkillStudio from '../settings/SkillStudio.vue'
+import DataAgentConfig from '../settings/DataAgentConfig.vue'
+import SkillDetailView from '../settings/SkillDetailView.vue'
+
+const route = useRoute()
+const router = useRouter()
+const validTabs = new Set(['chat', 'skills', 'models'])
+
+const isSkillDetailRoute = computed(() => (
+  route.name === 'IntelligentQuerySkillDetail' || route.path.startsWith('/intelligent-query/skills/')
+))
+
+const activeTab = computed(() => {
+  if (isSkillDetailRoute.value) {
+    return 'skills'
+  }
+  const tab = String(route.query.tab || 'chat')
+  return validTabs.has(tab) ? tab : 'chat'
+})
+
+const activeMenu = computed(() => activeTab.value)
+
+const handleMenuSelect = (index) => {
+  const tab = validTabs.has(index) ? index : 'chat'
+  if (tab === activeTab.value && !isSkillDetailRoute.value) {
+    return
+  }
+
+  router.replace({
+    path: '/intelligent-query',
+    query: tab === 'chat' ? {} : { tab }
+  })
+}
 </script>
 
 <style scoped>
 .intelligent-query-view {
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  background: #f4f7fb;
+  overflow: hidden;
+}
+
+.intelligent-query-sidebar {
+  min-width: 0;
+  border-right: 1px solid #dbe3ef;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.intelligent-query-menu {
+  height: 100%;
+  border-right: none;
+  padding: 12px 0;
+}
+
+.intelligent-query-menu :deep(.el-menu-item) {
+  height: 44px;
+  line-height: 44px;
+}
+
+.intelligent-query-content {
+  min-width: 0;
+  min-height: 0;
   height: 100%;
   padding: 16px;
-  background:
-    radial-gradient(circle at top right, rgba(102, 126, 234, 0.12), transparent 28%),
-    linear-gradient(180deg, #f4f7fb 0%, #edf2f8 100%);
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.intelligent-query-content.is-chat {
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
   .intelligent-query-view {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .intelligent-query-sidebar {
+    border-right: none;
+    border-bottom: 1px solid #dbe3ef;
+  }
+
+  .intelligent-query-menu {
+    display: flex;
+    height: auto;
+    padding: 6px;
+    overflow-x: auto;
+  }
+
+  .intelligent-query-menu :deep(.el-menu-item) {
+    flex: 0 0 auto;
+    height: 38px;
+    line-height: 38px;
+  }
+
+  .intelligent-query-content {
     padding: 12px;
   }
 }
