@@ -918,7 +918,9 @@ public class DolphinSchedulerService {
     }
 
     public String getWebuiBaseUrl(Long dolphinConfigId) {
-        return this.<String>withConfig(dolphinConfigId, this::getWebuiBaseUrl);
+        return withConfig(dolphinConfigId, () -> {
+            return getWebuiBaseUrl();
+        });
     }
 
     public String getDefaultTenantCode() {
@@ -1247,7 +1249,9 @@ public class DolphinSchedulerService {
     }
 
     public List<String> listWorkerGroups(Long dolphinConfigId) {
-        return this.<List<String>>withConfig(dolphinConfigId, this::listWorkerGroups);
+        return withConfig(dolphinConfigId, () -> {
+            return listWorkerGroups();
+        });
     }
 
     /**
@@ -1263,7 +1267,9 @@ public class DolphinSchedulerService {
     }
 
     public List<String> listTenants(Long dolphinConfigId) {
-        return this.<List<String>>withConfig(dolphinConfigId, this::listTenants);
+        return withConfig(dolphinConfigId, () -> {
+            return listTenants();
+        });
     }
 
     /**
@@ -1279,7 +1285,9 @@ public class DolphinSchedulerService {
     }
 
     public List<DolphinAlertGroupOption> listAlertGroups(Long dolphinConfigId) {
-        return this.<List<DolphinAlertGroupOption>>withConfig(dolphinConfigId, this::listAlertGroups);
+        return withConfig(dolphinConfigId, () -> {
+            return listAlertGroups();
+        });
     }
 
     /**
@@ -1295,7 +1303,9 @@ public class DolphinSchedulerService {
     }
 
     public List<DolphinEnvironmentOption> listEnvironments(Long dolphinConfigId) {
-        return this.<List<DolphinEnvironmentOption>>withConfig(dolphinConfigId, this::listEnvironments);
+        return withConfig(dolphinConfigId, () -> {
+            return listEnvironments();
+        });
     }
 
     /**
