@@ -323,3 +323,63 @@ test("a failing tool call surfaces as is_error in the event stream", async () =>
   // The output has to survive the failure, or the model cannot diagnose it.
   assert.match(JSON.stringify(completed.payload.output), /before-failure/);
 });
+
+test("records token usage in the shape the rest of the stack reads", async () => {
+  // usage.updated is declared in the contract and handled by both the Python
+  // adapter and the frontend reducer, but nothing emitted it, so a Pi turn
+  // recorded no token usage at all while an SDK turn did.
+  //
+  // The shape matters as much as the event: the frontend's normalizeUsage reads
+  // Anthropic-style input_tokens / output_tokens / cache_*, so emitting pi-ai's
+  // camelCase Usage verbatim would leave the display blank anyway.
+  const root = workspace();
+  const factory = () => ({
+    model: { api: "faux", provider: "faux", id: "faux-1" } as never,
+    streamFn: (() => {
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: "ok" }],
+          api: "faux" as const,
+          provider: "faux",
+          model: "faux-1",
+          usage: {
+            input: 120,
+            output: 45,
+            cacheRead: 7,
+            cacheWrite: 3,
+            totalTokens: 165,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop" as const,
+          timestamp: Date.now(),
+        };
+        stream.push({ type: "start", partial: message as never });
+        stream.push({ type: "done", reason: "stop", message: message as never });
+        stream.end();
+      });
+      return stream;
+    }) as never,
+  });
+
+  const { events } = await runCell(initPayload(root), factory as never);
+
+  const usageEvent = events.find((e) => e.type === "usage.updated");
+  assert.ok(usageEvent, "expected a usage.updated event");
+  assert.deepEqual(usageEvent.payload.usage, {
+    input_tokens: 120,
+    output_tokens: 45,
+    cache_read_input_tokens: 7,
+    cache_creation_input_tokens: 3,
+  });
+});
+
+test("a turn without usage emits no usage event rather than an empty one", async () => {
+  const root = workspace();
+  const { events } = await runCell(initPayload(root), textStreamFactory("hi"));
+  const usageEvents = events.filter((e) => e.type === "usage.updated");
+  // The stub's usage uses inputTokens/outputTokens, which are not pi-ai's Usage
+  // fields, so nothing usable is present and no event should be fabricated.
+  assert.equal(usageEvents.length, 0);
+});
