@@ -6,12 +6,11 @@ import {
   ProviderNotSupportedError,
 } from "../src/providers/stream-fn-resolver.js";
 
-test("resolveProviderProfile resolves built-in providers including anyrouter and openrouter", () => {
+test("resolveProviderProfile resolves built-in providers including anyrouter", () => {
   const supported = [
     "anthropic",
     "anthropic_compatible",
     "anyrouter",
-    "openrouter",
     "openai",
     "openai_compatible",
   ];
@@ -29,20 +28,22 @@ test("resolveProviderProfile rejects unsupported provider", () => {
       assert.ok(err instanceof ProviderNotSupportedError);
       assert.match(err.message, /unsupported_xyz/);
       assert.match(err.message, /anyrouter/);
-      assert.match(err.message, /openrouter/);
       return true;
     }
   );
 });
 
-test("resolveModel builds model for anyrouter and openrouter", () => {
+test("resolveModel builds model for anyrouter", () => {
   const anyrouterModel = resolveModel("anyrouter", "claude-opus-4-6");
   assert.equal(anyrouterModel.id, "claude-opus-4-6");
   assert.equal(anyrouterModel.provider, "anyrouter");
   assert.equal(anyrouterModel.api, "anthropic-messages");
+});
 
-  const openrouterModel = resolveModel("openrouter", "anthropic/claude-sonnet-4.5");
-  assert.equal(openrouterModel.id, "anthropic/claude-sonnet-4.5");
-  assert.equal(openrouterModel.provider, "openrouter");
-  assert.equal(openrouterModel.api, "anthropic-messages");
+// openrouter is deliberately absent: it needs Authorization: Bearer, which this
+// resolver cannot express (it passes the token as apiKey -> x-api-key), and no
+// authenticated end-to-end run has verified it. Register it only alongside a
+// transport-level auth fix.
+test("resolveProviderProfile rejects openrouter until Bearer auth is supported", () => {
+  assert.throws(() => resolveProviderProfile("openrouter"), ProviderNotSupportedError);
 });

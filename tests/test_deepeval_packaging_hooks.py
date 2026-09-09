@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -71,8 +72,20 @@ def test_dataagent_sandbox_runner_image_is_packaged_and_built():
     assert RUNNER_IMAGE_NAME in workflow
     assert "Dockerfile.runner" in workflow
     assert "OPENDATAWORKS_DATAAGENT_RUNNER_IMAGE" in env_example
-    assert "opendataworks-dataagent-runner:1.3.0" in compose_prod
-    assert "opendataworks-dataagent-runner:1.2.0" not in compose_prod
+
+    # Pinning the tag here means every release bump breaks this test. Take
+    # .env.example as the single source of truth for the release tag instead,
+    # and assert prod compose agrees with it on every runner reference.
+    tag_pattern = rf"{RUNNER_IMAGE_NAME}:(\d+\.\d+\.\d+)"
+    expected_tags = set(re.findall(tag_pattern, env_example))
+    assert len(expected_tags) == 1, f"ambiguous runner tag in .env.example: {expected_tags}"
+    expected_tag = expected_tags.pop()
+
+    compose_tags = set(re.findall(tag_pattern, compose_prod))
+    assert compose_tags == {expected_tag}, (
+        f"prod compose runner tags {compose_tags} disagree with "
+        f".env.example tag {expected_tag}"
+    )
 
 
 def test_deepeval_eval_wrapper_keeps_volume_array_non_empty_for_bash_3():

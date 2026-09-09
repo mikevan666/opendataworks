@@ -547,11 +547,16 @@ def _warm_settings(tmp_path: Path) -> dict:
         "dataagent_sandbox_idle_ttl_seconds",
         "dataagent_sandbox_max_warm_containers",
         "dataagent_sandbox_reaper_interval_seconds",
+        # Tests below flip this to pi_agent_core; without it in the save set the
+        # finally-block restore leaks the override into every later test and the
+        # suite silently becomes order-dependent.
+        "dataagent_runtime_kind",
     ]
     originals = {key: getattr(settings, key) for key in keys}
     update_settings(
         {
             "dataagent_sandbox_backend": "docker",
+            "dataagent_runtime_kind": "claude_code",
             "dataagent_sandbox_image": "opendataworks-dataagent-runner:test",
             "dataagent_host_root": str(tmp_path / "topics"),
             "dataagent_sandbox_reuse_enabled": True,

@@ -116,8 +116,10 @@ _FORWARDED_ENV_KEYS = {
     # allow-list has to travel with it; without this the child falls back to the
     # workspace-only default and denies /tmp despite the tmpfs mounted for it.
     "DATAAGENT_WORKSPACE_SCRATCH_DIRS",
-    # Data plane execution engine choice and Pi runtime locations.
-    "DATAAGENT_RUNTIME_KIND",
+    # Pi runtime locations. DATAAGENT_RUNTIME_KIND is deliberately absent: the
+    # child gets it from resolve_runtime_kind(cfg) in _build_child_env, which is
+    # the single resolution entrypoint and normalizes unknown values. Forwarding
+    # the raw variable here would be dead weight shadowed by that override.
     "DATAAGENT_NODE_BIN",
     "DATAAGENT_RUNTIME_PI_DIR",
     "DATAAGENT_ASK_USER_QUESTION_ENABLED",
