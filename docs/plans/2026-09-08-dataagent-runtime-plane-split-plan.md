@@ -103,8 +103,8 @@
     移除 PR #450 引入的 `DATAAGENT_GATEWAY_URL`（无 Gateway）。
 27. `deploy/docker-compose.dev.yml`：给 `dataagent-backend` 与
     `dataagent-sandbox-runner` 挂载 Pi 运行时产物或改用含 Node 的镜像。
-28. `.github/workflows/docker-build.yml`：把 `dataagent-runtime-pi` 加入构建矩阵
-    （PR #450 的 Dockerfile 不在矩阵内，从未被验证）。
+28. ~~`.github/workflows/docker-build.yml`：把 `dataagent-runtime-pi` 加入构建矩阵。~~
+    **已撤销**，见文末「修订：撤销独立 Pi 镜像」。
 
 ## 验证通过标准
 
@@ -248,3 +248,32 @@
 
 1. 本地端到端 smoke（需 MySQL + Redis + 真实 provider 凭据，CI 覆盖不到）
 2. 里程碑 2：确认/暂停回路（独立范围，未实现）
+
+## 修订：撤销独立 Pi 镜像（2026-09-09）
+
+阶段 6 任务 28 把 `dataagent-runtime-pi` 加进了 CI 构建矩阵。合入后发现这是个
+错误的决定，已撤销（删除 `dataagent-runtime-pi/Dockerfile` 与矩阵条目）。
+
+**发现路径**：镜像推送后的 summary 只列出 8 个镜像，而矩阵有 9 条。核查后确认
+镜像本身构建推送成功（job `102309185867`），缺的是 workflow `summary` 与
+`create-release` 里的硬编码清单。但顺着查下去，发现 `dataagent-runtime-pi` 在
+**所有**下游枚举处都缺席：`summary`、发布说明、`scripts/create-offline-package.sh`、
+`scripts/load-images.sh`、`scripts/build/*`。
+
+**根因不是清单漏项，而是这个镜像不该存在**：
+
+- Cell 是子进程，其产物已由 `dataagent-backend` / `dataagent-runner` 的多阶段
+  构建吸收（`COPY --from=pi-cell`）。
+- sandbox 拓扑下子容器用的正是 runner 镜像
+  （`docker-compose.dev.yml` 的 `DATAAGENT_SANDBOX_IMAGE`），而 `sandbox_task_main.py`
+  调用的是 `_execute_task_stream_local`——即 runtime_kind 分叉所在的函数。
+  因此 Pi 在两种隔离拓扑下都能工作，隔离由既有机制提供。
+- compose 里没有任何 service 部署该镜像，却每次提交构建 ~2 分钟并占用 registry。
+
+若将来确需「Cell 独立成容器」，应连同 compose service、离线包脚本与发布说明
+在同一次改动里加回，而不是只留一个无人拉取的镜像。理由记录在
+`dataagent/dataagent-runtime-pi/README.md`。
+
+注：上一节「Docker 构建验证结果」中 `dataagent-runtime-pi` 那一行仍然成立——
+它确实构建成功过，并由此证实了 `ENV NODE_ENV=production` 的位置修复有效。
+该结论对 backend/runner 镜像里的同一段构建阶段继续适用。
