@@ -71,6 +71,25 @@ export class CellChannel {
     this.outStream.write(JSON.stringify(makeFrame(type, payload)) + "\n");
   }
 
+  /**
+   * Resolve once everything written so far has actually left this process.
+   *
+   * Writes to a pipe are asynchronous and queue in memory once the pipe buffer
+   * (64KB on Linux) is full, which it readily is: the parent persists each
+   * event to MySQL before reading the next line, so it drains slowly. Calling
+   * process.exit() with frames still queued discards them — measured at ~65%
+   * loss for a 2000-event run — and the terminal event is the last one written,
+   * so a healthy run gets reported as CELL_LOSS with a truncated answer.
+   *
+   * The empty write's callback fires only after every chunk queued before it
+   * has been flushed, which is exactly the barrier needed.
+   */
+  public async flush(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.outStream.write("", () => resolve());
+    });
+  }
+
   public close(): void {
     this.rl?.close();
     this.rl = null;

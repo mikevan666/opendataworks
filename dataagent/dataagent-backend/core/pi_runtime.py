@@ -276,6 +276,7 @@ async def execute_pi_run(
     usage: dict[str, Any] | None = None
     terminal: PiRunOutcome | None = None
     cancel_sent = False
+    cancel_deadline: float | None = None
 
     try:
         await channel.send("cell.init", ctx.to_init_payload())
@@ -291,7 +292,23 @@ async def execute_pi_run(
                     last_sequence=highest_sequence,
                 )
                 break
-            if ctx.idle_timeout_seconds > 0 and (now - last_activity) >= ctx.idle_timeout_seconds:
+            # A cancel the Cell does not honour must not leave the user waiting
+            # out the rest of the run timeout. Once asked to stop it gets a
+            # grace period, then the run is settled as cancelled — which is what
+            # actually happened — and the finally block kills the child.
+            if cancel_deadline is not None and now >= cancel_deadline:
+                terminal = PiRunOutcome(
+                    terminal_status="cancelled",
+                    answer="".join(answer_parts),
+                    usage=usage,
+                    last_sequence=highest_sequence,
+                )
+                break
+            if (
+                cancel_deadline is None
+                and ctx.idle_timeout_seconds > 0
+                and (now - last_activity) >= ctx.idle_timeout_seconds
+            ):
                 terminal = PiRunOutcome(
                     terminal_status="failed",
                     answer="".join(answer_parts),
@@ -305,6 +322,7 @@ async def execute_pi_run(
                 reason = await cancel_reason()
                 if reason:
                     cancel_sent = True
+                    cancel_deadline = time.monotonic() + CANCEL_GRACE_SECONDS
                     await channel.send("run.cancel", {"reason": str(reason)})
 
             # Bounded wait so the cancel flag and both timeouts stay live even
@@ -312,6 +330,9 @@ async def execute_pi_run(
             budget = min(
                 CANCEL_POLL_INTERVAL_SECONDS,
                 max(0.05, deadline - now),
+                # Keep the grace period accurate rather than rounding it up to
+                # the next poll tick.
+                max(0.05, cancel_deadline - now) if cancel_deadline is not None else CANCEL_POLL_INTERVAL_SECONDS,
             )
             try:
                 frame = await asyncio.wait_for(channel.read_frame(), timeout=budget)

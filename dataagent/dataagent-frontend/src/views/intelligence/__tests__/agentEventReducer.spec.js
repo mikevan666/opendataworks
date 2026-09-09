@@ -127,3 +127,60 @@ describe('Pi agent event reducer', () => {
     expect(state.blocks.map((b) => b.content)).toEqual(['sdk'])
   })
 })
+
+describe('Pi and SDK blocks are structurally interchangeable', () => {
+  // The projection contract fixture compares rendered *content*. It does not
+  // look at the rendering metadata the chat template depends on, so a Pi block
+  // could carry the right text and still break the DOM. These assertions cover
+  // that gap.
+
+  function sdkState() {
+    return feed([
+      { record_type: 'stream', data: { type: 'message_start' } },
+      { record_type: 'stream', data: { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } } },
+      { record_type: 'stream', data: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 't' } } },
+      { record_type: 'stream', data: { type: 'content_block_start', index: 1, content_block: { type: 'text' } } },
+      { record_type: 'stream', data: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'a' } } },
+      { record_type: 'stream', data: { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 't1', name: 'run_sql' } } },
+    ])
+  }
+
+  function piState() {
+    return feed([
+      piEvent(AgentEventType.RUN_STARTED),
+      piEvent(AgentEventType.TURN_STARTED, { turn_id: 'turn-1' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { content_id: 'c-0', kind: 'reasoning', delta: 't' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { content_id: 'c-1', kind: 'answer', delta: 'a' }),
+      piEvent(AgentEventType.TOOL_STARTED, { tool_call_id: 't1', tool_name: 'run_sql' }),
+    ])
+  }
+
+  it('produces blocks with the same field set', () => {
+    const sdk = sdkState()
+    const pi = piState()
+
+    expect(pi.blocks.length).toBe(sdk.blocks.length)
+    for (let i = 0; i < sdk.blocks.length; i += 1) {
+      expect(Object.keys(pi.blocks[i]).sort()).toEqual(Object.keys(sdk.blocks[i]).sort())
+      expect(pi.blocks[i].type).toBe(sdk.blocks[i].type)
+    }
+  })
+
+  it('produces turns with the same field set', () => {
+    const sdk = sdkState()
+    const pi = piState()
+
+    expect(Object.keys(pi.turns[0]).sort()).toEqual(Object.keys(sdk.turns[0]).sort())
+  })
+
+  it('gives every block in a turn a distinct blockIndex', () => {
+    // The chat template keys its v-for on `block.blockIndex + '-' + ti`.
+    // Repeated keys make Vue reuse the wrong nodes; undefined keys make every
+    // block in the turn collide.
+    const pi = piState()
+    const keys = pi.turns[0].blocks.map((b) => b.blockIndex)
+
+    expect(keys.every((k) => typeof k === 'number')).toBe(true)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+})
