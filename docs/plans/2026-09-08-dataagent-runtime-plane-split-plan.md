@@ -214,3 +214,20 @@
 
 复查后验证：Python 509 passed / Node 58 passed / 前端 428 passed。
 上一节「未执行」的三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**。
+
+## 第二轮复查记录（2026-09-09）
+
+在第一轮之外又发现并修复 4 个缺陷，每个都先复现再修，且都配了在修复前会失败的测试。
+
+| # | 缺陷 | 影响 | 复现方式 |
+|---|---|---|---|
+| 1 | `main.ts` 在 `process.exit(0)` 前不刷 stdout | 慢读父进程下 2000 帧只到达 693 帧（丢 65%），含 `run.completed` / `run.settled`。**正常运行被记成 `CELL_LOSS`，答案截断** | 子进程写 N 帧后 exit，父进程延迟 0.3s 读取 |
+| 2 | 取消无界 | 发出 `run.cancel` 后无独立截止时间，Cell 卡住时用户要等满总超时（默认 360s），且结果被标成 `PI_RUN_TIMEOUT` 而非 `cancelled` | 无修复时测试套件从 6s 变 122s |
+| 3 | Pi block 缺 `turnIndex` / `blockIndex` | 模板 `:key="block.blockIndex + '-' + ti"` 对同一轮所有块都变成 `"undefined-0"`，Vue 复用错误节点；`toggleThinking` id 碰撞导致展开一个思考块会展开全部 | 与 SDK block 字段集直接对比 |
+| 4 | `usage.updated` 有消费者无生产者 | 契约声明、Python 适配器处理、前端 reducer 处理，但 Cell 从不发出。**Pi 轮次完全不记录 token 用量**；且 pi-ai 的 camelCase `Usage` 与前端 `normalizeUsage` 期望的 snake_case 不符，只发事件不映射依然显示空白 | 检查 normalizer 的 case 覆盖 |
+
+缺陷 3 和 4 说明了一个共性：**投影契约夹具只比较渲染内容，不比较渲染元数据，也发现不了"链路两端都在但中间没有生产者"**。新增的字段集对等测试和 usage 测试补上了这两类空白。
+
+第二轮验证：Node 62 passed / Python 511 passed / 前端 431 passed。
+
+「未执行」三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**，环境未变。
