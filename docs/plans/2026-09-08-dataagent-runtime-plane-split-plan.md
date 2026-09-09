@@ -169,12 +169,8 @@
    - 任务创建 → 事件写入 `da_agent_sdk_record` → 终态落库 → 前端渲染的完整链路
    - 真实 provider 凭据下的模型调用（`stream-fn-resolver` 只经过类型检查与
      单元测试，从未对真实 Anthropic/OpenAI 端点发过请求）
-2. **所有 Docker 改动未经构建验证。** 无 daemon 可用。涉及：
-   - `dataagent-runtime-pi/Dockerfile`
-   - `dataagent-backend/Dockerfile` 与 `Dockerfile.runner` 新增的 Pi Cell 构建阶段
-   - 特别是 `COPY --from=node:22-bookworm-slim /usr/local/bin/node`——该模式与
-     仓库既有的 `COPY --from=docker:27-cli` 同源，且两侧均为 debian bookworm，
-     但**未实际构建过**
+2. ~~**所有 Docker 改动未经构建验证。**~~ **已由 CI 补齐（2026-09-09，PR #451）**，
+   见下方「Docker 构建验证结果」。
 3. **里程碑 2（确认/暂停回路）未实现**，按设计属于独立范围。当前 Pi 数据面
    不提供写确认；`policy.require_write_confirmation` 在该引擎下无效。
 4. compose 改动仅通过 YAML 语法校验，未 `docker compose up` 验证。
@@ -231,3 +227,24 @@
 第二轮验证：Node 62 passed / Python 511 passed / 前端 431 passed。
 
 「未执行」三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**，环境未变。
+
+
+## Docker 构建验证结果（2026-09-09，PR #451 CI）
+
+本地无 docker daemon，这部分一直标注为未验证。PR #451 的 CI 首次真实构建了全部镜像，
+补上了这个缺口：
+
+| 镜像 | 结果 | 耗时 | 覆盖到的改动 |
+|---|---|---|---|
+| `dataagent-runtime-pi` | ✅ success | 1m54s | **该镜像首次构建**；验证了 `ENV NODE_ENV=production` 移到 build 之后确实必要且有效 |
+| `dataagent-backend` | ✅ success | 2m12s | 新增的 Pi Cell 多阶段构建 + `COPY --from=node:22-bookworm-slim /usr/local/bin/node` |
+| `dataagent-runner` | ✅ success | 2m28s | 同上 |
+| 其余 6 个镜像 | ✅ success | — | 无回归 |
+
+先前只能靠「两侧均为 debian bookworm，故 glibc/libstdc++ 满足」推理的 node 二进制拷贝，
+现已由实际构建证实。
+
+因此三项未验证中，**Docker 构建这一项已关闭**。仍未执行的是：
+
+1. 本地端到端 smoke（需 MySQL + Redis + 真实 provider 凭据，CI 覆盖不到）
+2. 里程碑 2：确认/暂停回路（独立范围，未实现）
