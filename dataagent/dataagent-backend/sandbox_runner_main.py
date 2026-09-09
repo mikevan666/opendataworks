@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
-from config import get_settings
+from config import get_settings, resolve_runtime_kind
 from core.agent_profile_service import normalize_agent_snapshot
 from core.skill_admin_service import resolve_enabled_skill_runtime
 from core.task_control import CancelReason
@@ -116,6 +116,11 @@ _FORWARDED_ENV_KEYS = {
     # allow-list has to travel with it; without this the child falls back to the
     # workspace-only default and denies /tmp despite the tmpfs mounted for it.
     "DATAAGENT_WORKSPACE_SCRATCH_DIRS",
+    # Data plane execution engine choice and Pi runtime locations.
+    "DATAAGENT_RUNTIME_KIND",
+    "DATAAGENT_NODE_BIN",
+    "DATAAGENT_RUNTIME_PI_DIR",
+    "DATAAGENT_ASK_USER_QUESTION_ENABLED",
 }
 
 
@@ -381,6 +386,7 @@ def _clip_log_text(value: Any, limit: int = 4000) -> str:
 
 
 def _build_child_env() -> dict[str, str]:
+    cfg = get_settings()
     child_env = {
         key: str(value)
         for key, value in os.environ.items()
@@ -392,6 +398,7 @@ def _build_child_env() -> dict[str, str]:
             "HOME": CHILD_CLAUDE_HOME,
             "DATAAGENT_SANDBOX_MODE": "",
             "SKILLS_ROOT_DIR": CHILD_SKILLS_ROOT,
+            "DATAAGENT_RUNTIME_KIND": resolve_runtime_kind(cfg),
         }
     )
     return child_env
@@ -785,6 +792,7 @@ def _container_spec_signature(params: TaskExecutionInput) -> str:
         str(getattr(cfg, "dataagent_sandbox_network", "") or ""),
         str(os.environ.get("DATAAGENT_RUNTIME_UID") or ""),
         str(os.environ.get("DATAAGENT_RUNTIME_GID") or ""),
+        resolve_runtime_kind(cfg),
         *folders,
     ]
     digest = hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()

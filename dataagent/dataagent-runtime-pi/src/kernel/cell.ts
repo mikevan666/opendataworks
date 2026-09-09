@@ -172,7 +172,8 @@ export class Cell {
       return { terminal_status: "success", last_sequence: sm.lastSequence };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logDiagnostic(`run failed: ${message}`);
+      const stack = err instanceof Error ? err.stack : message;
+      logDiagnostic(`run failed: ${stack}`);
       // Cancel surfaces as an abort rejection from the agent loop; it is a
       // cancellation, not a failure, and must not be reported as an error.
       if (this.cancelled) {

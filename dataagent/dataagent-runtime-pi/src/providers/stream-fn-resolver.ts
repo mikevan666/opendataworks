@@ -47,6 +47,20 @@ const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
     apiKeyEnvVars: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
     baseUrlEnvVars: ["ANTHROPIC_BASE_URL"],
   },
+  anyrouter: {
+    api: "anthropic-messages" as Api,
+    streams: anthropicMessagesApi,
+    defaultBaseUrl: "https://a-ocnfniawgw.cn-shanghai.fcapp.run",
+    apiKeyEnvVars: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANYROUTER_API_KEY"],
+    baseUrlEnvVars: ["ANTHROPIC_BASE_URL", "ANYROUTER_BASE_URL"],
+  },
+  openrouter: {
+    api: "anthropic-messages" as Api,
+    streams: anthropicMessagesApi,
+    defaultBaseUrl: "https://openrouter.ai/api",
+    apiKeyEnvVars: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"],
+    baseUrlEnvVars: ["ANTHROPIC_BASE_URL", "OPENROUTER_BASE_URL"],
+  },
   openai: {
     api: "openai-completions" as Api,
     streams: openAICompletionsApi,
