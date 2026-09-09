@@ -231,6 +231,7 @@ def test_sandbox_runner_container_command_mounts_only_topic_workspace(monkeypatc
     # The workspace boundary hook runs in the child, so its scratch allow-list has
     # to be forwarded or the child silently denies /tmp despite the tmpfs mount.
     assert "DATAAGENT_WORKSPACE_SCRATCH_DIRS=/tmp" in env_values
+    assert "DATAAGENT_RUNTIME_KIND=claude_code" in env_values
     assert not any(value.startswith("PWD=") for value in env_values)
     assert not any(value.startswith("DATAAGENT_WORKSPACE_DIR=") for value in env_values)
     assert not any(value.startswith("DATAAGENT_WORKSPACE_PREPARED=") for value in env_values)
@@ -546,11 +547,16 @@ def _warm_settings(tmp_path: Path) -> dict:
         "dataagent_sandbox_idle_ttl_seconds",
         "dataagent_sandbox_max_warm_containers",
         "dataagent_sandbox_reaper_interval_seconds",
+        # Tests below flip this to pi_agent_core; without it in the save set the
+        # finally-block restore leaks the override into every later test and the
+        # suite silently becomes order-dependent.
+        "dataagent_runtime_kind",
     ]
     originals = {key: getattr(settings, key) for key in keys}
     update_settings(
         {
             "dataagent_sandbox_backend": "docker",
+            "dataagent_runtime_kind": "claude_code",
             "dataagent_sandbox_image": "opendataworks-dataagent-runner:test",
             "dataagent_host_root": str(tmp_path / "topics"),
             "dataagent_sandbox_reuse_enabled": True,
@@ -578,8 +584,29 @@ def test_container_spec_signature_stable_per_topic_and_skills(monkeypatch, tmp_p
         assert sig_base == sandbox_runner_main._container_spec_signature(same_topic_other_task)
         assert sig_base != sandbox_runner_main._container_spec_signature(other_topic)
         assert sig_base != sandbox_runner_main._container_spec_signature(other_skills)
+        update_settings({"dataagent_runtime_kind": "pi_agent_core"})
+        assert sig_base != sandbox_runner_main._container_spec_signature(base)
     finally:
         update_settings(originals)
+
+
+def test_build_container_command_forwards_pi_runtime_env(monkeypatch, tmp_path: Path):
+    originals = _warm_settings(tmp_path)
+    monkeypatch.setenv("DATAAGENT_RUNTIME_KIND", "pi_agent_core")
+    monkeypatch.setenv("DATAAGENT_NODE_BIN", "/custom/node")
+    monkeypatch.setenv("DATAAGENT_RUNTIME_PI_DIR", "/custom/pi")
+    try:
+        update_settings({"dataagent_runtime_kind": "pi_agent_core"})
+        _, _, command = sandbox_runner_main._build_container_command(
+            TaskExecutionInput(**_payload(agent_snapshot=_agent_snapshot([])))
+        )
+    finally:
+        update_settings(originals)
+
+    env_values = [command[index + 1] for index, item in enumerate(command) if item == "--env"]
+    assert "DATAAGENT_RUNTIME_KIND=pi_agent_core" in env_values
+    assert "DATAAGENT_NODE_BIN=/custom/node" in env_values
+    assert "DATAAGENT_RUNTIME_PI_DIR=/custom/pi" in env_values
 
 
 def test_build_container_command_honors_warm_overrides(monkeypatch, tmp_path: Path):

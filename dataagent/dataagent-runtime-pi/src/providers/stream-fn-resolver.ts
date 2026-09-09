@@ -47,6 +47,16 @@ const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
     apiKeyEnvVars: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
     baseUrlEnvVars: ["ANTHROPIC_BASE_URL"],
   },
+  // The Python side always overwrites ANTHROPIC_BASE_URL/AUTH_TOKEN from the
+  // selected provider before spawning this Cell (build_provider_env), so the
+  // gateway needs no default URL of its own — only the Anthropic API shape.
+  anyrouter: {
+    api: "anthropic-messages" as Api,
+    streams: anthropicMessagesApi,
+    defaultBaseUrl: "https://api.anthropic.com",
+    apiKeyEnvVars: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"],
+    baseUrlEnvVars: ["ANTHROPIC_BASE_URL"],
+  },
   openai: {
     api: "openai-completions" as Api,
     streams: openAICompletionsApi,
