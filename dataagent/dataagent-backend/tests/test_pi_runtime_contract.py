@@ -333,3 +333,66 @@ def test_missing_cell_entrypoint_reports_actionable_error(tmp_path: Path, monkey
 
     with pytest.raises(PiRuntimeUnavailable, match="Pi Cell 入口不存在"):
         resolve_cell_command()
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_bounded_when_the_cell_ignores_it(tmp_path: Path):
+    """A cancel the Cell never honours must not wait out the run timeout.
+
+    Without a cancel-specific deadline the loop keeps polling until
+    total_timeout_seconds, so a user cancelling a 360s run at t=10s waits the
+    remaining 350s -- and then sees it reported as a timeout failure rather
+    than the cancellation it was.
+    """
+    writer = _RecordingWriter()
+    cell = _stub_cell(
+        """
+        read()
+        event(1, "run.started")
+        # Receive the cancel frame and deliberately do nothing about it.
+        read()
+        time.sleep(60)
+        """
+    )
+
+    async def _cancelled() -> str:
+        return "user_cancel"
+
+    started = asyncio.get_running_loop().time()
+    outcome = await execute_pi_run(
+        _context(tmp_path, total_timeout_seconds=60, idle_timeout_seconds=0),
+        writer=writer,
+        cell_command=cell,
+        cancel_reason=_cancelled,
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert outcome.terminal_status == "cancelled", "an ignored cancel is still a cancellation"
+    assert elapsed < 20, f"cancel took {elapsed:.1f}s; it must be bounded by the grace period"
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_does_not_mislabel_a_pending_cancel(tmp_path: Path):
+    """After a cancel is sent, silence is expected -- not an idle failure."""
+    writer = _RecordingWriter()
+    cell = _stub_cell(
+        """
+        read()
+        event(1, "run.started")
+        read()
+        time.sleep(60)
+        """
+    )
+
+    async def _cancelled() -> str:
+        return "user_cancel"
+
+    outcome = await execute_pi_run(
+        _context(tmp_path, total_timeout_seconds=60, idle_timeout_seconds=1),
+        writer=writer,
+        cell_command=cell,
+        cancel_reason=_cancelled,
+    )
+
+    assert outcome.terminal_status == "cancelled"
+    assert outcome.error_code != "PI_RUN_IDLE_TIMEOUT"

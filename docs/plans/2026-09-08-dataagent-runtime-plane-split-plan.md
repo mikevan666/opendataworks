@@ -12,6 +12,11 @@
 - 部署：`deploy/.env.example`、`deploy/docker-compose.*.yml`、
   `.github/workflows/docker-build.yml`。
 
+> 注：阶段 0 与阶段 3 中列出的待删除/待修复文件（`core/agent_runtime/`、
+> `runtime_gateway/`、`dataagent-pi-kernel.ts` 等）来自 PR #450。该 PR 已于
+> 2026-09-08 关闭未合并，这些文件从未进入 `main`，因此阶段 0 实际执行时等价于
+> 「不引入」而非「删除」。保留原文以记录决策依据。
+
 ## 任务
 
 ### 阶段 0：解除阻塞（必须先于一切）
@@ -164,12 +169,82 @@
    - 任务创建 → 事件写入 `da_agent_sdk_record` → 终态落库 → 前端渲染的完整链路
    - 真实 provider 凭据下的模型调用（`stream-fn-resolver` 只经过类型检查与
      单元测试，从未对真实 Anthropic/OpenAI 端点发过请求）
-2. **所有 Docker 改动未经构建验证。** 无 daemon 可用。涉及：
-   - `dataagent-runtime-pi/Dockerfile`
-   - `dataagent-backend/Dockerfile` 与 `Dockerfile.runner` 新增的 Pi Cell 构建阶段
-   - 特别是 `COPY --from=node:22-bookworm-slim /usr/local/bin/node`——该模式与
-     仓库既有的 `COPY --from=docker:27-cli` 同源，且两侧均为 debian bookworm，
-     但**未实际构建过**
+2. ~~**所有 Docker 改动未经构建验证。**~~ **已由 CI 补齐（2026-09-09，PR #451）**，
+   见下方「Docker 构建验证结果」。
 3. **里程碑 2（确认/暂停回路）未实现**，按设计属于独立范围。当前 Pi 数据面
    不提供写确认；`policy.require_write_confirmation` 在该引擎下无效。
 4. compose 改动仅通过 YAML 语法校验，未 `docker compose up` 验证。
+
+## 合入后复查记录（2026-09-09）
+
+本分支已于 2026-09-08 合入 `main`（`c72b11e`）。PR #450 于同日 **关闭且未合并**，
+其包遮蔽问题（`core/agent_runtime/` 遮蔽 `core/agent_runtime.py`）从未进入 `main`，
+已在 `main` 上确认：只存在 `core/agent_runtime.py`，无 `runtime_gateway/`。
+
+复查在 `main` 上发现并修复了两个问题，均源自 Pi Cell 里的 `as never` 强转
+——它们把针对 pi-agent-core API 的类型错误压掉了：
+
+1. **`agent.prompt()` 消息映射**（`e0db3e2` 已手工修复形状）。
+   去掉强转后编译器直接报出同一问题：assistant 历史消息缺
+   `api / provider / model / usage / stopReason`。本次删除该强转，把它变成
+   永久的编译期约束。
+   **该问题无法用测试防住**：stub streamFn 不会为 provider 序列化 transcript，
+   已验证新增的多轮测试在坏实现下同样通过；编译检查是唯一有效防线。
+
+2. **`createTools` 返回 `unknown[]`**，导致工具定义从未被对照 `AgentTool` 检查。
+   类型化后暴露：`AgentToolResult` **没有 `isError` 字段**，agent loop 仅在
+   `execute` 抛错时置 `isError`。因此返回 `{ isError: true }` 被丢弃，
+   **非零退出的 Bash 命令在聊天里渲染为成功的工具调用**。
+   实测对照（真实 agent loop）：
+   - 旧：`"output":{...,"isError":true}`，`"is_error":false`
+   - 新：`"is_error":true`
+   已按接口文档改为失败时抛错，并把命令输出带进错误消息，避免
+   `createErrorToolResult` 只保留 message 而丢掉诊断信息。
+   边界拒绝**不受影响**（`beforeToolCall` 在 `execute` 之前就拦下了），
+   因此回归测试针对的是只有 `execute` 能看到的失败：非零 shell 退出。
+   这是第一条让工具调用走完整 agent loop 的测试，且在旧行为下会失败。
+
+同时补齐了阶段 2 任务 9 的漏项：`contracts/boundary/v1/boundary-policy.schema.json`
+此前从未创建（计划里列出但实施时遗漏），现已补上并加了防止 schema 与生成器
+漂移的结构校验测试。
+
+复查后验证：Python 509 passed / Node 58 passed / 前端 428 passed。
+上一节「未执行」的三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**。
+
+## 第二轮复查记录（2026-09-09）
+
+在第一轮之外又发现并修复 4 个缺陷，每个都先复现再修，且都配了在修复前会失败的测试。
+
+| # | 缺陷 | 影响 | 复现方式 |
+|---|---|---|---|
+| 1 | `main.ts` 在 `process.exit(0)` 前不刷 stdout | 慢读父进程下 2000 帧只到达 693 帧（丢 65%），含 `run.completed` / `run.settled`。**正常运行被记成 `CELL_LOSS`，答案截断** | 子进程写 N 帧后 exit，父进程延迟 0.3s 读取 |
+| 2 | 取消无界 | 发出 `run.cancel` 后无独立截止时间，Cell 卡住时用户要等满总超时（默认 360s），且结果被标成 `PI_RUN_TIMEOUT` 而非 `cancelled` | 无修复时测试套件从 6s 变 122s |
+| 3 | Pi block 缺 `turnIndex` / `blockIndex` | 模板 `:key="block.blockIndex + '-' + ti"` 对同一轮所有块都变成 `"undefined-0"`，Vue 复用错误节点；`toggleThinking` id 碰撞导致展开一个思考块会展开全部 | 与 SDK block 字段集直接对比 |
+| 4 | `usage.updated` 有消费者无生产者 | 契约声明、Python 适配器处理、前端 reducer 处理，但 Cell 从不发出。**Pi 轮次完全不记录 token 用量**；且 pi-ai 的 camelCase `Usage` 与前端 `normalizeUsage` 期望的 snake_case 不符，只发事件不映射依然显示空白 | 检查 normalizer 的 case 覆盖 |
+
+缺陷 3 和 4 说明了一个共性：**投影契约夹具只比较渲染内容，不比较渲染元数据，也发现不了"链路两端都在但中间没有生产者"**。新增的字段集对等测试和 usage 测试补上了这两类空白。
+
+第二轮验证：Node 62 passed / Python 511 passed / 前端 431 passed。
+
+「未执行」三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**，环境未变。
+
+
+## Docker 构建验证结果（2026-09-09，PR #451 CI）
+
+本地无 docker daemon，这部分一直标注为未验证。PR #451 的 CI 首次真实构建了全部镜像，
+补上了这个缺口：
+
+| 镜像 | 结果 | 耗时 | 覆盖到的改动 |
+|---|---|---|---|
+| `dataagent-runtime-pi` | ✅ success | 1m54s | **该镜像首次构建**；验证了 `ENV NODE_ENV=production` 移到 build 之后确实必要且有效 |
+| `dataagent-backend` | ✅ success | 2m12s | 新增的 Pi Cell 多阶段构建 + `COPY --from=node:22-bookworm-slim /usr/local/bin/node` |
+| `dataagent-runner` | ✅ success | 2m28s | 同上 |
+| 其余 6 个镜像 | ✅ success | — | 无回归 |
+
+先前只能靠「两侧均为 debian bookworm，故 glibc/libstdc++ 满足」推理的 node 二进制拷贝，
+现已由实际构建证实。
+
+因此三项未验证中，**Docker 构建这一项已关闭**。仍未执行的是：
+
+1. 本地端到端 smoke（需 MySQL + Redis + 真实 provider 凭据，CI 覆盖不到）
+2. 里程碑 2：确认/暂停回路（独立范围，未实现）

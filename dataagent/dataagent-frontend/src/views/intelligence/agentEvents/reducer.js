@@ -63,7 +63,7 @@ export function reducePiEvent(state, record) {
     }
 
     case AgentEventType.TURN_STARTED: {
-      state.turns.push({ blocks: [] })
+      state.turns.push({ turnIndex: state.turns.length, blocks: [], status: 'streaming' })
       state._piContentBlocks = {}
       break
     }
@@ -79,7 +79,7 @@ export function reducePiEvent(state, record) {
       const key = String(data.content_id || '')
       let block = key ? state._piContentBlocks[key] : null
       if (!block || block.type !== blockType) {
-        block = { type: blockType, content: '', status: 'streaming' }
+        block = _newBlock(turn, blockType)
         turn.blocks.push(block)
         state.blocks.push(block)
         if (key) state._piContentBlocks[key] = block
@@ -91,17 +91,10 @@ export function reducePiEvent(state, record) {
     case AgentEventType.TOOL_STARTED: {
       const turn = _currentTurn(state)
       if (!turn) break
-      const block = {
-        type: 'tool_use',
-        id: String(data.tool_call_id || ''),
-        name: String(data.tool_name || 'Tool'),
-        content: '',
-        inputJson: '',
-        input: data.input ?? null,
-        output: null,
-        is_error: false,
-        status: 'streaming',
-      }
+      const block = _newBlock(turn, 'tool_use')
+      block.id = String(data.tool_call_id || '')
+      block.name = String(data.tool_name || 'Tool')
+      block.input = data.input ?? null
       turn.blocks.push(block)
       state.blocks.push(block)
       break
@@ -158,9 +151,34 @@ function _currentTurn(state) {
   if (!state.turns.length) {
     // Tolerate a missing turn.started so a dropped event costs one grouping,
     // not the whole answer.
-    state.turns.push({ blocks: [] })
+    state.turns.push({ turnIndex: 0, blocks: [], status: 'streaming' })
   }
   return state.turns[state.turns.length - 1]
+}
+
+/**
+ * A block carrying every field the SDK path's blocks carry.
+ *
+ * turnIndex and blockIndex are not cosmetic: the chat template keys its v-for
+ * on `block.blockIndex + '-' + ti` and derives the thinking-panel toggle id from
+ * it. Omitting them makes every block in a turn share the key "undefined-0",
+ * which makes Vue reuse the wrong DOM nodes and makes one thinking block's
+ * toggle expand all of them.
+ */
+function _newBlock(turn, type) {
+  return {
+    turnIndex: turn.turnIndex ?? 0,
+    blockIndex: turn.blocks.length,
+    type,
+    content: '',
+    status: 'streaming',
+    id: null,
+    name: null,
+    inputJson: '',
+    input: null,
+    output: null,
+    is_error: false,
+  }
 }
 
 function _findToolBlock(state, toolCallId) {

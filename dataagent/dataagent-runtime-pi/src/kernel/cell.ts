@@ -68,7 +68,7 @@ export class Cell {
         initialState: {
           systemPrompt: init.system_prompt,
           model,
-          tools: tools as never,
+          tools,
           messages: [],
         },
         streamFn,
@@ -146,7 +146,7 @@ export class Cell {
             content: [{ type: "text" as const, text: message.content }],
             timestamp: Date.now(),
           };
-        }) as never
+        })
       );
 
       if (this.cancelled || agent.signal?.aborted) {

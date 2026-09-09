@@ -36,7 +36,12 @@ function bootstrap(): void {
           running = false;
           // One run per Cell process: the control plane spawns a fresh child per
           // turn, so lingering here would only hold the workspace open.
+          //
+          // Flush before exiting. process.exit() discards whatever is still
+          // queued on stdout, and the terminal event is the very last frame
+          // written, so exiting eagerly turns a completed run into CELL_LOSS.
           channel.close();
+          await channel.flush();
           process.exit(0);
         }
         return;
@@ -48,6 +53,7 @@ function bootstrap(): void {
       }
       case "cell.shutdown": {
         channel.close();
+        await channel.flush();
         process.exit(0);
         return;
       }

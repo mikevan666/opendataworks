@@ -17,6 +17,32 @@ import type { NeutralAgentEvent } from "../protocol/frames.js";
 import type { RunStateMachine } from "./run-state-machine.js";
 import { redact } from "../observability/redaction.js";
 
+interface PiUsage {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+/** Map pi-ai's camelCase Usage onto the shape the rest of the stack reads. */
+function extractUsage(message: unknown): Record<string, number> | null {
+  const raw = (message as { usage?: PiUsage } | undefined)?.usage;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const usage: Record<string, number> = {};
+  const put = (key: string, value: unknown) => {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      usage[key] = value;
+    }
+  };
+  put("input_tokens", raw.input);
+  put("output_tokens", raw.output);
+  put("cache_read_input_tokens", raw.cacheRead);
+  put("cache_creation_input_tokens", raw.cacheWrite);
+  return Object.keys(usage).length > 0 ? usage : null;
+}
+
 export class EventNormalizer {
   private turnCounter = 0;
   private currentTurnId = "turn-0";
@@ -90,6 +116,18 @@ export class EventNormalizer {
         break;
       }
       case "turn_end": {
+        // usage.updated is declared in the contract and consumed by both the
+        // Python adapter and the frontend, but nothing emitted it: token usage
+        // was simply never recorded for a Pi turn while it was for an SDK one.
+        //
+        // The shape is deliberately the Anthropic-style snake_case the frontend
+        // already normalizes (messageUsage.normalizeUsage reads input_tokens /
+        // output_tokens / cache_*), not pi-ai's camelCase Usage. Emitting the
+        // raw shape would keep the display blank.
+        const usage = extractUsage(piEvent.message);
+        if (usage) {
+          events.push(this.sm.createEvent("usage.updated", { turn_id: this.currentTurnId, usage }));
+        }
         events.push(this.sm.createEvent("turn.completed", { turn_id: this.currentTurnId }));
         break;
       }

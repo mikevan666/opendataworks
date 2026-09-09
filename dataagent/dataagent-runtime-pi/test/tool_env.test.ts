@@ -113,13 +113,52 @@ test("tools refuse a path outside the workspace before touching the filesystem",
     boundary: new WorkspaceBoundaryEnforcer(policy),
     workspaceRoot: root,
     runtimeEnv: {},
-  }) as Array<{ name: string; execute: (id: string, params: never) => Promise<{ isError?: boolean }> }>;
+  });
 
+  // A denial must *throw*. AgentToolResult has no isError field: the agent loop
+  // sets isError only when execute throws, so returning { isError: true } was
+  // silently discarded and a denied call reached the model and the chat UI
+  // marked as a success.
   const read = tools.find((t) => t.name === "Read")!;
-  const denied = await read.execute("call-1", { file_path: path.join(outside, "secret.txt") } as never);
-  assert.equal(denied.isError, true);
+  await assert.rejects(
+    () => read.execute("call-1", { file_path: path.join(outside, "secret.txt") }),
+    /outside workspace/
+  );
 
   const bash = tools.find((t) => t.name === "Bash")!;
-  const deniedBash = await bash.execute("call-2", { command: `cat ${outside}/secret.txt` } as never);
-  assert.equal(deniedBash.isError, true);
+  await assert.rejects(
+    () => bash.execute("call-2", { command: `cat ${outside}/secret.txt` }),
+    /outside workspace/
+  );
+});
+
+test("a failing shell command throws so the model and the UI both see an error", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "odw-tools-"));
+  const policy: BoundaryPolicy = {
+    policy_version: 1,
+    profile: "pi_agent_core",
+    workspace_root: root,
+    allowed_roots: [root],
+    allowed_executables: [],
+    discard_sinks: ["/dev/null"],
+    tool_path_keys: {},
+    operator_chars: "();<>|&",
+    tool_result_root: null,
+    readonly_commands: [],
+  };
+  const tools = createTools({
+    boundary: new WorkspaceBoundaryEnforcer(policy),
+    workspaceRoot: root,
+    runtimeEnv: {},
+  });
+  const bash = tools.find((t) => t.name === "Bash")!;
+
+  // The output has to survive: createErrorToolResult keeps only the message.
+  await assert.rejects(
+    () => bash.execute("call-3", { command: "echo before-failure; exit 7" }),
+    (err: Error) => /exited with code 7/.test(err.message) && /before-failure/.test(err.message)
+  );
+
+  const ok = await bash.execute("call-4", { command: "echo fine" });
+  assert.match(ok.content[0].type === "text" ? ok.content[0].text : "", /fine/);
 });
