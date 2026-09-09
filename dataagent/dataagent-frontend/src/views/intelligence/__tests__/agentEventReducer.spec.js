@@ -104,6 +104,23 @@ describe('Pi agent event reducer', () => {
     ])
 
     expect(state.blocks.map((b) => b.type)).toEqual(['thinking', 'text'])
+    expect(state.blocks.map((b) => b.status)).toEqual(['done', 'streaming'])
+  })
+
+  it('settles every block in a completed turn before the next turn streams', () => {
+    const state = feed([
+      piEvent(AgentEventType.RUN_STARTED),
+      piEvent(AgentEventType.TURN_STARTED, { turn_id: 'turn-1' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { content_id: 'c-0', kind: 'answer', delta: 'first' }),
+      piEvent(AgentEventType.TURN_COMPLETED, { turn_id: 'turn-1' }),
+      piEvent(AgentEventType.TURN_STARTED, { turn_id: 'turn-2' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { content_id: 'c-0', kind: 'answer', delta: 'second' }),
+    ])
+
+    expect(state.turns[0].status).toBe('done')
+    expect(state.turns[0].blocks[0].status).toBe('done')
+    expect(state.turns[1].status).toBe('streaming')
+    expect(state.turns[1].blocks[0].status).toBe('streaming')
   })
 
   it('records usage', () => {

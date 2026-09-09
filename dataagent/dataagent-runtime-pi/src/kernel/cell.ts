@@ -14,6 +14,7 @@ import { RunStateMachine } from "./run-state-machine.js";
 import { EventNormalizer } from "./event-normalizer.js";
 import { WorkspaceBoundaryEnforcer, type BoundaryPolicy } from "../policy/workspace-boundary-enforcer.js";
 import { createTools } from "../tools/tool-registry.js";
+import { connectMcpServers, type McpBridgeResult } from "../mcp/portal-mcp-client.js";
 import { logDiagnostic } from "../protocol/channel.js";
 
 export type EventSink = (event: NeutralAgentEvent) => void;
@@ -54,28 +55,82 @@ export class Cell {
     let toolCalls = 0;
     let turnCount = 0;
     let limitDenial: string | null = null;
+    let mcpBridge: McpBridgeResult | null = null;
 
     try {
+      mcpBridge = await connectMcpServers(init.mcp_servers, { connectTimeoutMs: 10_000 });
       const { model, streamFn } = this.modelFactory(init.model.provider_id, init.model.model_id);
       const boundary = new WorkspaceBoundaryEnforcer(init.boundary_policy as unknown as BoundaryPolicy);
       const tools = createTools({
         boundary,
         workspaceRoot: init.workspace.project_cwd,
         runtimeEnv: init.runtime_env ?? {},
+        skills: init.skills,
+        extraTools: mcpBridge.tools,
+      });
+
+      // Extract history messages and current prompt
+      let historyItems: Array<{ role: string; content: string }> = [];
+      let promptText = "";
+
+      if (init.prompt !== undefined && init.prompt !== null) {
+        promptText = init.prompt;
+        historyItems = init.history || [];
+      } else if (init.messages && init.messages.length > 0) {
+        // Backwards compatibility fallback for older cell.init frames
+        promptText = init.messages[init.messages.length - 1]?.content || "";
+        historyItems = init.messages.slice(0, -1);
+      }
+
+      const emptyUsage: Usage = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
+
+      const initialMessages = historyItems.map((message) => {
+        if (message.role === "assistant") {
+          return {
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: message.content }],
+            api: model.api,
+            provider: model.provider,
+            model: model.id,
+            usage: emptyUsage,
+            stopReason: "stop" as const,
+            timestamp: Date.now(),
+          };
+        }
+        return {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: message.content }],
+          timestamp: Date.now(),
+        };
       });
 
       const agent = new Agent({
         initialState: {
           systemPrompt: init.system_prompt,
           model,
-          tools,
-          messages: [],
+          tools: tools as never,
+          messages: initialMessages as never,
         },
         streamFn,
         // DataAgent tools mutate shared workspace state and issue SQL; running
         // them concurrently would make ordering — and therefore the boundary
         // decisions and the event stream — nondeterministic.
         toolExecution: "sequential",
+        transformContext: async (messages) => {
+          // Sliding window protection: keep at most 40 historical messages to prevent context overflow
+          const MAX_CONTEXT_MESSAGES = 40;
+          if (messages.length > MAX_CONTEXT_MESSAGES) {
+            return messages.slice(-MAX_CONTEXT_MESSAGES);
+          }
+          return messages;
+        },
         beforeToolCall: async (context) => {
           toolCalls += 1;
           if (init.limits.max_tool_calls > 0 && toolCalls > init.limits.max_tool_calls) {
@@ -118,36 +173,7 @@ export class Cell {
         }
       });
 
-      const emptyUsage: Usage = {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      };
-
-      await agent.prompt(
-        init.messages.map((message) => {
-          if (message.role === "assistant") {
-            return {
-              role: "assistant" as const,
-              content: [{ type: "text" as const, text: message.content }],
-              api: model.api,
-              provider: model.provider,
-              model: model.id,
-              usage: emptyUsage,
-              stopReason: "stop" as const,
-              timestamp: Date.now(),
-            };
-          }
-          return {
-            role: "user" as const,
-            content: [{ type: "text" as const, text: message.content }],
-            timestamp: Date.now(),
-          };
-        })
-      );
+      await agent.prompt(promptText);
 
       if (this.cancelled || agent.signal?.aborted) {
         emit(sm.createEvent("run.cancelled", { reason: "cancelled by control plane" }));
@@ -184,6 +210,9 @@ export class Cell {
       return { terminal_status: "failed", last_sequence: sm.lastSequence, error: message };
     } finally {
       this.agent = null;
+      if (mcpBridge) {
+        await mcpBridge.close();
+      }
     }
   }
 }

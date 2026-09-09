@@ -20,6 +20,8 @@ export const AgentEventType = Object.freeze({
   RUN_STARTED: 'run.started',
   TURN_STARTED: 'turn.started',
   CONTENT_DELTA: 'content.delta',
+  CONTENT_STARTED: 'content.started',
+  CONTENT_COMPLETED: 'content.completed',
   TOOL_STARTED: 'tool.started',
   TOOL_PROGRESS: 'tool.progress',
   TOOL_COMPLETED: 'tool.completed',
@@ -55,6 +57,7 @@ export function reducePiEvent(state, record) {
     // canonical projection drops it, exactly as the backend does with _idx.
     state._piContentBlocks = {}
   }
+  if (!state._piTurns) state._piTurns = {}
 
   switch (type) {
     case AgentEventType.RUN_STARTED: {
@@ -63,20 +66,50 @@ export function reducePiEvent(state, record) {
     }
 
     case AgentEventType.TURN_STARTED: {
-      state.turns.push({ turnIndex: state.turns.length, blocks: [], status: 'streaming' })
+      const turnId = String(data.turn_id || '')
+      const turn = { turnIndex: state.turns.length, blocks: [], status: 'streaming' }
+      Object.defineProperty(turn, '_turnId', { value: turnId, writable: true, configurable: true, enumerable: false })
+      state.turns.push(turn)
+      if (turnId) state._piTurns[turnId] = turn
       state._piContentBlocks = {}
       break
     }
 
+    case AgentEventType.CONTENT_STARTED:
     case AgentEventType.CONTENT_DELTA: {
-      const turn = _currentTurn(state)
+      const turn = _turnForEvent(state, data)
       if (!turn) break
       const isReasoning = String(data.kind || '') === 'reasoning'
       // 'text', not the backend's 'main_text': the two projections use
       // different names for this block and the shared fixture normalizes each
       // to the same canonical kind.
       const blockType = isReasoning ? 'thinking' : 'text'
-      const key = String(data.content_id || '')
+      const key = _contentKey(turn, data)
+      let block = key ? state._piContentBlocks[key] : null
+      if (!block || block.type !== blockType) {
+        if (!isReasoning) {
+          for (const b of turn.blocks || []) {
+            if (b.type === 'thinking' && b.status === 'streaming') {
+              b.status = 'done'
+            }
+          }
+        }
+        block = _newBlock(turn, blockType)
+        turn.blocks.push(block)
+        state.blocks.push(block)
+        if (key) state._piContentBlocks[key] = block
+      }
+      if (type === AgentEventType.CONTENT_DELTA) {
+        block.content += String(data.delta || '')
+      }
+      break
+    }
+
+    case AgentEventType.CONTENT_COMPLETED: {
+      const turn = _turnForEvent(state, data)
+      if (!turn) break
+      const blockType = String(data.kind || '') === 'reasoning' ? 'thinking' : 'text'
+      const key = _contentKey(turn, data)
       let block = key ? state._piContentBlocks[key] : null
       if (!block || block.type !== blockType) {
         block = _newBlock(turn, blockType)
@@ -84,12 +117,15 @@ export function reducePiEvent(state, record) {
         state.blocks.push(block)
         if (key) state._piContentBlocks[key] = block
       }
-      block.content += String(data.delta || '')
+      if (Object.prototype.hasOwnProperty.call(data, 'text')) {
+        block.content = String(data.text || '')
+      }
+      block.status = 'done'
       break
     }
 
     case AgentEventType.TOOL_STARTED: {
-      const turn = _currentTurn(state)
+      const turn = _turnForEvent(state, data)
       if (!turn) break
       const block = _newBlock(turn, 'tool_use')
       block.id = String(data.tool_call_id || '')
@@ -125,6 +161,11 @@ export function reducePiEvent(state, record) {
       break
     }
 
+    case AgentEventType.TURN_COMPLETED: {
+      _finishTurn(_turnForEvent(state, data, false))
+      break
+    }
+
     case AgentEventType.RUN_FAILED: {
       state.status = 'error'
       state.errorText = String(data.message || data.error_code || '执行出错')
@@ -151,7 +192,9 @@ function _currentTurn(state) {
   if (!state.turns.length) {
     // Tolerate a missing turn.started so a dropped event costs one grouping,
     // not the whole answer.
-    state.turns.push({ turnIndex: 0, blocks: [], status: 'streaming' })
+    const turn = { turnIndex: 0, blocks: [], status: 'streaming' }
+    Object.defineProperty(turn, '_turnId', { value: '', writable: true, configurable: true, enumerable: false })
+    state.turns.push(turn)
   }
   return state.turns[state.turns.length - 1]
 }
@@ -178,6 +221,31 @@ function _newBlock(turn, type) {
     input: null,
     output: null,
     is_error: false,
+  }
+}
+
+function _turnForEvent(state, data, create = true) {
+  const turnId = String(data?.turn_id || '')
+  if (turnId && state._piTurns?.[turnId]) return state._piTurns[turnId]
+  if (!create) return turnId ? null : state.turns.at(-1)
+  const turn = _currentTurn(state)
+  if (turnId && !turn._turnId) {
+    turn._turnId = turnId
+    state._piTurns[turnId] = turn
+  }
+  return turn
+}
+
+function _contentKey(turn, data) {
+  const contentId = String(data?.content_id || '')
+  return contentId ? `${String(turn?._turnId || data?.turn_id || '')}:${contentId}` : ''
+}
+
+function _finishTurn(turn) {
+  if (!turn) return
+  turn.status = 'done'
+  for (const block of turn.blocks || []) {
+    if (block.status === 'streaming') block.status = 'done'
   }
 }
 

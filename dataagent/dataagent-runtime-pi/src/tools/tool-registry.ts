@@ -16,6 +16,7 @@ import path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { WorkspaceBoundaryEnforcer } from "../policy/workspace-boundary-enforcer.js";
+import { createSkillTool, type SkillEntry } from "../skills/skill-loader.js";
 
 const MAX_OUTPUT_CHARS = 100 * 1024;
 const MAX_READ_BYTES = 64 * 1024;
@@ -45,6 +46,8 @@ export interface ToolRegistryOptions {
   workspaceRoot: string;
   runtimeEnv: Record<string, string>;
   toolTimeoutMs?: number;
+  skills?: SkillEntry[];
+  extraTools?: unknown[];
 }
 
 /** A tool call refused by the workspace boundary policy. */
@@ -239,5 +242,15 @@ export function createTools(options: ToolRegistryOptions): AgentTool<any>[] {
     },
   };
 
-  return [readTool, lsTool, bashTool];
+  const tools: AgentTool<any>[] = [readTool, lsTool, bashTool];
+
+  if (options.skills && options.skills.length > 0) {
+    tools.push(createSkillTool(options.skills) as never);
+  }
+
+  if (options.extraTools && options.extraTools.length > 0) {
+    tools.push(...(options.extraTools as AgentTool<any>[]));
+  }
+
+  return tools;
 }

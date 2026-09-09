@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from config import get_settings, resolve_runtime_kind
 from core.agent_profile_service import normalize_agent_snapshot
+from core.agent_runtime import PLATFORM_TOOLS_SKILL_FOLDER
 from core.skill_admin_service import resolve_enabled_skill_runtime
 from core.task_control import CancelReason
 from core.task_executor import TaskExecutionInput, TaskExecutionResult, _execute_task_stream_local
@@ -387,7 +388,14 @@ def _clip_log_text(value: Any, limit: int = 4000) -> str:
     return f"{text[:limit]}... [truncated {len(text) - limit} chars]"
 
 
-def _build_child_env() -> dict[str, str]:
+SKILLS_REQUIRING_PLATFORM_TOOLS = {
+    "opendataworks-business-knowledge",
+    "opendataworks-data-dev",
+    "opendataworks-methodology-dag",
+}
+
+
+def _build_child_env(enabled_folders: list[str] | None = None) -> dict[str, str]:
     cfg = get_settings()
     child_env = {
         key: str(value)
@@ -403,6 +411,8 @@ def _build_child_env() -> dict[str, str]:
             "DATAAGENT_RUNTIME_KIND": resolve_runtime_kind(cfg),
         }
     )
+    if enabled_folders and PLATFORM_TOOLS_SKILL_FOLDER in enabled_folders:
+        child_env["DATAAGENT_PLATFORM_SKILL_ROOT"] = f"{CHILD_SKILLS_ROOT}/{PLATFORM_TOOLS_SKILL_FOLDER}"
     return child_env
 
 
@@ -426,9 +436,16 @@ def _dedupe_skill_folders(values: Any) -> list[str]:
 def _enabled_skill_folders_for_task(params: TaskExecutionInput) -> list[str]:
     if params.agent_snapshot is not None:
         snapshot = normalize_agent_snapshot(params.agent_snapshot)
-        return _dedupe_skill_folders(snapshot.get("skill_folders"))
-    runtime = resolve_enabled_skill_runtime()
-    return _dedupe_skill_folders(runtime.get("enabled_folders"))
+        folders = _dedupe_skill_folders(snapshot.get("skill_folders"))
+    else:
+        runtime = resolve_enabled_skill_runtime()
+        folders = _dedupe_skill_folders(runtime.get("enabled_folders"))
+
+    if folders and any(f in SKILLS_REQUIRING_PLATFORM_TOOLS for f in folders):
+        if PLATFORM_TOOLS_SKILL_FOLDER not in folders:
+            folders.append(PLATFORM_TOOLS_SKILL_FOLDER)
+
+    return folders
 
 
 def _validate_skill_folder_name(folder: str) -> str:
@@ -532,7 +549,7 @@ def _build_container_command(
     )
     task_label_value = task_id_label if task_id_label is not None else _safe_container_fragment(params.task_id)
 
-    child_env = _build_child_env()
+    child_env = _build_child_env(enabled_folders)
     if extra_env:
         child_env.update({str(key): str(value) for key, value in extra_env.items()})
 

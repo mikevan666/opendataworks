@@ -64,9 +64,12 @@ class PiRunContext:
     messages: list[dict[str, str]]
     project_cwd: Path
     boundary_policy: dict[str, Any]
+    history: list[dict[str, str]] = field(default_factory=list)
+    prompt: str = ""
     runtime_env: dict[str, str] = field(default_factory=dict)
     provider_env: dict[str, str] = field(default_factory=dict)
     skills: list[dict[str, str]] = field(default_factory=list)
+    mcp_servers: list[dict[str, Any]] = field(default_factory=list)
     total_timeout_seconds: int = 360
     idle_timeout_seconds: int = 120
     max_turns: int = 30
@@ -79,16 +82,26 @@ class PiRunContext:
         child's environment instead, so they never appear on stdio, in a log
         line, or in any persisted record.
         """
+        prompt_val = self.prompt
+        history_val = list(self.history)
+        if not prompt_val and self.messages:
+            prompt_val = str(self.messages[-1].get("content") or "").strip()
+            if not history_val:
+                history_val = self.messages[:-1]
+
         return {
             "run_id": self.task_id,
             "task_id": self.task_id,
             "topic_id": self.topic_id,
             "system_prompt": self.system_prompt,
             "messages": self.messages,
+            "history": history_val,
+            "prompt": prompt_val,
             "model": {"provider_id": self.provider_id, "model_id": self.model},
             "workspace": {"project_cwd": str(self.project_cwd)},
             "boundary_policy": self.boundary_policy,
             "skills": self.skills,
+            "mcp_servers": self.mcp_servers,
             "runtime_env": self.runtime_env,
             "limits": {
                 "total_timeout_seconds": self.total_timeout_seconds,

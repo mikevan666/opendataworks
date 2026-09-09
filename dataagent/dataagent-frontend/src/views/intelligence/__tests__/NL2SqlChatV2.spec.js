@@ -798,6 +798,51 @@ describe('NL2SqlChatV2 URL location', () => {
     })
   })
 
+  it('stops the Pi reasoning animation when answer content starts', async () => {
+    let resolveStream
+    apiMocks.topicApi.listTopics.mockResolvedValue({
+      list: [
+        { ...makeTopic('topic-run', 'Running topic'), current_task_id: 'task-run', current_task_status: 'running' }
+      ]
+    })
+    apiMocks.topicApi.getTopicMessages.mockImplementation(async (topicId) => ({
+      topic_id: topicId,
+      page: 1,
+      page_size: 500,
+      order: 'asc',
+      total: 1,
+      items: [
+        { message_id: 'u-run', topic_id: topicId, sender_type: 'user', content: 'running question', created_at: '2026-05-30T02:00:00Z' }
+      ]
+    }))
+    apiMocks.taskApi.streamSdkEvents.mockImplementation((_taskId, opts) => {
+      opts.onRecord({ record_type: 'pi_event', event_type: 'run.started', data: {} })
+      opts.onRecord({ record_type: 'pi_event', event_type: 'turn.started', data: { turn_id: 'turn-1' } })
+      opts.onRecord({
+        record_type: 'pi_event',
+        event_type: 'content.delta',
+        data: { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning', delta: '分析中' }
+      })
+      opts.onRecord({
+        record_type: 'pi_event',
+        event_type: 'content.delta',
+        data: { turn_id: 'turn-1', content_id: 'c-1', kind: 'answer', delta: '当前回答' }
+      })
+      return new Promise((resolve) => { resolveStream = resolve })
+    })
+    routeState.query = { topic_id: 'topic-run' }
+
+    const wrapper = mountChat()
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('当前回答')
+    expect(wrapper.findAll('.v2-cursor')).toHaveLength(1)
+    expect(wrapper.findAll('.v2-badge-dot')).toHaveLength(0)
+
+    resolveStream()
+  })
+
   it('forwards the selected assistant to the widget topic query', async () => {
     routeState.query = { agent_id: 'agent_sales' }
     apiMocks.agentApi.listAgents.mockResolvedValue([

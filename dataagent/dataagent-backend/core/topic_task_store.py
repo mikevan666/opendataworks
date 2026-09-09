@@ -194,7 +194,7 @@ def _project_sdk_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                 current_turn_blocks = []
                 block_by_content_id = {}
 
-            elif etype == "content.delta" and current_turn_blocks is not None:
+            elif etype in {"content.started", "content.delta"} and current_turn_blocks is not None:
                 is_reasoning = str(data.get("kind") or "") == "reasoning"
                 block_type = "thinking" if is_reasoning else "main_text"
                 key = str(data.get("content_id") or "")
@@ -206,7 +206,15 @@ def _project_sdk_records(records: list[dict[str, Any]]) -> dict[str, Any]:
                     ordered_blocks.append(block)
                     if key:
                         block_by_content_id[key] = block
-                block["text"] = str(block.get("text") or "") + str(data.get("delta") or "")
+                if etype == "content.delta":
+                    block["text"] = str(block.get("text") or "") + str(data.get("delta") or "")
+
+            elif etype == "content.completed" and current_turn_blocks is not None:
+                key = str(data.get("content_id") or "")
+                block = block_by_content_id.get(key) if key else None
+                if block is not None and "text" in data and data.get("text") is not None:
+                    if not block.get("text"):
+                        block["text"] = str(data.get("text") or "")
 
             elif etype == "tool.started" and current_turn_blocks is not None:
                 tool_id = str(data.get("tool_call_id") or "")

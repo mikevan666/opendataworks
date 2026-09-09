@@ -911,14 +911,33 @@ async def _execute_task_stream_via_pi_runtime(
     # session and is therefore handed only the new question; Pi has no such
     # session and must replay the transcript, so history is always rebuilt here
     # and params.resume_session_id is intentionally ignored.
+    history: list[dict[str, str]] = []
     messages: list[dict[str, str]] = []
     for item in params.history or []:
         content = str(item.get("content") or "").strip()
         if not content:
             continue
         role = "user" if item.get("role") == "user" else "assistant"
-        messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": str(params.question or "").strip()})
+        entry = {"role": role, "content": content}
+        messages.append(entry)
+        history.append(entry)
+    question = str(params.question or "").strip()
+    messages.append({"role": "user", "content": question})
+
+    raw_mcp_servers = _build_portal_mcp_servers(
+        cfg,
+        (agent_snapshot or {}).get("mcp_server_ids") if agent_snapshot else None,
+        agent_snapshot=agent_snapshot,
+    )
+    mcp_servers_list = [
+        {
+            "name": name,
+            "url": conf.get("url"),
+            "type": conf.get("type", "http"),
+            "headers": conf.get("headers", {}),
+        }
+        for name, conf in (raw_mcp_servers or {}).items()
+    ]
 
     try:
         cell_command = resolve_cell_command(cfg)
@@ -941,6 +960,8 @@ async def _execute_task_stream_via_pi_runtime(
         model=model,
         system_prompt=system_prompt,
         messages=messages,
+        history=history,
+        prompt=question,
         project_cwd=Path(project_cwd),
         boundary_policy=build_boundary_policy(
             project_cwd,
@@ -955,6 +976,7 @@ async def _execute_task_stream_via_pi_runtime(
             {"name": name, "root_path": str(root)}
             for name, root in dict((skill_runtime or {}).get("enabled_roots") or {}).items()
         ],
+        mcp_servers=mcp_servers_list,
         total_timeout_seconds=int(params.timeout_seconds or 0) or 360,
         max_turns=_resolve_max_turns(cfg, params.execution_mode, int((agent_snapshot or {}).get("max_turns") or 0)),
     )

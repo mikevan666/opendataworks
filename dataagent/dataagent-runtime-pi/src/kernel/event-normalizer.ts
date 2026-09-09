@@ -66,16 +66,65 @@ export class EventNormalizer {
         break;
       }
       case "message_update": {
-        const ev = piEvent.assistantMessageEvent as { type?: string; delta?: string; contentIndex?: number };
-        const kind = ev?.type === "thinking_delta" ? "reasoning" : ev?.type === "text_delta" ? "answer" : null;
-        if (kind && ev.delta) {
-          const index = typeof ev.contentIndex === "number" ? ev.contentIndex : this.contentCounter;
+        const ev = piEvent.assistantMessageEvent as {
+          type?: string;
+          delta?: string;
+          contentIndex?: number;
+          content?: string;
+        };
+        const index = typeof ev?.contentIndex === "number" ? ev.contentIndex : this.contentCounter;
+        const contentId = `c-${index}`;
+
+        if (ev?.type === "text_start") {
+          events.push(
+            this.sm.createEvent("content.started", {
+              turn_id: this.currentTurnId,
+              content_id: contentId,
+              kind: "answer",
+            })
+          );
+        } else if (ev?.type === "thinking_start") {
+          events.push(
+            this.sm.createEvent("content.started", {
+              turn_id: this.currentTurnId,
+              content_id: contentId,
+              kind: "reasoning",
+            })
+          );
+        } else if (ev?.type === "text_delta" && ev.delta) {
           events.push(
             this.sm.createEvent("content.delta", {
               turn_id: this.currentTurnId,
-              content_id: `c-${index}`,
-              kind,
+              content_id: contentId,
+              kind: "answer",
               delta: ev.delta,
+            })
+          );
+        } else if (ev?.type === "thinking_delta" && ev.delta) {
+          events.push(
+            this.sm.createEvent("content.delta", {
+              turn_id: this.currentTurnId,
+              content_id: contentId,
+              kind: "reasoning",
+              delta: ev.delta,
+            })
+          );
+        } else if (ev?.type === "text_end") {
+          events.push(
+            this.sm.createEvent("content.completed", {
+              turn_id: this.currentTurnId,
+              content_id: contentId,
+              kind: "answer",
+              ...(ev.content !== undefined ? { text: ev.content } : {}),
+            })
+          );
+        } else if (ev?.type === "thinking_end") {
+          events.push(
+            this.sm.createEvent("content.completed", {
+              turn_id: this.currentTurnId,
+              content_id: contentId,
+              kind: "reasoning",
+              ...(ev.content !== undefined ? { text: ev.content } : {}),
             })
           );
         }

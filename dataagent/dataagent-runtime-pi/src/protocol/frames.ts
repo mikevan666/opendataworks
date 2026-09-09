@@ -29,7 +29,9 @@ export interface ProtocolFrame<T = Record<string, unknown>> {
 export type AgentEventType =
   | "run.started"
   | "turn.started"
+  | "content.started"
   | "content.delta"
+  | "content.completed"
   | "tool.started"
   | "tool.progress"
   | "tool.completed"
@@ -52,16 +54,26 @@ export interface NeutralAgentEvent {
   payload: Record<string, unknown>;
 }
 
+export interface McpServerConfig {
+  name: string;
+  type?: string;
+  url: string;
+  headers?: Record<string, string>;
+}
+
 export interface CellInitPayload {
   run_id: string;
   task_id: string;
   topic_id: string;
   system_prompt: string;
   messages: Array<{ role: string; content: string }>;
+  history?: Array<{ role: string; content: string }>;
+  prompt?: string;
   model: { provider_id: string; model_id: string };
   workspace: { project_cwd: string };
   boundary_policy: Record<string, unknown>;
   skills: Array<{ name: string; root_path: string }>;
+  mcp_servers?: McpServerConfig[];
   runtime_env: Record<string, string>;
   limits: {
     total_timeout_seconds: number;

@@ -74,6 +74,44 @@ function textStreamFactory(text: string) {
         for (const chunk of text.split(" ")) {
           stream.push({ type: "text_delta", contentIndex: 0, delta: chunk, partial: message as never });
         }
+        stream.push({ type: "text_end", contentIndex: 0, content: text, partial: message as never });
+        stream.push({ type: "done", reason: "stop", message: message as never });
+        stream.end();
+      });
+      return stream;
+    }) as never,
+  });
+}
+
+/** A StreamFn that emits thinking followed by text answer and stops. */
+function thinkingAndTextStreamFactory(thought: string, answer: string) {
+  return () => ({
+    model: {} as never,
+    streamFn: (() => {
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        const message = {
+          role: "assistant" as const,
+          content: [
+            { type: "thinking" as const, thinking: thought },
+            { type: "text" as const, text: answer },
+          ],
+          api: "faux" as const,
+          provider: "faux",
+          model: "faux-1",
+          usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+          stopReason: "stop" as const,
+          timestamp: Date.now(),
+        };
+        stream.push({ type: "start", partial: message as never });
+        // Block 0: Thinking
+        stream.push({ type: "thinking_start", contentIndex: 0, partial: message as never });
+        stream.push({ type: "thinking_delta", contentIndex: 0, delta: thought, partial: message as never });
+        stream.push({ type: "thinking_end", contentIndex: 0, content: thought, partial: message as never });
+        // Block 1: Answer text
+        stream.push({ type: "text_start", contentIndex: 1, partial: message as never });
+        stream.push({ type: "text_delta", contentIndex: 1, delta: answer, partial: message as never });
+        stream.push({ type: "text_end", contentIndex: 1, content: answer, partial: message as never });
         stream.push({ type: "done", reason: "stop", message: message as never });
         stream.end();
       });
@@ -141,6 +179,64 @@ test("content deltas carry kind and content_id", async () => {
     assert.ok(["answer", "reasoning"].includes(String(delta.payload.kind)));
     assert.ok(String(delta.payload.content_id).startsWith("c-"));
   }
+});
+
+test("content lifecycle produces content.started, content.delta, and content.completed", async () => {
+  const root = workspace();
+  const { events } = await runCell(initPayload(root), textStreamFactory("hello world"));
+
+  const starts = events.filter((e) => e.type === "content.started");
+  const deltas = events.filter((e) => e.type === "content.delta");
+  const completes = events.filter((e) => e.type === "content.completed");
+
+  assert.equal(starts.length, 1, "expected 1 content.started event");
+  assert.equal(starts[0].payload.kind, "answer");
+  assert.equal(starts[0].payload.content_id, "c-0");
+
+  assert.ok(deltas.length > 0, "expected at least one content.delta");
+
+  assert.equal(completes.length, 1, "expected 1 content.completed event");
+  assert.equal(completes[0].payload.kind, "answer");
+  assert.equal(completes[0].payload.content_id, "c-0");
+  assert.equal(completes[0].payload.text, "hello world");
+});
+
+test("thinking block completes before answer text starts", async () => {
+  const root = workspace();
+  const { events } = await runCell(
+    initPayload(root),
+    thinkingAndTextStreamFactory("let me think", "here is the answer")
+  );
+
+  const contentEvents = events.filter((e) =>
+    ["content.started", "content.delta", "content.completed"].includes(e.type)
+  );
+
+  // First content.started must be reasoning (c-0)
+  assert.equal(contentEvents[0].type, "content.started");
+  assert.equal(contentEvents[0].payload.kind, "reasoning");
+  assert.equal(contentEvents[0].payload.content_id, "c-0");
+
+  // Find thinking completed event
+  const thinkingEndIdx = contentEvents.findIndex(
+    (e) => e.type === "content.completed" && e.payload.content_id === "c-0"
+  );
+  assert.ok(thinkingEndIdx > 0, "thinking block must complete");
+  assert.equal(contentEvents[thinkingEndIdx].payload.kind, "reasoning");
+
+  // Find text started event
+  const textStartIdx = contentEvents.findIndex(
+    (e) => e.type === "content.started" && e.payload.content_id === "c-1"
+  );
+  assert.ok(textStartIdx > thinkingEndIdx, "answer text must start AFTER thinking completes");
+  assert.equal(contentEvents[textStartIdx].payload.kind, "answer");
+
+  // Find text completed event
+  const textEndIdx = contentEvents.findIndex(
+    (e) => e.type === "content.completed" && e.payload.content_id === "c-1"
+  );
+  assert.ok(textEndIdx > textStartIdx, "answer text must complete");
+  assert.equal(contentEvents[textEndIdx].payload.kind, "answer");
 });
 
 test("a model stream failure is reported as failed, not success", async () => {
@@ -382,4 +478,26 @@ test("a turn without usage emits no usage event rather than an empty one", async
   // The stub's usage uses inputTokens/outputTokens, which are not pi-ai's Usage
   // fields, so nothing usable is present and no event should be fabricated.
   assert.equal(usageEvents.length, 0);
+});
+
+test("cell properly initializes with history and executes single prompt", async () => {
+  const root = workspace();
+  const { events, result } = await runCell(
+    initPayload(root, {
+      history: [
+        { role: "user", content: "previous question" },
+        { role: "assistant", content: "previous answer" },
+      ],
+      prompt: "current question",
+      skills: [],
+      mcp_servers: [],
+    }),
+    textStreamFactory("current answer")
+  );
+
+  assert.equal(result.terminal_status, "success");
+  assert.equal(events[0].type, "run.started");
+  assert.equal(events[events.length - 1].type, "run.completed");
+  const answerDeltas = events.filter((e) => e.type === "content.delta");
+  assert.ok(answerDeltas.length > 0);
 });

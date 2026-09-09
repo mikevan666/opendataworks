@@ -193,3 +193,69 @@ async def test_missing_pi_runtime_reports_error_instead_of_raising(monkeypatch, 
     # Surfaced through the shared error record, same as the SDK path does for
     # a missing claude-agent-sdk.
     assert store.records[-1]["record_type"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_and_history_forwarded(monkeypatch, tmp_path: Path):
+    captured: dict[str, Any] = {}
+    cfg = task_executor.get_settings()
+    monkeypatch.setattr(cfg, "dataagent_portal_mcp_enabled", True)
+    monkeypatch.setattr(cfg, "dataagent_portal_mcp_base_url", "http://portal-mcp:8801/mcp")
+    monkeypatch.setattr(cfg, "dataagent_portal_mcp_token", "test-token")
+
+    store = _FakeStore()
+    monkeypatch.setattr(task_executor, "get_topic_task_store", lambda: store)
+    monkeypatch.setattr("core.pi_runtime.resolve_cell_command", lambda cfg=None: ["/bin/true"])
+
+    async def _fake_execute(ctx, *, writer, cancel_reason=None, **kwargs):
+        captured["ctx"] = ctx
+        return PiRunOutcome(terminal_status="success", answer="ok")
+
+    monkeypatch.setattr("core.pi_runtime.execute_pi_run", _fake_execute)
+
+    async def _no_cancel():
+        return None
+
+    params = _params()
+    params.history = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+    ]
+    params.question = "what tables exist?"
+
+    agent_snapshot = {
+        "mcp_server_ids": ["portal"],
+        "data_scope": {"allowed_scopes": []},
+    }
+
+    result = await task_executor._execute_task_stream_via_pi_runtime(
+        params,
+        provider_id="anthropic",
+        model="test-model",
+        system_prompt="sys",
+        skill_runtime={"enabled_roots": {"test-skill": "/skills/test"}},
+        project_cwd=tmp_path,
+        runtime_env={},
+        provider_env={},
+        agent_snapshot=agent_snapshot,
+        cancel_reason=_no_cancel,
+    )
+
+    assert result.task_status == "success"
+    ctx = captured["ctx"]
+    assert ctx.prompt == "what tables exist?"
+    assert len(ctx.history) == 2
+    assert ctx.history[0]["content"] == "hello"
+    assert len(ctx.mcp_servers) == 1
+    assert ctx.mcp_servers[0]["name"] == "portal"
+    assert ctx.mcp_servers[0]["url"] == "http://portal-mcp:8801/mcp/"
+    assert ctx.mcp_servers[0]["headers"]["X-Portal-MCP-Token"] == "test-token"
+    assert len(ctx.skills) == 1
+    assert ctx.skills[0]["name"] == "test-skill"
+
+    # Verify serialization in cell.init payload
+    init_payload = ctx.to_init_payload()
+    assert init_payload["prompt"] == "what tables exist?"
+    assert len(init_payload["history"]) == 2
+    assert len(init_payload["mcp_servers"]) == 1
+
