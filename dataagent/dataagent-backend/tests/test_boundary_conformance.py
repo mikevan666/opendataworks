@@ -160,3 +160,38 @@ def test_unsupported_profile_is_rejected(env: dict):
         build_boundary_policy(
             env["workspace"], env["skill_runtime"], env["scratch_dirs"], env["runtime_env"], profile="nope"
         )
+
+
+def test_serialized_policy_matches_its_published_schema(env: dict, tmp_path: Path):
+    """The JSON Schema and the generator must not drift apart.
+
+    Deliberately a structural check rather than a jsonschema validation: that
+    package is not a dependency of this backend, and one contract test does not
+    justify adding a runtime dependency to every deployment.
+    """
+    schema_path = FIXTURE_PATH.parent.parent.parent / "boundary" / "v1" / "boundary-policy.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    required = set(schema["required"])
+    declared = set(schema["properties"])
+    assert required == declared, "every property in this schema is required; keep the two lists in step"
+
+    for profile in schema["properties"]["profile"]["enum"]:
+        policy = build_boundary_policy(
+            env["workspace"],
+            env["skill_runtime"],
+            env["scratch_dirs"],
+            {"DATAAGENT_PYTHON_BIN": sys.executable, "HOME": str(tmp_path / "home")},
+            profile=profile,
+        )
+        assert set(policy) == declared, (
+            f"{profile}: serialized policy keys {sorted(set(policy) ^ declared)} differ from the schema"
+        )
+        assert policy["policy_version"] == schema["properties"]["policy_version"]["const"]
+        assert policy["profile"] == profile
+
+    # The profile enum must match what the module actually accepts, or a caller
+    # can pass a profile the schema blesses and the generator rejects.
+    from core.boundary_policy import SUPPORTED_PROFILES
+
+    assert set(schema["properties"]["profile"]["enum"]) == set(SUPPORTED_PROFILES)

@@ -330,6 +330,8 @@ Cell `beforeToolCall` 挂起 → `interaction.requested` 帧 → Python 侧复�
 
 ## References
 
-- `docs/design/2026-09-08-dataagent-pi-agent-kernel-design.md`（前一版并行体系设计，本设计取代其运行时平面部分）
+- PR #450（`codex/dataagent-pi-agent-kernel-design`，已于 2026-09-08 关闭未合并）：
+  前一版并行体系方案，本设计取代之。其设计文档随分支关闭未进入 `main`，
+  因此此处只记录 PR 编号而不给出仓库内路径。
 - `docs/design/2026-08-11-dataagent-workspace-scratch-allowlist-design.md`
 - `docs/plans/2026-09-08-dataagent-runtime-plane-split-plan.md`

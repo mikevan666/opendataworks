@@ -12,6 +12,11 @@
 - 部署：`deploy/.env.example`、`deploy/docker-compose.*.yml`、
   `.github/workflows/docker-build.yml`。
 
+> 注：阶段 0 与阶段 3 中列出的待删除/待修复文件（`core/agent_runtime/`、
+> `runtime_gateway/`、`dataagent-pi-kernel.ts` 等）来自 PR #450。该 PR 已于
+> 2026-09-08 关闭未合并，这些文件从未进入 `main`，因此阶段 0 实际执行时等价于
+> 「不引入」而非「删除」。保留原文以记录决策依据。
+
 ## 任务
 
 ### 阶段 0：解除阻塞（必须先于一切）
@@ -173,3 +178,39 @@
 3. **里程碑 2（确认/暂停回路）未实现**，按设计属于独立范围。当前 Pi 数据面
    不提供写确认；`policy.require_write_confirmation` 在该引擎下无效。
 4. compose 改动仅通过 YAML 语法校验，未 `docker compose up` 验证。
+
+## 合入后复查记录（2026-09-09）
+
+本分支已于 2026-09-08 合入 `main`（`c72b11e`）。PR #450 于同日 **关闭且未合并**，
+其包遮蔽问题（`core/agent_runtime/` 遮蔽 `core/agent_runtime.py`）从未进入 `main`，
+已在 `main` 上确认：只存在 `core/agent_runtime.py`，无 `runtime_gateway/`。
+
+复查在 `main` 上发现并修复了两个问题，均源自 Pi Cell 里的 `as never` 强转
+——它们把针对 pi-agent-core API 的类型错误压掉了：
+
+1. **`agent.prompt()` 消息映射**（`e0db3e2` 已手工修复形状）。
+   去掉强转后编译器直接报出同一问题：assistant 历史消息缺
+   `api / provider / model / usage / stopReason`。本次删除该强转，把它变成
+   永久的编译期约束。
+   **该问题无法用测试防住**：stub streamFn 不会为 provider 序列化 transcript，
+   已验证新增的多轮测试在坏实现下同样通过；编译检查是唯一有效防线。
+
+2. **`createTools` 返回 `unknown[]`**，导致工具定义从未被对照 `AgentTool` 检查。
+   类型化后暴露：`AgentToolResult` **没有 `isError` 字段**，agent loop 仅在
+   `execute` 抛错时置 `isError`。因此返回 `{ isError: true }` 被丢弃，
+   **非零退出的 Bash 命令在聊天里渲染为成功的工具调用**。
+   实测对照（真实 agent loop）：
+   - 旧：`"output":{...,"isError":true}`，`"is_error":false`
+   - 新：`"is_error":true`
+   已按接口文档改为失败时抛错，并把命令输出带进错误消息，避免
+   `createErrorToolResult` 只保留 message 而丢掉诊断信息。
+   边界拒绝**不受影响**（`beforeToolCall` 在 `execute` 之前就拦下了），
+   因此回归测试针对的是只有 `execute` 能看到的失败：非零 shell 退出。
+   这是第一条让工具调用走完整 agent loop 的测试，且在旧行为下会失败。
+
+同时补齐了阶段 2 任务 9 的漏项：`contracts/boundary/v1/boundary-policy.schema.json`
+此前从未创建（计划里列出但实施时遗漏），现已补上并加了防止 schema 与生成器
+漂移的结构校验测试。
+
+复查后验证：Python 509 passed / Node 58 passed / 前端 428 passed。
+上一节「未执行」的三项（本地端到端 smoke、Docker 构建、里程碑 2）**仍未执行**。
