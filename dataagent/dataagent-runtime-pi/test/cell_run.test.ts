@@ -195,3 +195,131 @@ test("an unsupported provider fails the run rather than hanging it", async () =>
   assert.equal(result.terminal_status, "failed");
   assert.equal(events[events.length - 1].type, "run.failed");
 });
+
+test("replays assistant history without malforming the transcript", async () => {
+  // Pi has no engine-level session, so every turn replays the transcript, and
+  // an assistant message in it needs the full AgentMessage shape
+  // (api/provider/model/usage/stopReason), not just role and content.
+  //
+  // This documents the multi-turn path but is NOT the guard for that shape: a
+  // stub streamFn never serializes the transcript for a provider, so it passes
+  // either way (verified). The actual guard is the removal of the `as never`
+  // cast on the prompt mapping, which makes the compiler reject the partial
+  // object outright.
+  const root = workspace();
+  const init = initPayload(root, {
+    messages: [
+      { role: "user", content: "上一轮问题" },
+      { role: "assistant", content: "上一轮回答" },
+      { role: "user", content: "这一轮问题" },
+    ],
+  });
+
+  const { events, result } = await runCell(init, textStreamFactory("second turn answer"));
+
+  assert.equal(result.terminal_status, "success", `multi-turn run failed: ${result.error ?? ""}`);
+  assert.equal(events[events.length - 1].type, "run.completed");
+});
+
+test("the transcript handed to the agent keeps assistant turns as assistant", async () => {
+  // Collapsing history to user messages would lose the turn structure the
+  // model relies on, without failing anything visibly.
+  const root = workspace();
+  let seenRoles: string[] = [];
+
+  const factory = () => ({
+    model: { api: "faux", provider: "faux", id: "faux-1" } as never,
+    streamFn: ((_model: unknown, context: { messages?: Array<{ role: string }> }) => {
+      seenRoles = (context?.messages ?? []).map((m) => m.role);
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: "ok" }],
+          api: "faux" as const,
+          provider: "faux",
+          model: "faux-1",
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          stopReason: "stop" as const,
+          timestamp: Date.now(),
+        };
+        stream.push({ type: "start", partial: message as never });
+        stream.push({ type: "done", reason: "stop", message: message as never });
+        stream.end();
+      });
+      return stream;
+    }) as never,
+  });
+
+  await runCell(
+    initPayload(root, {
+      messages: [
+        { role: "user", content: "q1" },
+        { role: "assistant", content: "a1" },
+        { role: "user", content: "q2" },
+      ],
+    }),
+    factory as never
+  );
+
+  assert.deepEqual(seenRoles, ["user", "assistant", "user"]);
+});
+
+test("a failing tool call surfaces as is_error in the event stream", async () => {
+  // The only test that drives a tool call through the *real* agent loop.
+  //
+  // AgentToolResult has no isError field: the loop sets isError solely from a
+  // thrown execute. A tool that *returned* { isError: true } therefore produced
+  // tool.completed with is_error:false (the flag ended up buried inside
+  // output.isError, which nothing reads), and the chat rendered a failed
+  // command as a successful one.
+  //
+  // Boundary denials were never affected -- beforeToolCall blocks those before
+  // execute runs -- so this has to exercise a failure only execute can see: a
+  // non-zero shell exit.
+  const root = workspace();
+  let turn = 0;
+
+  const factory = () => ({
+    model: { api: "faux", provider: "faux", id: "faux-1" } as never,
+    streamFn: (() => {
+      const stream = createAssistantMessageEventStream();
+      const wantsTool = turn++ === 0;
+      const content = wantsTool
+        ? [
+            {
+              type: "toolCall" as const,
+              id: "tc-1",
+              name: "Bash",
+              arguments: { command: "echo before-failure; exit 7" },
+            },
+          ]
+        : [{ type: "text" as const, text: "done" }];
+      queueMicrotask(() => {
+        const message = {
+          role: "assistant" as const,
+          content,
+          api: "faux" as const,
+          provider: "faux",
+          model: "faux-1",
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          stopReason: wantsTool ? ("toolUse" as const) : ("stop" as const),
+          timestamp: Date.now(),
+        };
+        stream.push({ type: "start", partial: message as never });
+        stream.push({ type: "done", reason: wantsTool ? "toolUse" : "stop", message: message as never });
+        stream.end();
+      });
+      return stream;
+    }) as never,
+  });
+
+  const { events } = await runCell(initPayload(root), factory as never);
+
+  const completed = events.find((e) => e.type === "tool.completed");
+  assert.ok(completed, "expected a tool.completed event");
+  assert.equal(completed.payload.is_error, true, "a failed command must be reported as an error");
+  assert.equal(completed.payload.tool_name, "Bash");
+  // The output has to survive the failure, or the model cannot diagnose it.
+  assert.match(JSON.stringify(completed.payload.output), /before-failure/);
+});

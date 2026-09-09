@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { WorkspaceBoundaryEnforcer } from "../policy/workspace-boundary-enforcer.js";
 
 const MAX_OUTPUT_CHARS = 100 * 1024;
@@ -44,6 +45,14 @@ export interface ToolRegistryOptions {
   workspaceRoot: string;
   runtimeEnv: Record<string, string>;
   toolTimeoutMs?: number;
+}
+
+/** A tool call refused by the workspace boundary policy. */
+export class ToolDeniedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "ToolDeniedError";
+  }
 }
 
 export interface ShellResult {
@@ -120,100 +129,115 @@ export async function runShell(
   });
 }
 
-export function createTools(options: ToolRegistryOptions): unknown[] {
+/**
+ * Returns real AgentTool values rather than unknown[]. The looser type used to
+ * force an `as never` cast at the call site, which meant nothing checked that
+ * these definitions actually match what the Agent expects — and no test
+ * exercises a tool call through the real agent loop either.
+ */
+// Schemas are named so each tool can be typed as AgentTool<typeof schema>,
+// which makes `params` concrete inside execute instead of unknown.
+const READ_SCHEMA = Type.Object({
+  file_path: Type.String({ description: "Absolute or workspace-relative file path." }),
+});
+const LS_SCHEMA = Type.Object({
+  path: Type.String({ description: "Absolute or workspace-relative directory path." }),
+});
+const BASH_SCHEMA = Type.Object({
+  command: Type.String({ description: "The bash command line to execute." }),
+});
+
+export function createTools(options: ToolRegistryOptions): AgentTool<any>[] {
   const { boundary, workspaceRoot, runtimeEnv } = options;
   const timeoutMs = options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
 
-  const denial = (reason: string) => ({
-    content: [{ type: "text", text: reason }],
-    details: { denied: true },
-    isError: true,
-  });
+  const readTool: AgentTool<typeof READ_SCHEMA> = {
+    name: "Read",
+    label: "Read",
+    description: "Read a UTF-8 text file inside the agent workspace.",
+    parameters: READ_SCHEMA,
+    execute: async (_toolCallId, params) => {
+      const reason = boundary.validate("Read", params);
+      if (reason) {
+        throw new ToolDeniedError(reason);
+      }
+      const resolved = path.resolve(workspaceRoot, params.file_path);
+      const stat = await fs.stat(resolved);
+      if (stat.isDirectory()) {
+        throw new Error(`Cannot read '${params.file_path}': it is a directory`);
+      }
+      const handle = await fs.open(resolved, "r");
+      try {
+        const size = Math.min(stat.size, MAX_READ_BYTES);
+        const buffer = Buffer.alloc(size);
+        const { bytesRead } = await handle.read(buffer, 0, size, 0);
+        const text = buffer.subarray(0, bytesRead).toString("utf8");
+        return {
+          content: [{ type: "text" as const, text }],
+          details: { truncated: stat.size > MAX_READ_BYTES, bytes: bytesRead },
+        };
+      } finally {
+        await handle.close();
+      }
+    },
+  };
 
-  return [
-    {
-      name: "Read",
-      label: "Read",
-      description: "Read a UTF-8 text file inside the agent workspace.",
-      parameters: Type.Object({
-        file_path: Type.String({ description: "Absolute or workspace-relative file path." }),
-      }),
-      execute: async (_toolCallId: string, params: { file_path: string }) => {
-        const reason = boundary.validate("Read", params);
-        if (reason) {
-          return denial(reason);
-        }
-        const resolved = path.resolve(workspaceRoot, params.file_path);
-        const stat = await fs.stat(resolved);
-        if (stat.isDirectory()) {
-          return denial(`Cannot read '${params.file_path}': it is a directory`);
-        }
-        const handle = await fs.open(resolved, "r");
-        try {
-          const size = Math.min(stat.size, MAX_READ_BYTES);
-          const buffer = Buffer.alloc(size);
-          const { bytesRead } = await handle.read(buffer, 0, size, 0);
-          const text = buffer.subarray(0, bytesRead).toString("utf8");
-          return {
-            content: [{ type: "text", text }],
-            details: { truncated: stat.size > MAX_READ_BYTES, bytes: bytesRead },
-          };
-        } finally {
-          await handle.close();
-        }
-      },
+  const lsTool: AgentTool<typeof LS_SCHEMA> = {
+    name: "LS",
+    label: "LS",
+    description: "List a directory inside the agent workspace.",
+    parameters: LS_SCHEMA,
+    execute: async (_toolCallId, params) => {
+      const reason = boundary.validate("LS", params);
+      if (reason) {
+        throw new ToolDeniedError(reason);
+      }
+      const resolved = path.resolve(workspaceRoot, params.path);
+      const entries = await fs.readdir(resolved, { withFileTypes: true });
+      const text = entries
+        .map((entry) => `${entry.isDirectory() ? "[DIR] " : "[FILE]"} ${entry.name}`)
+        .join("\n");
+      return {
+        content: [{ type: "text" as const, text: text || "(empty)" }],
+        details: { count: entries.length },
+      };
     },
-    {
-      name: "LS",
-      label: "LS",
-      description: "List a directory inside the agent workspace.",
-      parameters: Type.Object({
-        path: Type.String({ description: "Absolute or workspace-relative directory path." }),
-      }),
-      execute: async (_toolCallId: string, params: { path: string }) => {
-        const reason = boundary.validate("LS", params);
-        if (reason) {
-          return denial(reason);
-        }
-        const resolved = path.resolve(workspaceRoot, params.path);
-        const entries = await fs.readdir(resolved, { withFileTypes: true });
-        const text = entries
-          .map((entry) => `${entry.isDirectory() ? "[DIR] " : "[FILE]"} ${entry.name}`)
-          .join("\n");
-        return {
-          content: [{ type: "text", text: text || "(empty)" }],
-          details: { count: entries.length },
-        };
-      },
+  };
+
+  const bashTool: AgentTool<typeof BASH_SCHEMA> = {
+    name: "Bash",
+    label: "Bash",
+    description: "Run a bash command inside the agent workspace.",
+    parameters: BASH_SCHEMA,
+    execute: async (_toolCallId, params, signal) => {
+      const reason = boundary.validate("Bash", params);
+      if (reason) {
+        throw new ToolDeniedError(reason);
+      }
+      const result = await runShell(params.command, {
+        cwd: workspaceRoot,
+        env: buildShellEnv(process.env, runtimeEnv),
+        timeoutMs,
+        signal,
+      });
+      if (result.timedOut) {
+        throw new Error(`Bash command exceeded ${Math.round(timeoutMs / 1000)}s and was killed`);
+      }
+      const output = (result.stdout + (result.stderr ? `\n${result.stderr}` : "")).trim();
+      if (result.exitCode !== 0) {
+        // Carry the output in the message: createErrorToolResult keeps only the
+        // error text, so returning it normally would lose the very output the
+        // model needs in order to understand the failure.
+        throw new Error(
+          `Bash command exited with code ${String(result.exitCode)}\n${output || "(no output)"}`
+        );
+      }
+      return {
+        content: [{ type: "text" as const, text: output || "(no output)" }],
+        details: { exitCode: result.exitCode },
+      };
     },
-    {
-      name: "Bash",
-      label: "Bash",
-      description: "Run a bash command inside the agent workspace.",
-      parameters: Type.Object({
-        command: Type.String({ description: "The bash command line to execute." }),
-      }),
-      execute: async (_toolCallId: string, params: { command: string }, signal?: AbortSignal) => {
-        const reason = boundary.validate("Bash", params);
-        if (reason) {
-          return denial(reason);
-        }
-        const result = await runShell(params.command, {
-          cwd: workspaceRoot,
-          env: buildShellEnv(process.env, runtimeEnv),
-          timeoutMs,
-          signal,
-        });
-        if (result.timedOut) {
-          return denial(`Bash command exceeded ${Math.round(timeoutMs / 1000)}s and was killed`);
-        }
-        const output = (result.stdout + (result.stderr ? `\n${result.stderr}` : "")).trim();
-        return {
-          content: [{ type: "text", text: output || "(no output)" }],
-          details: { exitCode: result.exitCode },
-          isError: result.exitCode !== 0,
-        };
-      },
-    },
-  ];
+  };
+
+  return [readTool, lsTool, bashTool];
 }
