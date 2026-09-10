@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import Settings, resolve_runtime_kind  # noqa: E402
+from config import Settings, get_settings, resolve_runtime_kind, update_settings  # noqa: E402
 from core import task_executor  # noqa: E402
 from core.pi_runtime import PiRunOutcome  # noqa: E402
 from core.task_executor import TaskExecutionInput  # noqa: E402
@@ -198,7 +198,7 @@ async def test_missing_pi_runtime_reports_error_instead_of_raising(monkeypatch, 
 @pytest.mark.asyncio
 async def test_mcp_servers_and_history_forwarded(monkeypatch, tmp_path: Path):
     captured: dict[str, Any] = {}
-    cfg = task_executor.get_settings()
+    cfg = get_settings()
     monkeypatch.setattr(cfg, "dataagent_portal_mcp_enabled", True)
     monkeypatch.setattr(cfg, "dataagent_portal_mcp_base_url", "http://portal-mcp:8801/mcp")
     monkeypatch.setattr(cfg, "dataagent_portal_mcp_token", "test-token")
@@ -258,4 +258,47 @@ async def test_mcp_servers_and_history_forwarded(monkeypatch, tmp_path: Path):
     assert init_payload["prompt"] == "what tables exist?"
     assert len(init_payload["history"]) == 2
     assert len(init_payload["mcp_servers"]) == 1
+
+
+GOVERNANCE_SETTING_KEYS = (
+    "dataagent_context_max_inline_result_bytes",
+    "dataagent_context_protect_tail_turns",
+    "dataagent_context_max_context_tokens",
+)
+
+
+@pytest.mark.asyncio
+async def test_governance_settings_flow_from_settings_into_cell_init(monkeypatch, tmp_path):
+    """Settings -> PiRunContext -> cell.init must carry context governance.
+
+    The Cell reads these from ``governance_settings`` and silently falls back to
+    its own hardcoded defaults when the section is absent, so a missing link
+    here turns every DATAAGENT_CONTEXT_* setting into a no-op with no error.
+    The key names are a wire contract with src/protocol/frames.ts.
+    """
+    captured: dict[str, Any] = {}
+    originals = {key: getattr(get_settings(), key) for key in GOVERNANCE_SETTING_KEYS}
+    update_settings(
+        {
+            "dataagent_context_max_inline_result_bytes": 4096,
+            "dataagent_context_protect_tail_turns": 3,
+            "dataagent_context_max_context_tokens": 12_345,
+        }
+    )
+    try:
+        await _run_adapter(
+            monkeypatch,
+            tmp_path,
+            PiRunOutcome(terminal_status="success", last_sequence=1),
+            captured,
+        )
+    finally:
+        update_settings(originals)
+
+    governance = captured["ctx"].to_init_payload()["governance_settings"]
+    assert governance == {
+        "max_inline_result_bytes": 4096,
+        "protect_tail_turns": 3,
+        "max_context_tokens": 12_345,
+    }
 

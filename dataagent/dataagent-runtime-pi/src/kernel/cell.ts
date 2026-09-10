@@ -16,6 +16,9 @@ import { WorkspaceBoundaryEnforcer, type BoundaryPolicy } from "../policy/worksp
 import { createTools } from "../tools/tool-registry.js";
 import { connectMcpServers, type McpBridgeResult } from "../mcp/portal-mcp-client.js";
 import { logDiagnostic } from "../protocol/channel.js";
+import { saveToolResult } from "../context/result-store.js";
+import { shouldFold, extractDigest, formatDigestText } from "../context/tabular-digest.js";
+import { pruneContext } from "../context/context-pruner.js";
 
 export type EventSink = (event: NeutralAgentEvent) => void;
 
@@ -56,6 +59,7 @@ export class Cell {
     let turnCount = 0;
     let limitDenial: string | null = null;
     let mcpBridge: McpBridgeResult | null = null;
+    let activeToolTimer: NodeJS.Timeout | null = null;
 
     try {
       mcpBridge = await connectMcpServers(init.mcp_servers, { connectTimeoutMs: 10_000 });
@@ -124,12 +128,70 @@ export class Cell {
         // decisions and the event stream — nondeterministic.
         toolExecution: "sequential",
         transformContext: async (messages) => {
-          // Sliding window protection: keep at most 40 historical messages to prevent context overflow
-          const MAX_CONTEXT_MESSAGES = 40;
-          if (messages.length > MAX_CONTEXT_MESSAGES) {
-            return messages.slice(-MAX_CONTEXT_MESSAGES);
+          return pruneContext(messages, {
+            protectTailCount: init.governance_settings?.protect_tail_turns ?? 6,
+            maxContextTokens: init.governance_settings?.max_context_tokens ?? 64_000,
+          });
+        },
+        afterToolCall: async (context) => {
+          const foldThreshold = init.governance_settings?.max_inline_result_bytes ?? 16 * 1024;
+          const toolResult = context.result;
+          if (!toolResult || !Array.isArray(toolResult.content)) {
+            return undefined;
           }
-          return messages;
+
+          // Measure and persist every text block, not just the first. A small
+          // leading block used to hide large ones from the threshold, and when
+          // the first block did trigger folding the remaining blocks were
+          // dropped with the replaced content array and never stored.
+          const textBlocks = toolResult.content.filter(
+            (block): block is { type: "text"; text: string } => block?.type === "text"
+          );
+          const nonTextBlockCount = toolResult.content.length - textBlocks.length;
+          const rawText = textBlocks.map((block) => String(block.text ?? "")).join("\n");
+          if (!shouldFold(rawText, foldThreshold)) {
+            return undefined;
+          }
+
+          try {
+            const toolName = String(context.toolCall?.name ?? "tool");
+            const saveOutcome = await saveToolResult(init.workspace.project_cwd, rawText);
+            const digest = extractDigest(rawText, {
+              resultRef: saveOutcome.result_ref,
+              toolName,
+            });
+            let compactText = formatDigestText(digest);
+            // Last-resort guard: folding must never make the context larger.
+            // Cell capping handles the common case, but a very wide schema or
+            // many columns can still out-grow the original.
+            if (Buffer.byteLength(compactText, "utf8") >= Buffer.byteLength(rawText, "utf8")) {
+              const minimal: Record<string, unknown> = { ...digest };
+              delete minimal.preview_head;
+              delete minimal.preview_tail;
+              compactText = JSON.stringify(minimal, null, 2);
+            }
+
+            // Non-text blocks (images and the like) are not folded and not
+            // stored, so keep them inline rather than losing them.
+            const preservedBlocks = toolResult.content.filter(
+              (block: { type?: string }) => block && block.type !== "text"
+            );
+
+            return {
+              content: [{ type: "text" as const, text: compactText }, ...preservedBlocks],
+              details: {
+                folded: true,
+                result_ref: saveOutcome.result_ref,
+                storage_path: saveOutcome.relative_path,
+                original_bytes: saveOutcome.byte_size,
+                folded_text_blocks: textBlocks.length,
+                preserved_blocks: nonTextBlockCount,
+              },
+            };
+          } catch (err) {
+            logDiagnostic(`afterToolCall fold failed, keeping raw: ${err}`);
+            return undefined;
+          }
         },
         beforeToolCall: async (context) => {
           toolCalls += 1;
@@ -167,6 +229,25 @@ export class Cell {
       agent.subscribe((piEvent: PiAgentEvent) => {
         if (piEvent.type === "turn_start") {
           turnCount += 1;
+        } else if (piEvent.type === "tool_execution_start") {
+          if (activeToolTimer) clearInterval(activeToolTimer);
+          const toolCallId = piEvent.toolCallId;
+          const toolName = piEvent.toolName;
+          activeToolTimer = setInterval(() => {
+            emit(
+              sm.createEvent("tool.progress", {
+                turn_id: normalizer.turnId,
+                tool_call_id: toolCallId,
+                tool_name: toolName,
+                progress: { status: "executing" },
+              })
+            );
+          }, 15_000);
+        } else if (piEvent.type === "tool_execution_end") {
+          if (activeToolTimer) {
+            clearInterval(activeToolTimer);
+            activeToolTimer = null;
+          }
         }
         for (const event of normalizer.normalize(piEvent)) {
           emit(event);
@@ -209,6 +290,10 @@ export class Cell {
       emit(sm.createEvent("run.failed", { error_code: "PI_EXECUTION_ERROR", message }));
       return { terminal_status: "failed", last_sequence: sm.lastSequence, error: message };
     } finally {
+      if (activeToolTimer) {
+        clearInterval(activeToolTimer);
+        activeToolTimer = null;
+      }
       this.agent = null;
       if (mcpBridge) {
         await mcpBridge.close();

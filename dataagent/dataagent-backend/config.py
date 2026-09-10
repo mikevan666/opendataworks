@@ -113,6 +113,14 @@ class Settings(BaseSettings):
     # dataagent-runtime-pi build output.
     dataagent_node_bin: str = ""
     dataagent_runtime_pi_dir: str = ""
+    # Timeout and context governance settings for pi_agent_core runtime.
+    # The three context_* names mirror the ``governance_settings`` wire contract
+    # consumed by the Cell (src/protocol/frames.ts); keep them in lockstep.
+    dataagent_run_idle_timeout_seconds: int = 300
+    dataagent_run_total_timeout_seconds: int = 600
+    dataagent_context_max_inline_result_bytes: int = 16 * 1024
+    dataagent_context_protect_tail_turns: int = 6
+    dataagent_context_max_context_tokens: int = 64_000
 
     # ---- Topic runtime root / sandbox ----
     # Filesystem root visible to the current process. Containerized backend

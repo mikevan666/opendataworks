@@ -977,7 +977,11 @@ async def _execute_task_stream_via_pi_runtime(
             for name, root in dict((skill_runtime or {}).get("enabled_roots") or {}).items()
         ],
         mcp_servers=mcp_servers_list,
-        total_timeout_seconds=int(params.timeout_seconds or 0) or 360,
+        total_timeout_seconds=int(params.timeout_seconds or 0) or int(getattr(cfg, "dataagent_run_total_timeout_seconds", 600)),
+        idle_timeout_seconds=int(getattr(cfg, "dataagent_run_idle_timeout_seconds", 300)),
+        max_inline_result_bytes=int(getattr(cfg, "dataagent_context_max_inline_result_bytes", 16 * 1024)),
+        protect_tail_turns=int(getattr(cfg, "dataagent_context_protect_tail_turns", 6)),
+        max_context_tokens=int(getattr(cfg, "dataagent_context_max_context_tokens", 64_000)),
         max_turns=_resolve_max_turns(cfg, params.execution_mode, int((agent_snapshot or {}).get("max_turns") or 0)),
     )
 

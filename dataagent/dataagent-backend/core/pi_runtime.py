@@ -70,10 +70,17 @@ class PiRunContext:
     provider_env: dict[str, str] = field(default_factory=dict)
     skills: list[dict[str, str]] = field(default_factory=list)
     mcp_servers: list[dict[str, Any]] = field(default_factory=list)
-    total_timeout_seconds: int = 360
-    idle_timeout_seconds: int = 120
+    total_timeout_seconds: int = 600
+    idle_timeout_seconds: int = 300
     max_turns: int = 30
     max_tool_calls: int = 50
+    # Context governance. Field names mirror the ``governance_settings`` wire
+    # contract in ``src/protocol/frames.ts`` so the Cell reads them directly;
+    # a rename on either side has to move in lockstep or the Cell silently
+    # falls back to its own defaults.
+    max_inline_result_bytes: int = 16 * 1024
+    protect_tail_turns: int = 6
+    max_context_tokens: int = 64_000
 
     def to_init_payload(self) -> dict[str, Any]:
         """Serialize for the ``cell.init`` frame.
@@ -108,6 +115,11 @@ class PiRunContext:
                 "idle_timeout_seconds": self.idle_timeout_seconds,
                 "max_turns": self.max_turns,
                 "max_tool_calls": self.max_tool_calls,
+            },
+            "governance_settings": {
+                "max_inline_result_bytes": self.max_inline_result_bytes,
+                "protect_tail_turns": self.protect_tail_turns,
+                "max_context_tokens": self.max_context_tokens,
             },
         }
 
@@ -326,7 +338,7 @@ async def execute_pi_run(
                     terminal_status="failed",
                     answer="".join(answer_parts),
                     error_code="PI_RUN_IDLE_TIMEOUT",
-                    error_message=f"Pi 运行时 {ctx.idle_timeout_seconds}s 内无任何事件或工具输出",
+                    error_message=f"Pi 运行时 {ctx.idle_timeout_seconds}s 内无任何事件或工具输出（任务已执行 {int(now - started_at)}s）",
                     last_sequence=highest_sequence,
                 )
                 break

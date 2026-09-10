@@ -61,6 +61,12 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
 }
 
+export interface GovernanceSettings {
+  max_inline_result_bytes?: number;
+  protect_tail_turns?: number;
+  max_context_tokens?: number;
+}
+
 export interface CellInitPayload {
   run_id: string;
   task_id: string;
@@ -81,6 +87,7 @@ export interface CellInitPayload {
     max_turns: number;
     max_tool_calls: number;
   };
+  governance_settings?: GovernanceSettings;
 }
 
 export function makeFrame<T extends Record<string, unknown>>(

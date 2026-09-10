@@ -17,6 +17,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { WorkspaceBoundaryEnforcer } from "../policy/workspace-boundary-enforcer.js";
 import { createSkillTool, type SkillEntry } from "../skills/skill-loader.js";
+import { createFetchToolResultTool } from "./fetch-tool-result.js";
 
 const MAX_OUTPUT_CHARS = 100 * 1024;
 const MAX_READ_BYTES = 64 * 1024;
@@ -242,7 +243,12 @@ export function createTools(options: ToolRegistryOptions): AgentTool<any>[] {
     },
   };
 
-  const tools: AgentTool<any>[] = [readTool, lsTool, bashTool];
+  const tools: AgentTool<any>[] = [
+    readTool,
+    lsTool,
+    bashTool,
+    createFetchToolResultTool(workspaceRoot) as never,
+  ];
 
   if (options.skills && options.skills.length > 0) {
     tools.push(createSkillTool(options.skills) as never);
