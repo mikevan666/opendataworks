@@ -28,7 +28,8 @@ const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
  * the Cell's env — provider keys, DB credentials, the runtime secret — stays
  * out of the child.
  */
-const SHELL_ENV_ALLOWLIST = [
+export const SHELL_ENV_ALLOWLIST = [
+  // OS & runtime basics
   "PATH",
   "HOME",
   "LANG",
@@ -36,10 +37,33 @@ const SHELL_ENV_ALLOWLIST = [
   "TZ",
   "PWD",
   "TMPDIR",
+  "VIRTUAL_ENV",
+
+  // Skill paths and active folders
   "DATAAGENT_PYTHON_BIN",
   "DATAAGENT_SKILL_ROOT",
+  "DATAAGENT_PLATFORM_SKILL_ROOT",
+  "DATAAGENT_ENABLED_SKILLS",
+  "DATAAGENT_ENABLED_SKILL_ROOTS",
+
+  // Query & task runtime parameters
+  "DATAAGENT_QUERY_LIMIT",
+  "DATAAGENT_RESULT_PREVIEW_ROWS",
+  "DATAAGENT_ORIGINAL_QUESTION",
+  "DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK",
   "DATAAGENT_SQL_READ_TIMEOUT_SECONDS",
   "DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS",
+
+  // Data scope headers and definitions
+  "ODW_AGENT_DATA_SCOPE_HEADER",
+  "DATAAGENT_DATA_SCOPE_HEADER",
+  "DATAAGENT_DATA_SCOPE_JSON",
+
+  // Backend agent API access channel
+  "ODW_BACKEND_BASE_URL",
+  "ODW_AGENT_SERVICE_TOKEN",
+  "ODW_AGENT_SERVICE_TOKEN_HEADER_NAME",
+  "ODW_BACKEND_TIMEOUT_SECONDS",
 ];
 
 export interface ToolRegistryOptions {
@@ -92,7 +116,10 @@ export async function runShell(
   options: { cwd: string; env: Record<string, string>; timeoutMs: number; signal?: AbortSignal }
 ): Promise<ShellResult> {
   return new Promise<ShellResult>((resolve, reject) => {
-    const child = spawn("bash", ["-c", command], {
+    // A pipeline must fail when any stage fails. Without pipefail, commands such
+    // as `python missing.py | head` inherit head's zero exit code and are
+    // incorrectly reported to the agent as successful tool calls.
+    const child = spawn("bash", ["-o", "pipefail", "-c", command], {
       cwd: options.cwd,
       env: options.env,
     });

@@ -261,10 +261,10 @@ Pi Runtime 是独立 Node 22 package/image；仓库根 Node 20 前端基线不�
 
 - `dataagent/dataagent-runtime-pi/src/skills/skill-loader.ts`
 - `dataagent/dataagent-runtime-pi/src/mcp/portal-mcp-client.ts`
-- `dataagent/dataagent-runtime-pi/src/tools/executors/process-executor.ts`
-- `dataagent/dataagent-runtime-pi/test/skills/`
-- `dataagent/dataagent-runtime-pi/test/mcp/`
-- `dataagent/.claude/skills/`
+- `dataagent/dataagent-runtime-pi/src/tools/tool-registry.ts`
+- `dataagent/dataagent-runtime-pi/test/mcp_tools.test.ts`
+- `dataagent/dataagent-runtime-pi/test/tool_env.test.ts`
+- `dataagent/.claude/skills/opendataworks-platform-tools/`
 - `dataagent/portal-mcp/`
 
 **Steps:**
@@ -272,15 +272,20 @@ Pi Runtime 是独立 Node 22 package/image；仓库根 Node 20 前端基线不�
 1. 只从 ContextBundle enabled skills 和 allowlisted roots 加载 Skill。
 2. 实现 `Skill` tool，把 SKILL.md 指令作为标准 tool result 注入当前 Agent Loop。
 3. 在 Pi Cell image 中提供 `DATAAGENT_PYTHON_BIN` 和 `DATAAGENT_SKILL_ROOT` canonical env。
-4. 通过 process executor 直接运行 Skill-local Python scripts，不在 Runtime 硬编码具体脚本名。
-5. 实现 Portal MCP tool discovery/allowlist/data-scope token/canonical ID 映射。
+4. 补齐 Pi Bash 的显式环境白名单，覆盖平台脚本消费的全部变量（`DATAAGENT_PLATFORM_SKILL_ROOT`、`ODW_BACKEND_BASE_URL`、`ODW_AGENT_SERVICE_TOKEN` 等），并增加静态契约比对测试；通过 `bash -o pipefail -c` 保留管道前段失败的非零退出码。
+5. 保持 Portal MCP 标准 schema 不变，在 Pi MCP bridge 增加 `prepareArguments`：
+   - 解析 MCP 原始 `inputSchema`，仅在字段为 object（含本地 `$ref`）且实际值为 string 时执行一次 `JSON.parse` 还原；
+   - 原生 object 保持不变，非法 JSON/数组/null 直接失败，返回精简 schema 帮助与调用示例且不发 MCP 请求；
+   - MCP `res.isError` 或调用抛错时统一抛出异常，确保真实失败信号进入 Agent Loop。
 6. 对 MCP/Skill output 做 size/redaction/artifact 处理。
-7. 用真实 NL2SQL skill 跑 `最近 30 天工作流发布次数趋势`。
+7. 用真实 NL2SQL skill 跑 `最近 30 天工作流发布次数趋势` 并执行双通路消融测试。
 
 **Expected Result:**
 
 - 现有 Skill bundle 不因 Runtime 切换失去单一事实来源。
 - Pi Runtime 不持有业务数据库凭据，数据查询继续经过 Portal MCP/Skill contract。
+- Portal MCP 工具在 Pi 下无缝接收模型生成的参数，合法 JSON 字符串自动恢复为 object。
+- 平台脚本 fallback 通路与 Claude 链路具备对齐的环境变量支持。
 
 ## Task 10: Normalize Pi Events and Finalize Semantic Messages
 
@@ -499,4 +504,3 @@ Pi subproject必须使用自己的 Node 22 `.nvmrc`；frontend commands 必须�
 - Retried work gets a new run/attempt ID and links the previous failure.
 - A run that may have completed a write tool is never automatically retried; use business compensation or explicit operator action.
 - Runtime schema changes remain additive until the previous production artifact is outside the rollback window.
-

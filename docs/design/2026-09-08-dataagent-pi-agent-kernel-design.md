@@ -512,15 +512,29 @@ validated Pi args
 
 Pi Cell 镜像因此同时包含 Node 22 和 DataAgent Python 3.11+ 环境。通用 Runtime 不知道具体脚本名；脚本调用方式仍由 Skill bundle 决定。
 
+为保证脚本 fallback（如通过 `odw-cli`、`run_sql.py` 等访问后端 Agent API）与 Claude 链路能力一致，Pi Bash 的显式环境白名单必须覆盖平台脚本实际消费的变量：
+- Skill 路径与运行上下文：`DATAAGENT_PLATFORM_SKILL_ROOT`、`DATAAGENT_ENABLED_SKILL_ROOTS`、`DATAAGENT_ENABLED_SKILLS`、`DATAAGENT_QUERY_LIMIT`、`DATAAGENT_RESULT_PREVIEW_ROWS`、`DATAAGENT_ORIGINAL_QUESTION`、`DATAAGENT_ALLOW_LINEAGE_SQL_FALLBACK`、`DATAAGENT_SQL_READ_TIMEOUT_SECONDS`、`DATAAGENT_SQL_WRITE_TIMEOUT_SECONDS`、`DATAAGENT_PYTHON_BIN`、`DATAAGENT_SKILL_ROOT`、`VIRTUAL_ENV`。
+- 数据范围契约：`ODW_AGENT_DATA_SCOPE_HEADER`、`DATAAGENT_DATA_SCOPE_HEADER`、`DATAAGENT_DATA_SCOPE_JSON`。
+- Backend 通路：`ODW_BACKEND_BASE_URL`、`ODW_AGENT_SERVICE_TOKEN`、`ODW_AGENT_SERVICE_TOKEN_HEADER_NAME`、`ODW_BACKEND_TIMEOUT_SECONDS`。
+- 安全边界：`ODW_AGENT_SERVICE_TOKEN` 对 Pi Bash 可见以对齐 Claude 链路；继续严格禁止下发 provider API keys、MySQL/Redis 业务数据库密码、AWS 密钥与 runtime HMAC secret。
+- 契约保护：通过静态比对测试，自动核对 platform-tools 脚本/CLI 声明的环境变量与 Pi 白名单，防止后续出现“脚本定义了但运行时未下发”。
+- 失败语义：Pi Bash 使用 `bash -o pipefail -c`，确保管道前段的脚本硬失败不会被末段 `head` 等成功退出码掩盖；输出大小仍由 Runtime 自身限制，不依赖管道截断。
+
 ### Portal MCP
 
-Portal MCP 继续是业务数据访问边界。Pi Runtime 使用受限的 MCP client bridge：
+Portal MCP 继续是业务数据访问的第一首选与核心边界。Pi Runtime 使用受限的 MCP client bridge：
 
 - run 启动时从 Control 提供的 allowlist 和 data-scope token 建立连接。
 - 只暴露批准的 tool schemas，并映射为 Canonical Tool ID。
 - token 通过 secret envelope 注入，不写 workspace、Pi auth 目录、event 或日志。
 - MCP 输出经过大小限制、敏感字段清理和 Artifact 外置后再返回 Pi。
 - Pi Cell 不持有 DataAgent 业务 MySQL 凭据。
+- **Schema 保持与参数恢复 (`prepareArguments`)**：
+  - 保持 Portal MCP 服务端标准 schema 不变，继续暴露嵌套标准（如 `{"params": {...}}`）；Claude 链路继续使用原生对象调用。
+  - 在 Pi MCP Client Bridge 引入 `prepareArguments` 机制：读取 MCP 原始 `inputSchema`，仅在字段被声明为 object（含本地 `$ref`，如 `#/$defs/...` 或 `#/definitions/...`）且模型传入实际值为 string 时，尝试一次 `JSON.parse` 恢复为 object。
+  - 解析结果必须是非数组 object；已经是 object 的原生调用保持原样。非法 JSON、数组或 null 直接失败并抛出错误，不进行二次转换或猜测。
+  - 参数校验错误时附带精简的期望字段列表、类型、必填项标记及正确调用示例，且不向 MCP Client 发送调用，避免模型通过阅读源码逆向契约。
+  - MCP 服务端返回 `res.isError` 或调用抛出异常时，Bridge 统一向上抛出 `Error`，确保 Pi Agent loop 与 `afterToolCall` 能够感知真实失败信号，而非被当作成功调用。
 
 ### Permission and Interaction
 
