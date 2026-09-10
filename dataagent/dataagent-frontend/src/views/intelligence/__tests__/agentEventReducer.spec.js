@@ -96,7 +96,7 @@ describe('Pi agent event reducer', () => {
     expect(state.blocks.map((b) => b.content)).toEqual(['still here'])
   })
 
-  it('keeps reasoning and answer in separate blocks', () => {
+  it('keeps parallel reasoning and answer blocks independently streaming', () => {
     const state = feed([
       piEvent(AgentEventType.TURN_STARTED, { turn_id: 'turn-1' }),
       piEvent(AgentEventType.CONTENT_DELTA, { content_id: 'c-0', kind: 'reasoning', delta: 'thinking...' }),
@@ -104,7 +104,27 @@ describe('Pi agent event reducer', () => {
     ])
 
     expect(state.blocks.map((b) => b.type)).toEqual(['thinking', 'text'])
+    expect(state.blocks.map((b) => b.status)).toEqual(['streaming', 'streaming'])
+  })
+
+  it('settles only the content_id named by content.completed', () => {
+    const state = createChatState()
+    const records = [
+      piEvent(AgentEventType.TURN_STARTED, { turn_id: 'turn-1' }),
+      piEvent(AgentEventType.CONTENT_STARTED, { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning', delta: 'thinking...' }),
+      piEvent(AgentEventType.CONTENT_STARTED, { turn_id: 'turn-1', content_id: 'c-1', kind: 'answer' }),
+      piEvent(AgentEventType.CONTENT_DELTA, { turn_id: 'turn-1', content_id: 'c-1', kind: 'answer', delta: 'answer' }),
+      piEvent(AgentEventType.CONTENT_COMPLETED, { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning', text: 'thinking...' }),
+    ]
+    for (const record of records) processV2Record(state, record)
+
     expect(state.blocks.map((b) => b.status)).toEqual(['done', 'streaming'])
+
+    processV2Record(state, piEvent(AgentEventType.CONTENT_COMPLETED, {
+      turn_id: 'turn-1', content_id: 'c-1', kind: 'answer', text: 'answer'
+    }))
+    expect(state.blocks.map((b) => b.status)).toEqual(['done', 'done'])
   })
 
   it('settles every block in a completed turn before the next turn streams', () => {

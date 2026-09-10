@@ -798,7 +798,7 @@ describe('NL2SqlChatV2 URL location', () => {
     })
   })
 
-  it('stops the Pi reasoning animation when answer content starts', async () => {
+  it('stops the Pi reasoning animation when its completion event arrives', async () => {
     let resolveStream
     apiMocks.topicApi.listTopics.mockResolvedValue({
       list: [
@@ -820,8 +820,23 @@ describe('NL2SqlChatV2 URL location', () => {
       opts.onRecord({ record_type: 'pi_event', event_type: 'turn.started', data: { turn_id: 'turn-1' } })
       opts.onRecord({
         record_type: 'pi_event',
+        event_type: 'content.started',
+        data: { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning' }
+      })
+      opts.onRecord({
+        record_type: 'pi_event',
         event_type: 'content.delta',
         data: { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning', delta: '分析中' }
+      })
+      opts.onRecord({
+        record_type: 'pi_event',
+        event_type: 'content.completed',
+        data: { turn_id: 'turn-1', content_id: 'c-0', kind: 'reasoning', text: '分析中' }
+      })
+      opts.onRecord({
+        record_type: 'pi_event',
+        event_type: 'content.started',
+        data: { turn_id: 'turn-1', content_id: 'c-1', kind: 'answer' }
       })
       opts.onRecord({
         record_type: 'pi_event',

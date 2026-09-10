@@ -87,13 +87,6 @@ export function reducePiEvent(state, record) {
       const key = _contentKey(turn, data)
       let block = key ? state._piContentBlocks[key] : null
       if (!block || block.type !== blockType) {
-        if (!isReasoning) {
-          for (const b of turn.blocks || []) {
-            if (b.type === 'thinking' && b.status === 'streaming') {
-              b.status = 'done'
-            }
-          }
-        }
         block = _newBlock(turn, blockType)
         turn.blocks.push(block)
         state.blocks.push(block)
