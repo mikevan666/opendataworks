@@ -105,6 +105,7 @@ backend-agent-api/target/
 # DataAgent local Python caches
 dataagent/**/__pycache__/
 dataagent/**/*.pyc
+dataagent/dataagent_runtime/
 
 # Opendataagent local artifacts
 opendataagent/web/node_modules/
